@@ -1,0 +1,35 @@
+{
+  "name": "default",
+  "description": "Calibrated US real estate distribution profile",
+  "source": "Calibrated from NAR, Zillow, Redfin, and Census data (2022-2024)",
+  "distributions": {
+    "agent.specialization": {"Residential": 0.45, "Commercial": 0.20, "Luxury": 0.15, "Investment": 0.12, "New Construction": 0.08},
+
+    "property.bedrooms": {"1": 0.08, "2": 0.18, "3": 0.35, "4": 0.25, "5": 0.10, "6": 0.04},
+    "property.bathrooms": {"1.0": 0.12, "1.5": 0.15, "2.0": 0.30, "2.5": 0.22, "3.0": 0.12, "3.5": 0.05, "4.0": 0.04},
+
+    "listing.status": {"Active": 0.20, "Pending": 0.10, "Sold": 0.45, "Withdrawn": 0.10, "Expired": 0.15},
+    "listing.list_date.month": {
+      "Jan": 0.06, "Feb": 0.06, "Mar": 0.09, "Apr": 0.10,
+      "May": 0.11, "Jun": 0.10, "Jul": 0.09, "Aug": 0.09,
+      "Sep": 0.08, "Oct": 0.08, "Nov": 0.07, "Dec": 0.07
+    },
+
+    "showing.buyer_interest_level": {"High": 0.20, "Medium": 0.35, "Low": 0.30, "None": 0.15},
+
+    "offer.status": {"Pending": 0.15, "Accepted": 0.30, "Rejected": 0.25, "Countered": 0.20, "Withdrawn": 0.10},
+    "offer.contingencies": {"Inspection": 0.30, "Financing": 0.28, "Appraisal": 0.22, "None": 0.20},
+
+    "inspection.result": {"Pass": 0.60, "Fail": 0.10, "Conditional": 0.30},
+
+    "appraisal.condition_rating": {"Excellent": 0.15, "Good": 0.50, "Fair": 0.30, "Poor": 0.05}
+  },
+  "ratios": {
+    "listing_per_property": 1.5,
+    "showing_per_listing": 5.0,
+    "offer_per_listing": 1.5,
+    "transaction_per_listing": 0.4,
+    "inspection_per_transaction": 1.0,
+    "appraisal_per_transaction": 1.0
+  }
+}

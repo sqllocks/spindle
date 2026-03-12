@@ -1,0 +1,17 @@
+[
+  {"name": "Email Blast", "weight": 2.0},
+  {"name": "Drip Campaign", "weight": 1.5},
+  {"name": "Product Launch", "weight": 1.2},
+  {"name": "Brand Awareness", "weight": 1.3},
+  {"name": "Lead Generation", "weight": 1.8},
+  {"name": "Event Promotion", "weight": 1.0},
+  {"name": "Seasonal Promotion", "weight": 1.4},
+  {"name": "Retargeting", "weight": 1.1},
+  {"name": "Referral Program", "weight": 0.8},
+  {"name": "Content Syndication", "weight": 0.7},
+  {"name": "Webinar Series", "weight": 0.9},
+  {"name": "Social Media Blitz", "weight": 1.1},
+  {"name": "PPC Campaign", "weight": 1.3},
+  {"name": "ABM Campaign", "weight": 0.8},
+  {"name": "Customer Reactivation", "weight": 0.7}
+]

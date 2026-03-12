@@ -1,0 +1,7 @@
+[
+  {"name": "Critical", "weight": 0.8},
+  {"name": "High", "weight": 1.5},
+  {"name": "Medium", "weight": 2.5},
+  {"name": "Low", "weight": 2.0},
+  {"name": "Info", "weight": 1.2}
+]

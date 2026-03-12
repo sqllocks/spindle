@@ -1,0 +1,34 @@
+{
+  "name": "default",
+  "description": "Calibrated B2B/B2C marketing distribution profile",
+  "source": "Calibrated from HubSpot, Salesforce, Gartner, and industry data (2023-2024)",
+  "distributions": {
+    "campaign_type.channel": {"Email": 0.25, "Social": 0.20, "PPC": 0.18, "Content": 0.15, "Event": 0.12, "Direct Mail": 0.10},
+
+    "industry.sector": {"Technology": 0.22, "Healthcare": 0.18, "Finance": 0.16, "Manufacturing": 0.15, "Retail": 0.15, "Services": 0.14},
+
+    "campaign.status": {"Active": 0.25, "Completed": 0.45, "Paused": 0.15, "Draft": 0.15},
+
+    "lead_source.source_type": {"Inbound": 0.35, "Outbound": 0.25, "Referral": 0.22, "Partner": 0.18},
+
+    "lead.status": {"New": 0.20, "Contacted": 0.25, "Qualified": 0.20, "Unqualified": 0.15, "Converted": 0.20},
+
+    "opportunity.stage": {"Prospecting": 0.15, "Qualification": 0.18, "Proposal": 0.20, "Negotiation": 0.17, "Closed Won": 0.18, "Closed Lost": 0.12},
+
+    "email_send.opened": {"true": 0.25, "false": 0.75},
+    "email_send.clicked": {"true": 0.08, "false": 0.92},
+    "email_send.bounced": {"true": 0.03, "false": 0.97},
+
+    "web_visit.referrer": {"Organic": 0.30, "Paid": 0.22, "Social": 0.18, "Direct": 0.18, "Email": 0.12},
+
+    "conversion.conversion_type": {"Purchase": 0.30, "Trial": 0.25, "Demo": 0.25, "Signup": 0.20}
+  },
+  "ratios": {
+    "contact_per_campaign": 25.0,
+    "lead_per_contact": 0.4,
+    "opportunity_per_lead": 0.5,
+    "email_send_per_campaign": 50.0,
+    "web_visit_per_contact": 5.0,
+    "conversion_per_lead": 0.3
+  }
+}

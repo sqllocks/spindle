@@ -1,0 +1,17 @@
+[
+  {"name": "Fire", "weight": 1.2},
+  {"name": "Wind/Hail", "weight": 1.8},
+  {"name": "Water Damage", "weight": 1.5},
+  {"name": "Theft/Burglary", "weight": 1.0},
+  {"name": "Collision", "weight": 2.0},
+  {"name": "Comprehensive Auto", "weight": 1.3},
+  {"name": "Slip and Fall", "weight": 0.9},
+  {"name": "Vandalism", "weight": 0.7},
+  {"name": "Lightning", "weight": 0.5},
+  {"name": "Flooding", "weight": 0.8},
+  {"name": "Earthquake", "weight": 0.3},
+  {"name": "Tornado", "weight": 0.4},
+  {"name": "Pipe Burst", "weight": 0.9},
+  {"name": "Roof Damage", "weight": 1.0},
+  {"name": "Liability Claim", "weight": 1.2}
+]

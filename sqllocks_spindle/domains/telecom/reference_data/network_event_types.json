@@ -1,0 +1,17 @@
+[
+  {"name": "Dropped Call", "weight": 1.5},
+  {"name": "Failed Connection", "weight": 1.2},
+  {"name": "Data Speed Degradation", "weight": 1.3},
+  {"name": "Cell Tower Outage", "weight": 0.5},
+  {"name": "Signal Loss", "weight": 1.0},
+  {"name": "Handoff Failure", "weight": 0.8},
+  {"name": "SMS Delivery Failure", "weight": 0.7},
+  {"name": "VoLTE Fallback", "weight": 0.6},
+  {"name": "DNS Resolution Failure", "weight": 0.4},
+  {"name": "Network Congestion", "weight": 1.0},
+  {"name": "Authentication Failure", "weight": 0.5},
+  {"name": "Roaming Handoff Error", "weight": 0.3},
+  {"name": "Packet Loss Event", "weight": 0.7},
+  {"name": "Latency Spike", "weight": 0.8},
+  {"name": "RRC Connection Failure", "weight": 0.4}
+]

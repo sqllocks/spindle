@@ -1,0 +1,10 @@
+[
+  {"name": "Ground", "weight": 3.0},
+  {"name": "LTL Freight", "weight": 2.5},
+  {"name": "Full Truckload", "weight": 2.0},
+  {"name": "Express Air", "weight": 1.5},
+  {"name": "Economy Air", "weight": 1.2},
+  {"name": "Ocean Container", "weight": 1.0},
+  {"name": "Rail Intermodal", "weight": 0.8},
+  {"name": "White Glove", "weight": 0.5}
+]
