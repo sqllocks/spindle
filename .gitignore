@@ -41,7 +41,7 @@ Thumbs.db
 *.ipynb
 
 # Local dev output
-output/
-star/
-cdm/
+/output/
+/star/
+/cdm/
 events.jsonl
