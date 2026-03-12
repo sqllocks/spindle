@@ -1,0 +1,17 @@
+[
+  {"name": "Federal Pell Grant", "weight": 2.0},
+  {"name": "Federal Subsidized Loan", "weight": 1.8},
+  {"name": "Federal Unsubsidized Loan", "weight": 1.5},
+  {"name": "Merit Scholarship", "weight": 1.2},
+  {"name": "Need-Based Grant", "weight": 1.3},
+  {"name": "Work-Study", "weight": 0.8},
+  {"name": "Athletic Scholarship", "weight": 0.4},
+  {"name": "State Grant", "weight": 1.0},
+  {"name": "Federal PLUS Loan", "weight": 0.9},
+  {"name": "Institutional Grant", "weight": 1.1},
+  {"name": "Private Scholarship", "weight": 0.7},
+  {"name": "Teaching Assistantship", "weight": 0.5},
+  {"name": "Research Assistantship", "weight": 0.5},
+  {"name": "Tuition Waiver", "weight": 0.6},
+  {"name": "Emergency Aid Fund", "weight": 0.3}
+]

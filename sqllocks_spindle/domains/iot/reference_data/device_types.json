@@ -1,0 +1,22 @@
+[
+  {"name": "Temperature Sensor Node", "weight": 2.5},
+  {"name": "Humidity Monitor", "weight": 2.0},
+  {"name": "Pressure Transmitter", "weight": 1.8},
+  {"name": "Flow Meter", "weight": 1.5},
+  {"name": "Vibration Sensor", "weight": 1.5},
+  {"name": "Smart Thermostat", "weight": 1.8},
+  {"name": "Air Quality Monitor", "weight": 1.3},
+  {"name": "Light Sensor", "weight": 1.2},
+  {"name": "Motion Detector", "weight": 1.5},
+  {"name": "Smart Power Meter", "weight": 1.4},
+  {"name": "Water Level Sensor", "weight": 1.0},
+  {"name": "Gas Detector", "weight": 1.2},
+  {"name": "Acoustic Sensor", "weight": 0.9},
+  {"name": "GPS Tracker", "weight": 1.3},
+  {"name": "Camera Module", "weight": 1.0},
+  {"name": "Soil Moisture Sensor", "weight": 0.8},
+  {"name": "Wind Speed Anemometer", "weight": 0.7},
+  {"name": "Load Cell", "weight": 0.9},
+  {"name": "Proximity Sensor", "weight": 1.1},
+  {"name": "Industrial PLC Gateway", "weight": 1.0}
+]

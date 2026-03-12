@@ -1,0 +1,33 @@
+{
+  "name": "default",
+  "description": "Calibrated supply chain distribution profile",
+  "source": "Calibrated from industry benchmarks and logistics data (2023-2024)",
+  "distributions": {
+    "warehouse.warehouse_type": {"Distribution Center": 0.40, "Regional Hub": 0.25, "Cross-Dock": 0.15, "Cold Storage": 0.12, "Fulfillment Center": 0.08},
+    "warehouse.is_active": {"true": 0.94, "false": 0.06},
+
+    "supplier.country": {"United States": 0.35, "China": 0.20, "Germany": 0.10, "Mexico": 0.10, "Japan": 0.08, "South Korea": 0.05, "India": 0.05, "Taiwan": 0.04, "Canada": 0.03},
+    "supplier.is_active": {"true": 0.90, "false": 0.10},
+
+    "material.unit_of_measure": {"EA": 0.40, "KG": 0.20, "LB": 0.15, "LT": 0.10, "M": 0.08, "FT": 0.07},
+
+    "purchase_order.status": {"Approved": 0.30, "Shipped": 0.20, "Delivered": 0.35, "Cancelled": 0.05, "Pending": 0.10},
+    "purchase_order.priority": {"Standard": 0.60, "Expedited": 0.25, "Critical": 0.10, "Low": 0.05},
+
+    "shipment.status": {"In Transit": 0.20, "Delivered": 0.55, "Pending Pickup": 0.10, "Delayed": 0.08, "Returned": 0.04, "Lost": 0.03},
+
+    "shipment_event.event_type": {"Picked Up": 0.20, "In Transit": 0.25, "At Hub": 0.15, "Out for Delivery": 0.15, "Delivered": 0.15, "Exception": 0.05, "Returned to Sender": 0.05},
+
+    "quality_inspection.result": {"Pass": 0.75, "Fail": 0.10, "Conditional Pass": 0.10, "Pending Retest": 0.05},
+
+    "demand_forecast.forecast_method": {"Moving Average": 0.30, "Exponential Smoothing": 0.25, "ARIMA": 0.20, "Machine Learning": 0.15, "Manual": 0.10}
+  },
+  "ratios": {
+    "po_line_per_po": 3.0,
+    "inventory_per_material": 3.0,
+    "shipment_per_po": 1.2,
+    "event_per_shipment": 4.0,
+    "inspection_per_shipment": 0.3,
+    "forecast_per_material": 6.0
+  }
+}

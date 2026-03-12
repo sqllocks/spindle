@@ -1,0 +1,39 @@
+{
+  "name": "default",
+  "description": "Calibrated US higher education distribution profile",
+  "source": "Calibrated from NCES, College Board, NASFAA, and institutional data (2022-2024)",
+  "distributions": {
+    "department.college": {"Arts & Sciences": 0.30, "Engineering": 0.20, "Business": 0.18, "Education": 0.12, "Health Sciences": 0.12, "Law": 0.08},
+
+    "instructor.rank": {"Professor": 0.20, "Associate Professor": 0.20, "Assistant Professor": 0.25, "Lecturer": 0.15, "Adjunct": 0.20},
+    "instructor.tenure_status": {"Tenured": 0.35, "Tenure-Track": 0.25, "Non-Tenure": 0.40},
+
+    "course.credits": {"1": 0.05, "2": 0.10, "3": 0.60, "4": 0.25},
+    "course.level": {"100": 0.25, "200": 0.22, "300": 0.20, "400": 0.15, "500": 0.10, "600": 0.08},
+
+    "student.classification": {"Freshman": 0.22, "Sophomore": 0.20, "Junior": 0.20, "Senior": 0.20, "Graduate": 0.18},
+    "student.status": {"Active": 0.80, "Graduated": 0.12, "Withdrawn": 0.05, "Suspended": 0.03},
+
+    "enrollment.semester": {"Fall 2023": 0.20, "Spring 2024": 0.22, "Summer 2024": 0.12, "Fall 2024": 0.22, "Spring 2025": 0.24},
+    "enrollment.grade": {"A": 0.18, "A-": 0.10, "B+": 0.12, "B": 0.14, "B-": 0.10, "C+": 0.08, "C": 0.08, "C-": 0.05, "D": 0.05, "F": 0.04, "W": 0.04, "I": 0.02},
+    "enrollment.credits_attempted": {"1": 0.05, "2": 0.10, "3": 0.60, "4": 0.25},
+
+    "financial_aid.academic_year": {"2021-2022": 0.12, "2022-2023": 0.18, "2023-2024": 0.25, "2024-2025": 0.30, "2025-2026": 0.15},
+    "financial_aid.status": {"Awarded": 0.40, "Disbursed": 0.38, "Pending": 0.15, "Cancelled": 0.07},
+
+    "course_section.semester": {"Fall 2023": 0.20, "Spring 2024": 0.22, "Summer 2024": 0.12, "Fall 2024": 0.22, "Spring 2025": 0.24},
+
+    "grade_appeal.reason": {"Calculation Error": 0.30, "Grading Criteria": 0.25, "Incomplete Grade": 0.20, "Medical": 0.15, "Other": 0.10},
+    "grade_appeal.status": {"Pending": 0.20, "Under Review": 0.25, "Approved": 0.30, "Denied": 0.25},
+
+    "academic_standing.semester": {"Fall 2023": 0.20, "Spring 2024": 0.22, "Summer 2024": 0.12, "Fall 2024": 0.22, "Spring 2025": 0.24},
+    "academic_standing.standing": {"Good Standing": 0.70, "Dean's List": 0.15, "Probation": 0.10, "Suspension": 0.05}
+  },
+  "ratios": {
+    "enrollment_per_student": 8.0,
+    "financial_aid_per_student": 0.7,
+    "course_section_per_course": 2.0,
+    "grade_appeal_per_enrollment": 0.02,
+    "academic_standing_per_student": 2.0
+  }
+}

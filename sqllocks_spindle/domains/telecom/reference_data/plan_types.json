@@ -1,0 +1,22 @@
+[
+  {"name": "Unlimited Plus", "weight": 1.5},
+  {"name": "Unlimited Premium", "weight": 1.4},
+  {"name": "Unlimited Standard", "weight": 1.3},
+  {"name": "Essential 10GB", "weight": 1.0},
+  {"name": "Essential 25GB", "weight": 1.1},
+  {"name": "Basic 5GB", "weight": 0.8},
+  {"name": "Family Share 50GB", "weight": 1.0},
+  {"name": "Family Share 100GB", "weight": 0.9},
+  {"name": "Family Unlimited", "weight": 1.1},
+  {"name": "Business Pro Unlimited", "weight": 0.7},
+  {"name": "Business Essential", "weight": 0.6},
+  {"name": "Business Starter", "weight": 0.5},
+  {"name": "Prepaid 5GB", "weight": 0.8},
+  {"name": "Prepaid 10GB", "weight": 0.7},
+  {"name": "Prepaid Unlimited", "weight": 0.9},
+  {"name": "Senior Unlimited", "weight": 0.4},
+  {"name": "Student 25GB", "weight": 0.5},
+  {"name": "Tablet Data 10GB", "weight": 0.3},
+  {"name": "Hotspot 25GB", "weight": 0.3},
+  {"name": "Watch Companion", "weight": 0.2}
+]

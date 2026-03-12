@@ -1,0 +1,22 @@
+[
+  {"name": "Website", "weight": 2.0},
+  {"name": "Organic Search", "weight": 1.8},
+  {"name": "Paid Search", "weight": 1.5},
+  {"name": "Social Media", "weight": 1.4},
+  {"name": "Email Campaign", "weight": 1.3},
+  {"name": "Referral", "weight": 1.2},
+  {"name": "Trade Show", "weight": 0.8},
+  {"name": "Webinar", "weight": 0.9},
+  {"name": "Partner", "weight": 0.7},
+  {"name": "Direct Mail", "weight": 0.5},
+  {"name": "Cold Call", "weight": 0.6},
+  {"name": "Content Download", "weight": 1.0},
+  {"name": "LinkedIn", "weight": 1.1},
+  {"name": "Facebook Ads", "weight": 0.9},
+  {"name": "Google Ads", "weight": 1.2},
+  {"name": "Podcast", "weight": 0.4},
+  {"name": "Industry Event", "weight": 0.6},
+  {"name": "Customer Referral", "weight": 0.8},
+  {"name": "Affiliate", "weight": 0.5},
+  {"name": "Chat/Bot", "weight": 0.7}
+]

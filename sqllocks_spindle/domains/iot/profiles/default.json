@@ -1,0 +1,34 @@
+{
+  "name": "default",
+  "description": "Calibrated IoT distribution profile",
+  "source": "Calibrated from industrial IoT benchmarks and sensor data (2023-2024)",
+  "distributions": {
+    "device_type.category": {"Industrial": 0.30, "Consumer": 0.25, "Automotive": 0.15, "Medical": 0.15, "Smart Home": 0.15},
+    "device_type.protocol": {"MQTT": 0.35, "HTTP": 0.25, "CoAP": 0.15, "AMQP": 0.15, "Modbus": 0.10},
+
+    "location.facility_type": {"Factory": 0.25, "Warehouse": 0.25, "Office": 0.20, "Field": 0.15, "Residential": 0.15},
+
+    "device.status": {"Active": 0.72, "Inactive": 0.10, "Maintenance": 0.10, "Decommissioned": 0.08},
+
+    "sensor.sensor_type": {"Temperature": 0.18, "Humidity": 0.15, "Pressure": 0.14, "Vibration": 0.12, "Flow": 0.10, "Level": 0.10, "Proximity": 0.11, "Light": 0.10},
+    "sensor.unit_of_measure": {"C": 0.18, "%RH": 0.15, "Pa": 0.14, "mm/s": 0.12, "L/min": 0.10, "m": 0.10, "cm": 0.11, "lux": 0.10},
+
+    "reading.quality_flag": {"Good": 0.90, "Suspect": 0.07, "Bad": 0.03},
+
+    "alert.alert_type": {"Threshold": 0.30, "Anomaly": 0.25, "Connectivity": 0.20, "Battery": 0.15, "Maintenance": 0.10},
+    "alert.severity": {"Critical": 0.10, "High": 0.20, "Medium": 0.40, "Low": 0.30},
+    "alert.acknowledged": {"true": 0.70, "false": 0.30},
+
+    "maintenance_log.maintenance_type": {"Preventive": 0.35, "Corrective": 0.25, "Calibration": 0.20, "Firmware Update": 0.20},
+
+    "command.command_type": {"Reboot": 0.20, "Configure": 0.25, "Update": 0.20, "Reset": 0.15, "Calibrate": 0.20},
+    "command.status": {"Sent": 0.15, "Acknowledged": 0.20, "Executed": 0.55, "Failed": 0.10}
+  },
+  "ratios": {
+    "sensor_per_device": 2.5,
+    "reading_per_sensor": 20.0,
+    "alert_per_device": 0.5,
+    "maintenance_per_device": 1.5,
+    "command_per_device": 3.0
+  }
+}

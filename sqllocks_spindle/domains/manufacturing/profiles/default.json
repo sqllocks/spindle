@@ -1,0 +1,35 @@
+{
+  "name": "default",
+  "description": "Calibrated manufacturing operations distribution profile",
+  "source": "Calibrated from ASQ, APICS, ISM, and industry benchmarks (2022-2024)",
+  "distributions": {
+    "production_line.facility": {"Plant A": 0.30, "Plant B": 0.28, "Plant C": 0.22, "Plant D": 0.20},
+    "production_line.line_type": {"Assembly": 0.30, "Machining": 0.25, "Packaging": 0.20, "Testing": 0.15, "Finishing": 0.10},
+    "production_line.is_active": {"true": 0.90, "false": 0.10},
+
+    "bom.unit_of_measure": {"EA": 0.40, "KG": 0.20, "LB": 0.15, "M": 0.10, "LT": 0.15},
+    "bom.is_critical": {"true": 0.25, "false": 0.75},
+
+    "work_order.status": {"Open": 0.10, "In Progress": 0.15, "Completed": 0.55, "On Hold": 0.10, "Cancelled": 0.10},
+    "work_order.priority": {"High": 0.20, "Medium": 0.55, "Low": 0.25},
+
+    "quality_check.result": {"Pass": 0.82, "Fail": 0.08, "Rework": 0.10},
+
+    "defect.severity": {"Critical": 0.05, "Major": 0.15, "Minor": 0.50, "Cosmetic": 0.30},
+    "defect.root_cause": {"Material": 0.25, "Process": 0.25, "Equipment": 0.20, "Human": 0.20, "Design": 0.10},
+    "defect.disposition": {"Scrap": 0.25, "Rework": 0.35, "Use As-Is": 0.25, "Return to Supplier": 0.15},
+
+    "equipment.equipment_type": {"CNC": 0.25, "Press": 0.18, "Conveyor": 0.15, "Robot": 0.15, "Oven": 0.12, "Tester": 0.15},
+    "equipment.status": {"Operational": 0.80, "Under Maintenance": 0.15, "Decommissioned": 0.05},
+
+    "downtime_event.cause": {"Breakdown": 0.25, "Planned Maintenance": 0.25, "Material Shortage": 0.15, "Changeover": 0.15, "Power Outage": 0.10, "Quality Issue": 0.10},
+    "downtime_event.impact_level": {"High": 0.20, "Medium": 0.50, "Low": 0.30}
+  },
+  "ratios": {
+    "bom_per_product": 5.0,
+    "quality_check_per_work_order": 3.0,
+    "defect_per_quality_check": 0.3,
+    "downtime_event_per_equipment": 4.0,
+    "production_metric_per_work_order": 5.0
+  }
+}

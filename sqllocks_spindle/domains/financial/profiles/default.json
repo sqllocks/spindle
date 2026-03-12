@@ -1,0 +1,48 @@
+{
+  "name": "default",
+  "description": "Calibrated US banking distribution profile",
+  "source": "Calibrated from FDIC, Federal Reserve, TransUnion, Nilson Report, and ABA data (2023-2024)",
+  "distributions": {
+    "branch.is_active": {"true": 0.92, "false": 0.08},
+
+    "customer.credit_tier": {"Excellent": 0.22, "Good": 0.35, "Fair": 0.28, "Poor": 0.15},
+    "customer.is_active": {"true": 0.88, "false": 0.12},
+
+    "account.account_type": {"Checking": 0.45, "Savings": 0.30, "Money Market": 0.10, "CD": 0.08, "Investment": 0.07},
+    "account.status": {"Active": 0.85, "Dormant": 0.08, "Closed": 0.05, "Frozen": 0.02},
+
+    "card.card_type": {"Debit": 0.55, "Credit": 0.35, "Prepaid": 0.10},
+    "card.card_network": {"Visa": 0.52, "Mastercard": 0.24, "Amex": 0.15, "Discover": 0.09},
+
+    "transaction.account_id": {"distribution": "pareto", "alpha": 1.2, "max_per_parent": 200},
+    "transaction.transaction_type": {"Deposit": 0.25, "Withdrawal": 0.20, "Transfer": 0.18, "Payment": 0.22, "Fee": 0.05, "Interest": 0.05, "Refund": 0.05},
+    "transaction.channel": {"Online": 0.35, "Mobile": 0.30, "ATM": 0.15, "Branch": 0.12, "Phone": 0.05, "Wire": 0.03},
+    "transaction.status": {"Completed": 0.92, "Pending": 0.04, "Failed": 0.02, "Reversed": 0.02},
+    "transaction.transaction_date.month": {
+      "Jan": 0.078, "Feb": 0.072, "Mar": 0.083, "Apr": 0.082,
+      "May": 0.085, "Jun": 0.083, "Jul": 0.084, "Aug": 0.085,
+      "Sep": 0.082, "Oct": 0.084, "Nov": 0.088, "Dec": 0.094
+    },
+    "transaction.transaction_date.day_of_week": {
+      "Mon": 0.165, "Tue": 0.160, "Wed": 0.155,
+      "Thu": 0.155, "Fri": 0.160, "Sat": 0.105, "Sun": 0.100
+    },
+
+    "loan.loan_type": {"Mortgage": 0.35, "Auto": 0.25, "Personal": 0.20, "Student": 0.12, "Business": 0.08},
+    "loan.term_months": {"12": 0.05, "24": 0.08, "36": 0.12, "48": 0.10, "60": 0.15, "120": 0.10, "180": 0.10, "240": 0.10, "360": 0.20},
+    "loan.status": {"Current": 0.78, "Paid Off": 0.10, "Delinquent": 0.06, "Default": 0.03, "Forbearance": 0.03},
+
+    "loan_payment.payment_method": {"Auto-debit": 0.55, "Online": 0.25, "Check": 0.10, "Branch": 0.07, "Phone": 0.03},
+
+    "fraud_flag.flag_type": {"Unusual Amount": 0.30, "Unusual Location": 0.25, "Rapid Succession": 0.15, "Account Takeover": 0.10, "Card Not Present": 0.10, "Velocity Check": 0.10},
+    "fraud_flag.resolution": {"Confirmed Fraud": 0.15, "False Positive": 0.55, "Under Review": 0.20, "Customer Verified": 0.10}
+  },
+  "ratios": {
+    "account_per_customer": 2.2,
+    "card_per_account": 0.8,
+    "loan_per_customer": 0.4,
+    "loan_payment_per_loan": 12,
+    "fraud_flag_per_transaction": 0.02,
+    "statement_per_account": 6
+  }
+}

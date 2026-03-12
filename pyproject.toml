@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqllocks-spindle"
+version = "1.2.0"
+description = "Multi-domain, schema-aware synthetic data generator for Microsoft Fabric"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Jonathan Stewart", email = "jonathan@sqllocks.com" }
+]
+keywords = ["synthetic-data", "fabric", "data-generator", "testing", "microsoft-fabric"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Database",
+]
+dependencies = [
+    "faker>=20.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+parquet = [
+    "pyarrow>=14.0",
+]
+excel = [
+    "openpyxl>=3.1",
+]
+fabric = [
+    "deltalake>=0.17.0",
+    "pyarrow>=14.0",
+]
+streaming = [
+    "azure-eventhub>=5.11",
+    "kafka-python>=2.0",
+]
+all = [
+    "pyarrow>=14.0",
+    "openpyxl>=3.1",
+    "deltalake>=0.17.0",
+    "azure-eventhub>=5.11",
+    "kafka-python>=2.0",
+]
+
+[project.scripts]
+spindle = "sqllocks_spindle.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/sqllocks/spindle"
+Documentation = "https://sqllocks.com/spindle"
+Repository = "https://github.com/sqllocks/spindle"
+
+[tool.setuptools.packages.find]
+include = ["sqllocks_spindle*"]
+
+[tool.setuptools.package-data]
+sqllocks_spindle = [
+    "py.typed",
+    "domains/*/reference_data/*.json",
+    "domains/*/profiles/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

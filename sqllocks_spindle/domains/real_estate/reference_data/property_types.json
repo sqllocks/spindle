@@ -1,0 +1,17 @@
+[
+  {"name": "Single Family", "weight": 2.0},
+  {"name": "Condo", "weight": 1.5},
+  {"name": "Townhouse", "weight": 1.2},
+  {"name": "Multi-Family", "weight": 0.8},
+  {"name": "Ranch", "weight": 0.7},
+  {"name": "Colonial", "weight": 0.6},
+  {"name": "Cape Cod", "weight": 0.4},
+  {"name": "Contemporary", "weight": 0.5},
+  {"name": "Manufactured Home", "weight": 0.3},
+  {"name": "Vacant Land", "weight": 0.3},
+  {"name": "Duplex", "weight": 0.5},
+  {"name": "Bungalow", "weight": 0.4},
+  {"name": "Penthouse", "weight": 0.2},
+  {"name": "Loft", "weight": 0.3},
+  {"name": "Cottage", "weight": 0.3}
+]

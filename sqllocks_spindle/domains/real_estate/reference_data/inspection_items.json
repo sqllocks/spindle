@@ -1,0 +1,12 @@
+[
+  {"name": "General Home Inspection", "weight": 2.0},
+  {"name": "Roof Inspection", "weight": 1.5},
+  {"name": "Plumbing Inspection", "weight": 1.3},
+  {"name": "Electrical Inspection", "weight": 1.3},
+  {"name": "HVAC Inspection", "weight": 1.2},
+  {"name": "Foundation Inspection", "weight": 1.0},
+  {"name": "Pest/Termite Inspection", "weight": 1.0},
+  {"name": "Radon Testing", "weight": 0.7},
+  {"name": "Mold Inspection", "weight": 0.6},
+  {"name": "Septic System Inspection", "weight": 0.5}
+]
