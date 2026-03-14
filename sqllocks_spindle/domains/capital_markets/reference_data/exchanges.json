@@ -1,0 +1,32 @@
+[
+  {
+    "exchange_id": 1,
+    "name": "New York Stock Exchange",
+    "code": "NYSE",
+    "mic": "XNYS",
+    "timezone": "America/New_York",
+    "trading_hours_start": "09:30",
+    "trading_hours_end": "16:00",
+    "country": "US"
+  },
+  {
+    "exchange_id": 2,
+    "name": "NASDAQ Stock Market",
+    "code": "NASDAQ",
+    "mic": "XNAS",
+    "timezone": "America/New_York",
+    "trading_hours_start": "09:30",
+    "trading_hours_end": "16:00",
+    "country": "US"
+  },
+  {
+    "exchange_id": 3,
+    "name": "NYSE American",
+    "code": "AMEX",
+    "mic": "XASE",
+    "timezone": "America/New_York",
+    "trading_hours_start": "09:30",
+    "trading_hours_end": "16:00",
+    "country": "US"
+  }
+]
