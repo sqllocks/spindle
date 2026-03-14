@@ -34,8 +34,7 @@ Thumbs.db
 *.orig
 
 # OneDrive sync conflict files
-*-Jonathan's MacBook Pro*
-*-Jonathan's MacBook*
+*-Jonathan's *
 
 # Jupyter
 .ipynb_checkpoints/

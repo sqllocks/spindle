@@ -14,7 +14,7 @@ root = Path("sqllocks_spindle")
 
 SKIP_PATTERNS = {
     "__pycache__",
-    "MacBook Pro",
+    "Jonathan's ",
     ".pyc",
 }
 
