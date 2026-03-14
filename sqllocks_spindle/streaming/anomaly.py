@@ -97,6 +97,9 @@ class PointAnomaly(Anomaly):
         noise = rng.uniform(0.8, 1.2, size=n)
         anomalous = (baseline * multipliers * noise).round(2)
 
+        # Cast column to float to avoid pandas int64 upcast errors
+        if pd.api.types.is_integer_dtype(df[self.column]):
+            df[self.column] = df[self.column].astype(float)
         df.iloc[idx, df.columns.get_loc(self.column)] = anomalous
         df.loc[df.index[idx], "_spindle_is_anomaly"] = True
         df.loc[df.index[idx], "_spindle_anomaly_type"] = self.anomaly_type

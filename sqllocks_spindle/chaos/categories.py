@@ -258,6 +258,8 @@ class ValueChaosMutator(ChaosMutator):
         col_max = df[col].abs().max()
         baseline = col_max if col_max and not math.isnan(col_max) else 1000.0
         extreme = rng.uniform(baseline * 100, baseline * 1000, size=len(idx))
+        # Cast column to float first to avoid pandas int64 upcast errors
+        df[col] = df[col].astype(float)
         df.iloc[idx, df.columns.get_loc(col)] = extreme
         return df
 
@@ -342,6 +344,7 @@ class ValueChaosMutator(ChaosMutator):
         col = rng.choice(target)
         frac = self._pick_fraction(0.03, intensity)
         idx = self._sample_indices(rng, len(df), frac)
+        df[col] = df[col].astype(float)
         df.iloc[idx, df.columns.get_loc(col)] = (
             -1 * df.iloc[idx, df.columns.get_loc(col)]
         )
@@ -556,7 +559,8 @@ class ReferentialChaosMutator(ChaosMutator):
 
         # Generate orphan IDs that are extremely unlikely to exist
         orphan_base = 9_000_000
-        orphan_ids = [orphan_base + rng.randint(0, 999_999) for _ in idx]
+        orphan_ids = [orphan_base + int(rng.randint(0, 999_999)) for _ in idx]
+        df[col] = df[col].astype(object)
         df.iloc[idx, df.columns.get_loc(col)] = orphan_ids
         tables[target_name] = df
         return tables
