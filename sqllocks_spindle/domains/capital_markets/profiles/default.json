@@ -1,0 +1,68 @@
+{
+  "name": "default",
+  "description": "Calibrated US capital markets distribution profile",
+  "source": "SEC EDGAR, historical market data, financial literature (2024)",
+  "distributions": {
+    "company.exchange": {"NYSE": 0.60, "NASDAQ": 0.35, "AMEX": 0.05},
+    "company.market_cap_tier": {"mega": 0.05, "large": 0.15, "mid": 0.25, "small": 0.55},
+
+    "daily_price.volume": {
+      "distribution": "log_normal",
+      "mean": 15,
+      "sigma": 0.8,
+      "min": 100,
+      "max": 1000000000
+    },
+
+    "dividend.frequency": {"quarterly": 0.75, "annual": 0.20, "special": 0.05},
+    "dividend.amount": {
+      "distribution": "log_normal",
+      "mean": -0.5,
+      "sigma": 0.8,
+      "min": 0.01,
+      "max": 25.00
+    },
+
+    "split.ratio": {"2:1": 0.55, "3:1": 0.15, "4:1": 0.10, "3:2": 0.10, "5:1": 0.05, "10:1": 0.05},
+
+    "earnings.surprise_category": {"inline": 0.70, "positive": 0.20, "negative": 0.10},
+    "earnings.surprise_pct": {
+      "distribution": "normal",
+      "mean": 0.0,
+      "sigma": 2.5,
+      "min": -25,
+      "max": 25
+    },
+
+    "insider_transaction.txn_type": {"BUY": 0.45, "SELL": 0.50, "GRANT": 0.05},
+    "insider_transaction.insider_title": {
+      "CEO": 0.15, "CFO": 0.12, "COO": 0.08, "CTO": 0.05,
+      "Director": 0.25, "VP": 0.15, "SVP": 0.10, "EVP": 0.10
+    },
+
+    "trade.side": {"BUY": 0.50, "SELL": 0.50}
+  },
+  "ratios": {
+    "daily_price_per_company_per_year": 252,
+    "dividend_per_company_per_year": 1.5,
+    "split_per_company_per_year": 0.05,
+    "earnings_per_company_per_year": 4.0,
+    "insider_txn_per_company_per_year": 2.0,
+    "trade_per_company_per_year": 1000
+  },
+  "market_cap_params": {
+    "mega":  {"drift": 0.12, "vol": 0.18, "price_range": [100, 500]},
+    "large": {"drift": 0.10, "vol": 0.22, "price_range": [50, 200]},
+    "mid":   {"drift": 0.08, "vol": 0.28, "price_range": [20, 100]},
+    "small": {"drift": 0.06, "vol": 0.35, "price_range": [5, 50]}
+  },
+  "sector_correlations": {
+    "Information Technology|Communication Services": 0.75,
+    "Financials|Real Estate": 0.65,
+    "Energy|Materials": 0.60,
+    "Consumer Discretionary|Communication Services": 0.55,
+    "Consumer Staples|Health Care": 0.45,
+    "Industrials|Materials": 0.50,
+    "default": 0.40
+  }
+}

@@ -121,6 +121,7 @@ _DEFAULT_ORGANIZATION_MAPPINGS: list[DomainEntityMapping] = [
     DomainEntityMapping(domain="supply_chain", table="supplier", pk_column="supplier_id"),
     DomainEntityMapping(domain="insurance", table="agent", pk_column="agent_id"),
     DomainEntityMapping(domain="marketing", table="industry", pk_column="industry_id"),
+    DomainEntityMapping(domain="capital_markets", table="company", pk_column="ticker"),
 ]
 
 # Collect all defaults by concept
