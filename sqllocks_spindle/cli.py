@@ -573,6 +573,102 @@ def to_cdm(domain_name: str, scale: str, seed: int, output: str, fmt: str, model
     click.echo(f"  {n_entities} entities + model.json ({len(files)} files total)")
 
 
+@main.command()
+@click.argument("input_path")
+@click.option("--output", "-o", default=None, help="Output .spindle.json file")
+@click.option("--format", "input_fmt", default="csv", type=click.Choice(["csv", "parquet", "jsonl"]))
+@click.option("--domain", default="inferred", help="Domain name for generated schema")
+def learn(input_path: str, output: str | None, input_fmt: str, domain: str):
+    """Infer a .spindle.json schema from existing data files.
+
+    Reads CSV/Parquet/JSONL files from INPUT_PATH (file or directory),
+    profiles column types, distributions, and relationships,
+    then generates a ready-to-use Spindle schema.
+
+    Example: spindle learn ./data/ --output my_schema.spindle.json
+    """
+    import json
+    from pathlib import Path
+
+    from sqllocks_spindle.inference import DataProfiler, SchemaBuilder
+
+    input_p = Path(input_path)
+
+    # Collect files to read
+    if input_p.is_dir():
+        ext_map = {"csv": "*.csv", "parquet": "*.parquet", "jsonl": "*.jsonl"}
+        pattern = ext_map.get(input_fmt, "*.csv")
+        files = sorted(input_p.glob(pattern))
+        if not files:
+            click.echo(f"No {input_fmt} files found in {input_path}", err=True)
+            sys.exit(1)
+    elif input_p.is_file():
+        files = [input_p]
+    else:
+        click.echo(f"Path not found: {input_path}", err=True)
+        sys.exit(1)
+
+    # Read data into DataFrames
+    import pandas as pd
+
+    tables: dict[str, pd.DataFrame] = {}
+    for fp in files:
+        table_name = fp.stem
+        if input_fmt == "csv":
+            df = pd.read_csv(fp)
+        elif input_fmt == "parquet":
+            df = pd.read_parquet(fp)
+        elif input_fmt == "jsonl":
+            df = pd.read_json(fp, lines=True)
+        else:
+            click.echo(f"Unsupported format: {input_fmt}", err=True)
+            sys.exit(1)
+        tables[table_name] = df
+        click.echo(f"  Read {table_name}: {len(df):,} rows x {len(df.columns)} columns")
+
+    click.echo()
+
+    # Profile
+    profiler = DataProfiler()
+    if len(tables) == 1:
+        tname, df = next(iter(tables.items()))
+        profile_result = profiler.profile_dataset({tname: df})
+    else:
+        profile_result = profiler.profile_dataset(tables)
+
+    # Build schema
+    builder = SchemaBuilder()
+    schema = builder.build(profile_result, domain_name=domain)
+
+    # Serialize
+    schema_dict = _schema_to_dict(schema)
+
+    # Determine output path
+    if not output:
+        if input_p.is_dir():
+            output = str(input_p / f"{domain}.spindle.json")
+        else:
+            output = str(input_p.with_suffix(".spindle.json"))
+
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(schema_dict, f, indent=2)
+
+    # Summary
+    click.echo(f"Spindle v{__version__} — Schema Inference")
+    click.echo()
+    click.echo(f"  Domain:        {domain}")
+    click.echo(f"  Tables:        {len(schema.tables)}")
+    click.echo(f"  Relationships: {len(schema.relationships)}")
+    click.echo()
+    for tname, tdef in schema.tables.items():
+        pk_str = f" (PK: {', '.join(tdef.primary_key)})" if tdef.primary_key else ""
+        n_fk = sum(1 for c in tdef.columns.values() if c.is_foreign_key)
+        fk_str = f", {n_fk} FKs" if n_fk else ""
+        click.echo(f"  {tname}: {len(tdef.columns)} columns{pk_str}{fk_str}")
+    click.echo()
+    click.echo(f"Schema written to {output}")
+
+
 @main.command(name="export-model")
 @click.argument("domain_name")
 @click.option("--scale", "-s", default="small", help="Scale preset (for row count context)")
@@ -686,6 +782,440 @@ def from_ddl(input_file: str, output: str | None, domain: str, scale: str | None
     click.echo()
     click.echo(f"Schema written to {output}")
     click.echo("Run: spindle generate custom --schema {output} --scale small")
+
+
+@main.command(name="continue")
+@click.argument("domain_name")
+@click.option("--input", "input_dir", required=True, help="Directory with existing CSV/Parquet files")
+@click.option("--output", "-o", required=True, help="Output directory for delta files")
+@click.option("--format", "fmt", default="csv", type=click.Choice(["csv", "parquet", "jsonl"]))
+@click.option("--inserts", default=100, type=int, help="Number of new rows to insert per anchor table")
+@click.option("--update-fraction", default=0.1, type=float, help="Fraction of existing rows to update")
+@click.option("--delete-fraction", default=0.02, type=float, help="Fraction of existing rows to soft-delete")
+@click.option("--seed", default=None, type=int, help="Random seed")
+def continue_cmd(domain_name, input_dir, output, fmt, inserts, update_fraction, delete_fraction, seed):
+    """Generate incremental changes (inserts, updates, deletes) from existing data.
+
+    Reads existing data files, then generates new rows, status updates,
+    and soft deletes tagged with _delta_type and _delta_timestamp.
+
+    Example: spindle continue retail --input ./data/ --output ./deltas/ --inserts 50
+    """
+    from pathlib import Path
+
+    import pandas as pd
+
+    from sqllocks_spindle.engine.generator import Spindle
+    from sqllocks_spindle.incremental import ContinueConfig, ContinueEngine
+
+    # 1. Read existing data from input_dir
+    input_path = Path(input_dir)
+    if not input_path.is_dir():
+        click.echo(f"Input directory not found: {input_dir}", err=True)
+        sys.exit(1)
+
+    tables: dict[str, pd.DataFrame] = {}
+    for ext, reader in [("*.csv", pd.read_csv), ("*.parquet", pd.read_parquet)]:
+        for fp in sorted(input_path.glob(ext)):
+            tables[fp.stem] = reader(fp)
+
+    if not tables:
+        click.echo(f"No CSV or Parquet files found in {input_dir}", err=True)
+        sys.exit(1)
+
+    click.echo(f"Spindle v{__version__} — Incremental Generation")
+    click.echo(f"  Source: {input_dir} ({len(tables)} tables)")
+
+    # 2. Resolve domain schema
+    domain = _resolve_domain(domain_name, "3nf")
+    spindle = Spindle()
+    schema = spindle.describe(domain=domain)
+
+    # 3. Build config
+    cfg = ContinueConfig(
+        insert_count=inserts,
+        update_fraction=update_fraction,
+        delete_fraction=delete_fraction,
+        seed=seed,
+    )
+
+    # 4. Run engine
+    engine = ContinueEngine()
+    delta = engine.continue_from(tables, schema=schema, config=cfg)
+
+    # 5. Write combined delta files to output_dir
+    output_path = Path(output)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    files_written = []
+    for table_name, df in delta.combined.items():
+        if len(df) == 0:
+            continue
+        if fmt == "csv":
+            fp = output_path / f"{table_name}.csv"
+            df.to_csv(fp, index=False)
+        elif fmt == "parquet":
+            fp = output_path / f"{table_name}.parquet"
+            df.to_parquet(fp, index=False)
+        elif fmt == "jsonl":
+            fp = output_path / f"{table_name}.jsonl"
+            df.to_json(fp, orient="records", lines=True)
+        else:
+            continue
+        files_written.append(fp)
+
+    click.echo()
+    click.echo(delta.summary())
+    click.echo()
+    click.echo(f"Written {len(files_written)} delta files to {output}/")
+
+
+@main.command(name="time-travel")
+@click.argument("domain_name")
+@click.option("--months", default=12, type=int, help="Number of monthly snapshots")
+@click.option("--scale", "-s", default="small", help="Scale preset")
+@click.option("--output", "-o", required=True, help="Output directory for snapshot files")
+@click.option("--format", "fmt", default="parquet", type=click.Choice(["csv", "parquet"]))
+@click.option("--growth-rate", default=0.05, type=float, help="Monthly growth rate")
+@click.option("--churn-rate", default=0.02, type=float, help="Monthly churn rate")
+@click.option("--seed", default=42, type=int)
+def time_travel(domain_name, months, scale, output, fmt, growth_rate, churn_rate, seed):
+    """Generate monthly point-in-time snapshots showing data evolution.
+
+    Produces N+1 snapshots (month 0 = initial, then N months of evolution)
+    with configurable growth, churn, and update rates.
+
+    Example: spindle time-travel retail --months 6 --output ./snapshots/
+    """
+    from pathlib import Path
+
+    from sqllocks_spindle.incremental.time_travel import TimeTravelConfig, TimeTravelEngine
+
+    domain = _resolve_domain(domain_name, "3nf")
+
+    config = TimeTravelConfig(
+        months=months,
+        growth_rate=growth_rate,
+        churn_rate=churn_rate,
+        seed=seed,
+    )
+
+    click.echo(f"Spindle v{__version__} — Time-Travel Snapshots")
+    click.echo(f"  Domain: {domain_name}, Scale: {scale}, Months: {months}")
+    click.echo(f"  Growth: {growth_rate:.0%}/mo, Churn: {churn_rate:.0%}/mo")
+    click.echo()
+
+    engine = TimeTravelEngine()
+    result = engine.generate(domain=domain, config=config, scale=scale)
+
+    click.echo(result.summary())
+
+    # Write snapshot files to output/month_N/table.fmt
+    output_path = Path(output)
+    files_written = 0
+    for snap in result.snapshots:
+        month_dir = output_path / f"month_{snap.month_index}"
+        month_dir.mkdir(parents=True, exist_ok=True)
+        for table_name, df in snap.tables.items():
+            if fmt == "csv":
+                fp = month_dir / f"{table_name}.csv"
+                df.to_csv(fp, index=False)
+            else:
+                fp = month_dir / f"{table_name}.parquet"
+                df.to_parquet(fp, index=False)
+            files_written += 1
+
+    click.echo()
+    click.echo(f"Written {files_written} files to {output}/")
+
+
+@main.command()
+@click.argument("real_path")
+@click.argument("synth_path")
+@click.option(
+    "--format",
+    "input_fmt",
+    default="csv",
+    type=click.Choice(["csv", "parquet"]),
+    help="Input file format",
+)
+@click.option("--output", "-o", default=None, help="Output file for report (markdown)")
+def compare(real_path: str, synth_path: str, input_fmt: str, output: str | None):
+    """Compare real vs synthetic data and generate a fidelity report.
+
+    Compares column distributions, null rates, cardinality, and statistical
+    tests to produce a 0-100 fidelity score.
+
+    REAL_PATH and SYNTH_PATH should be directories containing data files
+    (one file per table) in the specified format.
+
+    Example: spindle compare ./real_data/ ./synth_data/ --output report.md
+    """
+    from pathlib import Path
+
+    import pandas as pd
+
+    from sqllocks_spindle.inference.comparator import FidelityComparator
+
+    def _load_tables(dir_path: str, fmt: str) -> dict[str, pd.DataFrame]:
+        p = Path(dir_path)
+        ext = "*.csv" if fmt == "csv" else "*.parquet"
+        tables: dict[str, pd.DataFrame] = {}
+
+        if p.is_file():
+            # Single file
+            if fmt == "csv":
+                tables[p.stem] = pd.read_csv(p)
+            else:
+                tables[p.stem] = pd.read_parquet(p)
+        elif p.is_dir():
+            files = sorted(p.glob(ext))
+            if not files:
+                click.echo(f"No {fmt} files found in {dir_path}", err=True)
+                sys.exit(1)
+            for fp in files:
+                if fmt == "csv":
+                    tables[fp.stem] = pd.read_csv(fp)
+                else:
+                    tables[fp.stem] = pd.read_parquet(fp)
+        else:
+            click.echo(f"Path not found: {dir_path}", err=True)
+            sys.exit(1)
+        return tables
+
+    click.echo(f"Spindle v{__version__} — Fidelity Comparison")
+    click.echo()
+
+    real_tables = _load_tables(real_path, input_fmt)
+    synth_tables = _load_tables(synth_path, input_fmt)
+
+    click.echo(f"  Real tables:  {', '.join(real_tables.keys())}")
+    click.echo(f"  Synth tables: {', '.join(synth_tables.keys())}")
+    click.echo()
+
+    comparator = FidelityComparator()
+    report = comparator.compare(real_tables, synth_tables)
+
+    click.echo(report.summary())
+
+    if output:
+        with open(output, "w", encoding="utf-8") as f:
+            f.write(report.to_markdown())
+        click.echo()
+        click.echo(f"Markdown report written to {output}")
+
+
+@main.command()
+@click.argument("preset_or_domains")
+@click.option("--scale", "-s", default="small", help="Scale preset")
+@click.option("--seed", default=42, type=int)
+@click.option("--output", "-o", default=None, help="Output directory")
+@click.option("--format", "fmt", default="summary", type=click.Choice(["summary", "csv", "parquet", "jsonl"]))
+def composite(preset_or_domains, scale, seed, output, fmt):
+    """Generate data from a composite preset or ad-hoc domain combination.
+
+    Use a preset name or combine domains with '+':
+
+    \b
+    Examples:
+      spindle composite enterprise --scale small
+      spindle composite retail+hr+financial --scale small --output ./data/
+    """
+    from sqllocks_spindle.domains.composite import CompositeDomain
+    from sqllocks_spindle.engine.generator import Spindle
+
+    # Check if it's a preset name
+    try:
+        from sqllocks_spindle.presets import get_preset
+        preset = get_preset(preset_or_domains)
+        domain_names = preset.domains
+        shared_entities = preset.shared_entities
+        click.echo(f"Using preset: {preset.name} — {preset.description}")
+    except (KeyError, ImportError):
+        # Ad-hoc: parse "retail+hr+financial"
+        domain_names = [d.strip() for d in preset_or_domains.split("+")]
+        shared_entities = None
+        click.echo(f"Ad-hoc composite: {' + '.join(domain_names)}")
+
+    domains = [_resolve_domain(d, "3nf") for d in domain_names]
+    comp = CompositeDomain(
+        domains=domains,
+        shared_entities=shared_entities if shared_entities else None,
+    )
+
+    spindle = Spindle()
+    result = spindle.generate(domain=comp, scale=scale, seed=seed)
+
+    click.echo()
+    click.echo(result.summary())
+
+    if fmt != "summary" and output:
+        from sqllocks_spindle.output import PandasWriter
+        writer = PandasWriter()
+        if fmt == "csv":
+            files = writer.to_csv(result.tables, output)
+        elif fmt == "parquet":
+            files = writer.to_parquet(result.tables, output)
+        elif fmt == "jsonl":
+            files = writer.to_jsonl(result.tables, output)
+        else:
+            files = []
+        click.echo(f"\nWritten {len(files)} files to {output}/")
+    elif fmt != "summary" and not output:
+        click.echo()
+        click.echo("Hint: use --output/-o to write files to disk")
+
+
+@main.command(name="presets")
+def list_presets_cmd():
+    """List available composite presets."""
+    from sqllocks_spindle.presets import list_presets
+    presets = list_presets()
+    click.echo(f"Available Presets ({len(presets)}):")
+    click.echo()
+    for p in presets:
+        click.echo(f"  {p.name:<20} {p.description}")
+        click.echo(f"  {'':20} Domains: {', '.join(p.domains)}")
+        click.echo()
+
+
+@main.command()
+@click.argument("input_path")
+@click.option("--output", "-o", required=True, help="Output directory for masked files")
+@click.option(
+    "--format",
+    "input_fmt",
+    default="csv",
+    type=click.Choice(["csv", "parquet"]),
+    help="Input file format",
+)
+@click.option("--seed", default=42, type=int, help="Random seed for reproducibility")
+@click.option(
+    "--exclude",
+    multiple=True,
+    help="Column names to exclude from masking",
+)
+def mask(input_path: str, output: str, input_fmt: str, seed: int, exclude: tuple):
+    """Replace PII in data files with synthetic values.
+
+    Detects PII columns (email, phone, name, SSN, etc.) via column name
+    heuristics and replaces values with realistic synthetic data while
+    preserving null patterns and distributions.
+
+    Example: spindle mask ./real_data/ --output ./masked/
+    """
+    from pathlib import Path
+
+    import pandas as pd
+
+    from sqllocks_spindle.inference.masker import DataMasker, MaskConfig
+
+    input_p = Path(input_path)
+
+    # Collect files to read
+    if input_p.is_dir():
+        ext = "*.csv" if input_fmt == "csv" else "*.parquet"
+        files = sorted(input_p.glob(ext))
+        if not files:
+            click.echo(f"No {input_fmt} files found in {input_path}", err=True)
+            sys.exit(1)
+    elif input_p.is_file():
+        files = [input_p]
+    else:
+        click.echo(f"Path not found: {input_path}", err=True)
+        sys.exit(1)
+
+    # Read data into DataFrames
+    tables: dict[str, pd.DataFrame] = {}
+    for fp in files:
+        table_name = fp.stem
+        if input_fmt == "csv":
+            df = pd.read_csv(fp)
+        else:
+            df = pd.read_parquet(fp)
+        tables[table_name] = df
+        click.echo(f"  Read {table_name}: {len(df):,} rows x {len(df.columns)} columns")
+
+    click.echo()
+
+    # Mask
+    config = MaskConfig(
+        seed=seed,
+        exclude_columns=list(exclude),
+    )
+    masker = DataMasker()
+    result = masker.mask(tables, config=config)
+
+    # Write output
+    output_path = Path(output)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    from sqllocks_spindle.output import PandasWriter
+
+    writer = PandasWriter()
+    if input_fmt == "csv":
+        out_files = writer.to_csv(result.tables, output)
+    else:
+        out_files = writer.to_parquet(result.tables, output)
+
+    click.echo(f"Spindle v{__version__} — PII Masking")
+    click.echo()
+    click.echo(result.summary())
+    click.echo()
+    click.echo(f"Written {len(out_files)} {input_fmt.upper()} files to {output}/")
+
+
+@main.group()
+def profile():
+    """Manage domain profiles — export, import, and list."""
+    pass
+
+
+@profile.command(name="export")
+@click.argument("domain_name")
+@click.option("--output", "-o", required=True, help="Output JSON file path")
+@click.option("--profile-name", default="default", help="Profile to export")
+def profile_export(domain_name, output, profile_name):
+    """Export a domain profile to a portable JSON file."""
+    from sqllocks_spindle.inference.profile_io import ProfileIO
+
+    domain = _resolve_domain(domain_name, "3nf")
+    if profile_name != "default":
+        domain._profile = domain._load_profile(profile_name)
+    io = ProfileIO()
+    path = io.export_profile(domain, output, profile_name)
+    click.echo(f"Profile '{profile_name}' exported to {path}")
+
+
+@profile.command(name="import")
+@click.argument("profile_path")
+@click.argument("domain_name")
+@click.option("--save-as", default=None, help="Name to save the profile as")
+def profile_import(profile_path, domain_name, save_as):
+    """Import a profile into a domain's profiles/ directory."""
+    from sqllocks_spindle.inference.profile_io import ProfileIO
+
+    domain = _resolve_domain(domain_name, "3nf")
+    io = ProfileIO()
+    name = io.import_profile(profile_path, domain, save_as=save_as)
+    click.echo(f"Profile imported as '{name}' into {domain.name}")
+
+
+@profile.command(name="list")
+@click.argument("domain_name")
+def profile_list(domain_name):
+    """List available profiles for a domain."""
+    from sqllocks_spindle.inference.profile_io import ProfileIO
+
+    domain = _resolve_domain(domain_name, "3nf")
+    io = ProfileIO()
+    profiles = io.list_profiles(domain)
+    click.echo(f"Profiles for {domain_name}:")
+    for p in profiles:
+        click.echo(
+            f"  {p['name']:<20} {p['description']:<40} "
+            f"({p['distributions']} dists, {p['ratios']} ratios)"
+        )
 
 
 def _apply_scale_overrides(schema, scale_spec: str):

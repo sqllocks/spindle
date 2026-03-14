@@ -27,6 +27,7 @@ from sqllocks_spindle.engine.strategies.lookup import LookupStrategy
 from sqllocks_spindle.engine.strategies.pattern import PatternStrategy
 from sqllocks_spindle.engine.strategies.record_field import RecordFieldStrategy
 from sqllocks_spindle.engine.strategies.record_sample import RecordSampleStrategy
+from sqllocks_spindle.engine.strategies.scd2 import SCD2Strategy
 from sqllocks_spindle.engine.strategies.reference_data import ReferenceDataStrategy
 from sqllocks_spindle.engine.strategies.self_referencing import SelfReferencingStrategy, SelfRefFieldStrategy
 from sqllocks_spindle.engine.strategies.sequence import SequenceStrategy
@@ -215,6 +216,7 @@ class Spindle:
         registry.register("first_per_parent", FirstPerParentStrategy())
         registry.register("record_sample", RecordSampleStrategy())
         registry.register("record_field", RecordFieldStrategy())
+        registry.register("scd2", SCD2Strategy())
         return registry
 
     def generate(

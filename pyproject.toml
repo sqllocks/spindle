@@ -52,6 +52,9 @@ streaming = [
     "azure-eventhub>=5.11",
     "kafka-python>=2.0",
 ]
+inference = [
+    "scipy>=1.11",
+]
 fabric-sql = [
     "pyodbc>=5.0",
     "azure-identity>=1.15",
@@ -71,6 +74,7 @@ all = [
     "kafka-python>=2.0",
     "pyodbc>=5.0",
     "azure-identity>=1.15",
+    "scipy>=1.11",
 ]
 
 [project.scripts]
