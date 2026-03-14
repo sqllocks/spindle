@@ -76,6 +76,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started:
+    - 60-Second Overview: getting-started/60-seconds.md
     - Quickstart: getting-started/quickstart.md
     - Installation: getting-started/installation.md
     - CLI Cheatsheet: getting-started/cli-cheatsheet.md

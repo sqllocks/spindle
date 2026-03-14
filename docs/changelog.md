@@ -42,6 +42,45 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **10 new example scripts** (13-22) and **3 new notebooks** (06-08)
 
+- **SQL DDL import** -- `DdlParser` for 4 SQL dialects (F-001)
+    - `spindle from-ddl` CLI command
+    - 30+ type-to-strategy mappings, 25+ column name heuristics
+    - FK detection from explicit constraints and naming conventions
+
+- **CREATE TABLE DDL in SQL output** -- `to_sql_inserts()` with DDL generation (F-002)
+    - 3 dialect type maps (T-SQL, PostgreSQL, MySQL)
+    - Fabric Warehouse compatibility (no PK constraints, no IDENTITY)
+    - CLI: `--sql-ddl`, `--sql-drop`, `--sql-go`, `--sql-dialect`, `--schema-name`
+
+- **Fabric SQL Database Writer** -- `FabricSqlDatabaseWriter` (F-003)
+    - 4 auth methods: `cli` (Entra/az login), `msi`, `spn`, `sql`
+    - 4 write modes: `create_insert`, `insert_only`, `truncate_insert`, `append`
+    - Parameterized `executemany`, dependency-ordered writes/drops
+    - CLI: `--format sql-database`, `--connection-string`, `--auth`, `--write-mode`
+    - New `[fabric-sql]` extra: `pyodbc>=5.0`, `azure-identity>=1.15`
+
+- **Semantic Model Writer** -- `SemanticModelExporter` (F-004)
+    - .bim TOM JSON export at compatibilityLevel 1604
+    - Auto DAX measures (COUNTROWS + SUM/AVERAGE for numerics)
+    - M expressions for lakehouse, warehouse, and sql_database source types
+    - CLI: `spindle export-model`
+
+- **Fabric Stream Writer** -- `FabricStreamWriter` convenience wrapper (F-005)
+    - Single `stream()` call with sensible defaults for Fabric Notebooks
+
+- **Capital Markets domain** (13th domain) -- 10 tables (F-012)
+    - Real S&P 500 tickers (110 companies), GICS sectors/industries
+    - Daily OHLCV pricing, dividends, splits, earnings with EPS surprise
+    - Insider transactions, tick-level trades for streaming
+    - Star schema map (4 dims, 4 facts) and CDM mapping
+
+- **Star schema + CDM maps for all 13 domains**
+    - Every domain now provides `star_schema_map()` and `cdm_map()` methods
+
+- **7 new Fabric guide doc pages** -- Lakehouse, Warehouse, SQL Database, Notebooks, Star Schema, CDM Export, 60-Second Overview
+
+- **12 new notebooks** -- T05-T09 tutorials + F01-F07 Fabric scenarios
+
 ### Changed
 
 - Version: 1.2.0 -> 1.3.0
