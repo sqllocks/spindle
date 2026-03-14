@@ -58,10 +58,24 @@ def main():
 @click.option("--scale", "-s", default="small", help="Scale preset: small, medium, large, xlarge")
 @click.option("--seed", default=42, type=int, help="Random seed for reproducibility")
 @click.option("--output", "-o", default=None, help="Output directory for generated files")
-@click.option("--format", "fmt", default="summary", type=click.Choice(["summary", "csv", "tsv", "jsonl", "parquet", "excel", "sql", "delta"]))
+@click.option("--format", "fmt", default="summary", type=click.Choice(["summary", "csv", "tsv", "jsonl", "parquet", "excel", "sql", "sql-database", "delta"]))
 @click.option("--mode", "-m", default="3nf", help="Schema mode: 3nf, star")
 @click.option("--dry-run", is_flag=True, default=False, help="Show what would be generated without generating")
-def generate(domain_name: str, scale: str, seed: int, output: str | None, fmt: str, mode: str, dry_run: bool):
+@click.option("--schema-name", default=None, help="SQL schema prefix (e.g. dbo)")
+@click.option("--sql-ddl/--no-sql-ddl", default=True, help="Include CREATE TABLE DDL in SQL output")
+@click.option("--sql-drop/--no-sql-drop", default=True, help="Include DROP IF EXISTS before CREATE")
+@click.option("--sql-go/--no-sql-go", default=True, help="Include GO batch separators (T-SQL)")
+@click.option("--sql-dialect", default="tsql", type=click.Choice(["tsql", "tsql-fabric-warehouse", "postgres", "mysql"]), help="SQL dialect for DDL output")
+@click.option("--connection-string", default=None, envvar="SPINDLE_SQL_CONNECTION", help="SQL connection string (for sql-database format)")
+@click.option("--auth", "auth_method", default="cli", type=click.Choice(["cli", "msi", "spn", "sql"]), help="Auth method for sql-database")
+@click.option("--write-mode", default="create_insert", type=click.Choice(["create_insert", "insert_only", "truncate_insert", "append"]), help="SQL write mode")
+@click.option("--batch-size", default=1000, type=int, help="Rows per INSERT batch")
+def generate(
+    domain_name: str, scale: str, seed: int, output: str | None, fmt: str,
+    mode: str, dry_run: bool, schema_name: str | None,
+    sql_ddl: bool, sql_drop: bool, sql_go: bool, sql_dialect: str,
+    connection_string: str | None, auth_method: str, write_mode: str, batch_size: int,
+):
     """Generate synthetic data for a domain.
 
     Example: spindle generate retail --scale small --seed 42
@@ -123,10 +137,38 @@ def generate(domain_name: str, scale: str, seed: int, output: str | None, fmt: s
         click.echo("Referential integrity: PASS (all FKs resolve)")
 
     # Output
-    if fmt != "summary" and output:
+    if fmt == "sql-database":
+        # Write directly to SQL database
+        if not connection_string:
+            click.echo("--connection-string or SPINDLE_SQL_CONNECTION env var is required for sql-database format", err=True)
+            sys.exit(1)
+
+        from sqllocks_spindle.fabric.sql_database_writer import FabricSqlDatabaseWriter
+
+        db_writer = FabricSqlDatabaseWriter(
+            connection_string=connection_string,
+            auth_method=auth_method,
+        )
+
+        click.echo()
+        click.echo(f"Writing to SQL database (mode={write_mode}, auth={auth_method})...")
+
+        write_result = db_writer.write(
+            result,
+            schema_name=schema_name or "dbo",
+            mode=write_mode,
+            batch_size=batch_size,
+        )
+
+        click.echo()
+        click.echo(write_result.summary())
+        if write_result.errors:
+            sys.exit(1)
+
+    elif fmt != "summary" and output:
         format_labels = {
             "csv": "CSV", "tsv": "TSV", "jsonl": "JSON Lines",
-            "parquet": "Parquet", "excel": "Excel", "sql": "SQL INSERT",
+            "parquet": "Parquet", "excel": "Excel", "sql": "SQL",
             "delta": "Delta Lake",
         }
 
@@ -150,13 +192,41 @@ def generate(domain_name: str, scale: str, seed: int, output: str | None, fmt: s
             elif fmt == "excel":
                 files = writer.to_excel(result.tables, output)
             elif fmt == "sql":
-                files = writer.to_sql_inserts(result.tables, output)
+                # Build schema metadata from the SpindleSchema for DDL generation
+                meta = {}
+                pks = {}
+                for tname, tdef in result.schema.tables.items():
+                    pks[tname] = tdef.primary_key
+                    col_meta = {}
+                    for cname, cdef in tdef.columns.items():
+                        col_meta[cname] = {
+                            "type": cdef.type,
+                            "nullable": cdef.nullable,
+                            "max_length": cdef.max_length,
+                            "precision": cdef.precision,
+                            "scale": cdef.scale,
+                        }
+                    meta[tname] = col_meta
+                files = writer.to_sql_inserts(
+                    result.tables, output,
+                    schema_name=schema_name,
+                    batch_size=batch_size,
+                    include_ddl=sql_ddl,
+                    include_drop=sql_drop,
+                    include_go=sql_go,
+                    sql_dialect=sql_dialect,
+                    schema_meta=meta,
+                    primary_keys=pks,
+                    domain_name=domain_name,
+                    scale=scale,
+                    seed=seed,
+                )
             else:
                 files = []
 
         click.echo()
         click.echo(f"Written {len(files)} {format_labels.get(fmt, fmt)} files to {output}/")
-    elif fmt != "summary" and not output:
+    elif fmt != "summary" and fmt != "sql-database" and not output:
         click.echo()
         click.echo("Hint: use --output/-o to write files to disk")
 
@@ -501,6 +571,197 @@ def to_cdm(domain_name: str, scale: str, seed: int, output: str, fmt: str, model
     click.echo()
     click.echo(f"CDM folder written to {output}/")
     click.echo(f"  {n_entities} entities + model.json ({len(files)} files total)")
+
+
+@main.command(name="export-model")
+@click.argument("domain_name")
+@click.option("--scale", "-s", default="small", help="Scale preset (for row count context)")
+@click.option("--source-type", default="lakehouse", type=click.Choice(["lakehouse", "warehouse", "sql_database"]), help="Data source type for M expressions")
+@click.option("--source-name", default="", help="Lakehouse/Warehouse/Server name for M expressions")
+@click.option("--output", "-o", default="model.bim", help="Output .bim file path")
+@click.option("--include-measures/--no-measures", default=True, help="Generate DAX measures")
+@click.option("--schema-name", default="dbo", help="SQL schema for warehouse/sql_database sources")
+def export_model(
+    domain_name: str, scale: str, source_type: str, source_name: str,
+    output: str, include_measures: bool, schema_name: str,
+):
+    """Export a domain schema as a Power BI / Fabric semantic model (.bim).
+
+    Generates TOM JSON at compatibilityLevel 1604 with typed columns,
+    relationships, M expressions, and auto-generated DAX measures.
+
+    Example: spindle export-model retail --source-type lakehouse --output retail.bim
+    """
+    from sqllocks_spindle.engine.generator import Spindle
+    from sqllocks_spindle.fabric.semantic_model_writer import SemanticModelExporter
+
+    domain = _resolve_domain(domain_name, "3nf")
+    spindle = Spindle()
+    schema = spindle.describe(domain=domain)
+    schema.generation.scale = scale
+
+    exporter = SemanticModelExporter()
+    output_path = exporter.export_bim(
+        schema=schema,
+        source_type=source_type,
+        source_name=source_name,
+        output_path=output,
+        include_measures=include_measures,
+        schema_name=schema_name,
+    )
+
+    # Count tables and measures
+    tom = exporter.to_dict(schema=schema, source_type=source_type, source_name=source_name, include_measures=include_measures, schema_name=schema_name)
+    n_tables = len(tom["model"]["tables"])
+    n_rels = len(tom["model"]["relationships"])
+    n_measures = sum(len(t.get("measures", [])) for t in tom["model"]["tables"])
+
+    click.echo(f"Spindle v{__version__} — Semantic Model Export")
+    click.echo()
+    click.echo(f"  Domain:        {domain_name}")
+    click.echo(f"  Source type:   {source_type}")
+    click.echo(f"  Tables:        {n_tables}")
+    click.echo(f"  Relationships: {n_rels}")
+    click.echo(f"  DAX measures:  {n_measures}")
+    click.echo(f"  Output:        {output_path}")
+    click.echo()
+    click.echo("Import this .bim file into Tabular Editor or deploy via XMLA endpoint.")
+
+
+@main.command(name="from-ddl")
+@click.argument("input_file", type=click.Path(exists=True))
+@click.option("--output", "-o", default=None, help="Output path for .spindle.json file")
+@click.option("--domain", default="custom", help="Domain name for the generated schema")
+@click.option("--scale", "-s", default=None, help="Scale override: small:table1=N,table2=N")
+def from_ddl(input_file: str, output: str | None, domain: str, scale: str | None):
+    """Import SQL DDL (CREATE TABLE) into a .spindle.json schema.
+
+    Parses SQL Server, PostgreSQL, MySQL, and ANSI SQL dialects.
+    Automatically infers generator strategies from column types and names.
+
+    Example: spindle from-ddl my_tables.sql --output my_schema.spindle.json
+    """
+    import json
+
+    from sqllocks_spindle.schema.ddl_parser import DdlParser
+
+    parser = DdlParser()
+
+    try:
+        schema = parser.parse_file(input_file)
+    except Exception as e:
+        click.echo(f"DDL parse error: {e}", err=True)
+        sys.exit(1)
+
+    # Override domain name
+    schema.model.domain = domain
+    schema.model.name = f"{domain}_ddl_import"
+
+    # Apply scale overrides if provided
+    if scale:
+        _apply_scale_overrides(schema, scale)
+
+    # Convert to JSON-serializable dict
+    schema_dict = _schema_to_dict(schema)
+
+    # Determine output path
+    if not output:
+        from pathlib import Path
+        input_path = Path(input_file)
+        output = str(input_path.with_suffix(".spindle.json"))
+
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(schema_dict, f, indent=2)
+
+    click.echo(f"Spindle v{__version__} — DDL Import")
+    click.echo()
+    click.echo(f"  Source: {input_file}")
+    click.echo(f"  Output: {output}")
+    click.echo(f"  Tables: {len(schema.tables)}")
+    click.echo(f"  Relationships: {len(schema.relationships)}")
+    click.echo()
+    for tname, tdef in schema.tables.items():
+        pk_str = f" (PK: {', '.join(tdef.primary_key)})" if tdef.primary_key else ""
+        click.echo(f"  {tname}: {len(tdef.columns)} columns{pk_str}")
+    click.echo()
+    click.echo(f"Schema written to {output}")
+    click.echo("Run: spindle generate custom --schema {output} --scale small")
+
+
+def _apply_scale_overrides(schema, scale_spec: str):
+    """Parse scale spec like 'small:customer=5000,order=25000' and apply."""
+    if ":" in scale_spec:
+        scale_name, overrides = scale_spec.split(":", 1)
+    else:
+        scale_name = scale_spec
+        overrides = ""
+
+    schema.generation.scale = scale_name
+
+    if overrides:
+        scale_dict = schema.generation.scales.get(scale_name, {})
+        for pair in overrides.split(","):
+            if "=" in pair:
+                table, count = pair.split("=", 1)
+                scale_dict[table.strip()] = int(count.strip())
+        schema.generation.scales[scale_name] = scale_dict
+
+
+def _schema_to_dict(schema) -> dict:
+    """Convert a SpindleSchema to a JSON-serializable dict."""
+    tables = {}
+    for tname, tdef in schema.tables.items():
+        columns = {}
+        for cname, cdef in tdef.columns.items():
+            col = {"type": cdef.type, "generator": cdef.generator}
+            if cdef.nullable:
+                col["nullable"] = True
+            if cdef.null_rate > 0:
+                col["null_rate"] = cdef.null_rate
+            if cdef.max_length is not None:
+                col["max_length"] = cdef.max_length
+            if cdef.precision is not None:
+                col["precision"] = cdef.precision
+            if cdef.scale is not None:
+                col["scale"] = cdef.scale
+            columns[cname] = col
+        tables[tname] = {
+            "columns": columns,
+            "primary_key": tdef.primary_key,
+        }
+        if tdef.description:
+            tables[tname]["description"] = tdef.description
+
+    relationships = []
+    for r in schema.relationships:
+        rel = {
+            "name": r.name,
+            "parent": r.parent,
+            "child": r.child,
+            "parent_columns": r.parent_columns,
+            "child_columns": r.child_columns,
+            "type": r.type,
+        }
+        relationships.append(rel)
+
+    return {
+        "model": {
+            "name": schema.model.name,
+            "description": schema.model.description,
+            "domain": schema.model.domain,
+            "schema_mode": schema.model.schema_mode,
+            "locale": schema.model.locale,
+            "seed": schema.model.seed,
+            "date_range": schema.model.date_range,
+        },
+        "tables": tables,
+        "relationships": relationships,
+        "business_rules": [],
+        "generation": {
+            "scale": schema.generation.scale,
+            "scales": schema.generation.scales,
+        },
+    }
 
 
 def _resolve_domain(domain_name: str, mode: str):

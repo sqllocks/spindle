@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sqllocks-spindle"
-version = "1.2.0"
+version = "1.3.0"
 description = "Multi-domain, schema-aware synthetic data generator for Microsoft Fabric"
 readme = "README.md"
 license = { text = "MIT" }
@@ -52,12 +52,25 @@ streaming = [
     "azure-eventhub>=5.11",
     "kafka-python>=2.0",
 ]
+fabric-sql = [
+    "pyodbc>=5.0",
+    "azure-identity>=1.15",
+]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
+    "mkdocs-section-index>=0.3",
+]
 all = [
     "pyarrow>=14.0",
     "openpyxl>=3.1",
     "deltalake>=0.17.0",
     "azure-eventhub>=5.11",
     "kafka-python>=2.0",
+    "pyodbc>=5.0",
+    "azure-identity>=1.15",
 ]
 
 [project.scripts]
@@ -65,7 +78,7 @@ spindle = "sqllocks_spindle.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/sqllocks/spindle"
-Documentation = "https://sqllocks.com/spindle"
+Documentation = "https://sqllocks.github.io/spindle"
 Repository = "https://github.com/sqllocks/spindle"
 
 [tool.setuptools.packages.find]
