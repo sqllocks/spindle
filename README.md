@@ -1,6 +1,8 @@
-# Spindle by SQLLocks
+<p align="center">
+  <img src="Logo/spindle_logo_combined.png" alt="Spindle by SQLLocks" width="300">
+</p>
 
-> "Synthea is to MITRE as Spindle is to SQLLocks"
+<p align="center"><em>"Synthea is to MITRE as Spindle is to SQLLocks"</em></p>
 
 **Spindle** is a multi-domain, schema-aware synthetic data generator for Microsoft Fabric. It generates statistically realistic, relationally correct datasets — think normalized 3NF schemas with proper FK integrity, Pareto order distributions, seasonal temporal patterns, and real US addresses with lat/lng coordinates ready for Power BI maps.
 
