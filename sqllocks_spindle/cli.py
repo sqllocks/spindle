@@ -1294,6 +1294,250 @@ def _schema_to_dict(schema) -> dict:
     }
 
 
+@main.command()
+@click.argument("domain_name")
+@click.option("--scale", "-s", default="small", help="Scale preset")
+@click.option("--seed", default=42, type=int, help="Random seed")
+@click.option("--mode", "-m", default="3nf", help="Schema mode: 3nf, star")
+@click.option("--target", "-t", required=True,
+              type=click.Choice(["lakehouse", "eventhouse", "sql-database"]),
+              help="Fabric target to publish to")
+@click.option("--workspace-id", default=None, envvar="SPINDLE_WORKSPACE_ID",
+              help="Fabric workspace ID")
+@click.option("--lakehouse-id", default=None, envvar="SPINDLE_LAKEHOUSE_ID",
+              help="Fabric lakehouse ID")
+@click.option("--base-path", default=None, envvar="SPINDLE_LAKEHOUSE_PATH",
+              help="Lakehouse Files base path or abfss:// URI")
+@click.option("--connection-string", default=None, envvar="SPINDLE_SQL_CONNECTION",
+              help="SQL or Eventhouse connection string")
+@click.option("--database", default=None, help="KQL database name (eventhouse target)")
+@click.option("--auth", "auth_method", default="cli",
+              type=click.Choice(["cli", "msi", "spn", "sql"]),
+              help="Authentication method")
+@click.option("--format", "fmt", default="parquet",
+              type=click.Choice(["parquet", "csv", "jsonl", "delta"]),
+              help="File format for lakehouse target")
+@click.option("--credential", "credential_ref", default=None,
+              help="Credential reference (env://, kv://, file://) for connection string")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Show what would be published without publishing")
+def publish(
+    domain_name: str, scale: str, seed: int, mode: str,
+    target: str, workspace_id: str | None, lakehouse_id: str | None,
+    base_path: str | None, connection_string: str | None,
+    database: str | None, auth_method: str, fmt: str,
+    credential_ref: str | None, dry_run: bool,
+):
+    """Generate and publish data to a Fabric workspace.
+
+    Generates synthetic data and pushes it directly to a Fabric Lakehouse,
+    Eventhouse, or SQL Database endpoint.
+
+    Examples:
+
+        spindle publish retail --target lakehouse --base-path abfss://ws@onelake.dfs.fabric.microsoft.com/lh.Lakehouse
+
+        spindle publish retail --target sql-database --connection-string "env://SPINDLE_SQL_CONNECTION"
+
+        spindle publish retail --target eventhouse --connection-string "https://eh.kusto.fabric.microsoft.com" --database mydb
+    """
+    from sqllocks_spindle.engine.generator import Spindle
+
+    domain = _resolve_domain(domain_name, mode)
+
+    # Resolve credentials if provided
+    actual_connection = connection_string
+    if credential_ref:
+        from sqllocks_spindle.fabric.credentials import CredentialResolver
+        resolver = CredentialResolver()
+        actual_connection = resolver.resolve(credential_ref)
+    elif connection_string and connection_string.startswith(("env://", "kv://", "file://")):
+        from sqllocks_spindle.fabric.credentials import CredentialResolver
+        resolver = CredentialResolver()
+        actual_connection = resolver.resolve(connection_string)
+
+    click.echo(f"Spindle v{__version__} — {'[DRY RUN] ' if dry_run else ''}Publishing {domain_name} → {target}")
+    click.echo(f"Scale: {scale} | Seed: {seed} | Format: {fmt}")
+    if workspace_id:
+        click.echo(f"Workspace: {workspace_id}")
+
+    # Generate
+    click.echo()
+    click.echo("Generating data...")
+    spindle = Spindle()
+    result = spindle.generate(domain=domain, scale=scale, seed=seed)
+    click.echo(result.summary())
+
+    if dry_run:
+        click.echo()
+        click.echo("Dry run complete. No data published.")
+        return
+
+    click.echo()
+
+    # Publish based on target
+    if target == "lakehouse":
+        if not base_path:
+            click.echo(
+                "Error: --base-path or SPINDLE_LAKEHOUSE_PATH is required for lakehouse target",
+                err=True,
+            )
+            sys.exit(1)
+
+        is_remote = base_path.startswith("abfss://")
+
+        if is_remote:
+            # Remote OneLake: write via azure-storage-file-datalake
+            try:
+                from azure.identity import DefaultAzureCredential
+                from azure.storage.filedatalake import DataLakeServiceClient
+            except ImportError:
+                click.echo("Error: 'azure-storage-file-datalake' and 'azure-identity' are required for remote OneLake writes.", err=True)
+                click.echo("Install with: pip install azure-storage-file-datalake azure-identity", err=True)
+                sys.exit(1)
+
+            import io
+
+            credential = DefaultAzureCredential(
+                exclude_shared_token_cache_credential=True,
+            )
+
+            # Parse abfss path: abfss://{workspace}@onelake.dfs.fabric.microsoft.com/{lakehouse}.Lakehouse
+            service_client = DataLakeServiceClient(
+                account_url="https://onelake.dfs.fabric.microsoft.com",
+                credential=credential,
+            )
+            # Container = workspace ID, path prefix = lakehouse GUID (strip .Lakehouse suffix)
+            parts = base_path.replace("abfss://", "").split("@")
+            container = parts[0]  # workspace ID
+            raw_prefix = parts[1].split("/", 1)[1] if "/" in parts[1] else ""
+            # OneLake DFS API needs just the GUID, not {guid}.Lakehouse
+            lakehouse_prefix = raw_prefix.replace(".Lakehouse", "").replace(".lakehouse", "")
+            fs_client = service_client.get_file_system_client(container)
+
+            click.echo(f"Publishing to OneLake ({fmt})...")
+            published_files = []
+            for table_name, df in result.tables.items():
+                dir_path = f"{lakehouse_prefix}/Files/landing/{domain_name}/{table_name}/latest"
+                ext = "jsonl" if fmt == "jsonl" else fmt
+                file_name = f"part-0001.{ext}"
+                file_path = f"{dir_path}/{file_name}"
+
+                # Serialize DataFrame to bytes
+                buf = io.BytesIO()
+                if fmt == "parquet":
+                    df.to_parquet(buf, index=False, engine="pyarrow")
+                elif fmt == "csv":
+                    buf.write(df.to_csv(index=False).encode("utf-8"))
+                elif fmt == "jsonl":
+                    buf.write(df.to_json(orient="records", lines=True, date_format="iso").encode("utf-8"))
+                data = buf.getvalue()
+
+                # Create directory and upload
+                try:
+                    dir_client = fs_client.get_directory_client(dir_path)
+                    dir_client.create_directory()
+                except Exception:
+                    pass  # Directory may already exist
+                file_client = fs_client.get_file_client(file_path)
+                file_client.upload_data(data, overwrite=True)
+
+                published_files.append(file_path)
+                click.echo(f"  {table_name}: {len(df):,} rows → onelake://.../{file_path}")
+
+            click.echo()
+            click.echo(f"Published {len(published_files)} tables to OneLake.")
+        else:
+            # Local: use LakehouseFilesWriter
+            from sqllocks_spindle.fabric import LakehouseFilesWriter
+
+            writer = LakehouseFilesWriter(base_path=base_path, default_format=fmt)
+
+            click.echo(f"Publishing to Lakehouse ({fmt})...")
+            published_files = []
+            for table_name, df in result.tables.items():
+                path = writer.paths.landing_zone_path(domain_name, table_name, "latest")
+                file_path = writer.write_partition(df, path, format=fmt)
+                published_files.append(str(file_path))
+                click.echo(f"  {table_name}: {len(df):,} rows → {file_path}")
+
+            click.echo()
+            click.echo(f"Published {len(published_files)} tables to lakehouse.")
+
+        # Write run manifest
+        from sqllocks_spindle.manifests import ManifestBuilder
+        builder = ManifestBuilder()
+        builder.start(spec=None, pack=None, domain_name=domain_name, scale=scale, seed=seed)
+        if workspace_id:
+            builder.set_fabric_ids(workspace_id=workspace_id or "", lakehouse_id=lakehouse_id or "")
+        for table_name, df in result.tables.items():
+            builder.record_output(table_name, rows=len(df), columns=len(df.columns))
+        manifest = builder.finish()
+
+        if is_remote:
+            manifest_dir = f"{lakehouse_prefix}/Files/_control/{domain_name}"
+            manifest_file = f"{manifest_dir}/run_manifest.json"
+            try:
+                dir_client = fs_client.get_directory_client(manifest_dir)
+                dir_client.create_directory()
+            except Exception:
+                pass
+            manifest_json = ManifestBuilder.to_json(manifest).encode("utf-8")
+            file_client = fs_client.get_file_client(manifest_file)
+            file_client.upload_data(manifest_json, overwrite=True)
+            click.echo(f"Manifest written to OneLake _control/")
+        else:
+            manifest_path = writer.paths.control_path(domain_name, "manifest") / "run_manifest.json"
+            ManifestBuilder.to_file(manifest, manifest_path)
+            click.echo(f"Manifest: {manifest_path}")
+
+    elif target == "sql-database":
+        if not actual_connection:
+            click.echo(
+                "Error: --connection-string or SPINDLE_SQL_CONNECTION is required",
+                err=True,
+            )
+            sys.exit(1)
+
+        from sqllocks_spindle.fabric.sql_database_writer import FabricSqlDatabaseWriter
+
+        db_writer = FabricSqlDatabaseWriter(
+            connection_string=actual_connection,
+            auth_method=auth_method,
+        )
+
+        click.echo(f"Publishing to SQL Database (auth={auth_method})...")
+        write_result = db_writer.write(result, schema_name="dbo", mode="create_insert")
+        click.echo(write_result.summary())
+        if write_result.errors:
+            sys.exit(1)
+
+    elif target == "eventhouse":
+        if not actual_connection or not database:
+            click.echo(
+                "Error: --connection-string and --database are required for eventhouse target",
+                err=True,
+            )
+            sys.exit(1)
+
+        from sqllocks_spindle.fabric.eventhouse_writer import EventhouseWriter
+
+        eh_writer = EventhouseWriter(
+            cluster_uri=actual_connection,
+            database=database,
+            auth_method=auth_method,
+        )
+
+        click.echo(f"Publishing to Eventhouse ({database})...")
+        write_result = eh_writer.write(result)
+        click.echo(write_result.summary())
+        if write_result.errors:
+            sys.exit(1)
+
+    click.echo()
+    click.echo("Publish complete.")
+
+
 def _resolve_domain(domain_name: str, mode: str):
     """Resolve a domain name to a Domain instance."""
     if domain_name not in _DOMAIN_REGISTRY:

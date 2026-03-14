@@ -35,6 +35,11 @@ class RunManifest:
     validation: dict[str, bool] = field(default_factory=dict)
     chaos: dict[str, Any] = field(default_factory=dict)
     timestamps: dict[str, str] = field(default_factory=dict)
+    # E14: Fabric workspace/lakehouse identifiers
+    workspace_id: str = ""
+    lakehouse_id: str = ""
+    # E14: Software Bill of Materials
+    sbom: dict[str, str] = field(default_factory=dict)
 
     def summary(self) -> str:
         lines = [
@@ -87,6 +92,9 @@ class ManifestBuilder:
         self._chaos: dict[str, Any] = {}
         self._start_time: float = 0.0
         self._started_iso: str = ""
+        self._workspace_id: str = ""
+        self._lakehouse_id: str = ""
+        self._sbom: dict[str, str] = {}
 
     def start(
         self,
@@ -133,6 +141,9 @@ class ManifestBuilder:
         self._tables = {}
         self._validation = {}
         self._chaos = {}
+        self._workspace_id = ""
+        self._lakehouse_id = ""
+        self._sbom = self._collect_sbom()
 
     def record_output(
         self,
@@ -156,6 +167,15 @@ class ManifestBuilder:
         """Record chaos injection statistics."""
         self._chaos[category] = self._chaos.get(category, 0) + count
 
+    def set_fabric_ids(
+        self,
+        workspace_id: str = "",
+        lakehouse_id: str = "",
+    ) -> None:
+        """Set Fabric workspace and lakehouse identifiers for the manifest."""
+        self._workspace_id = workspace_id
+        self._lakehouse_id = lakehouse_id
+
     def finish(self) -> RunManifest:
         """Finalize the manifest with timing information and return it."""
         elapsed = time.time() - self._start_time if self._start_time else 0.0
@@ -178,6 +198,9 @@ class ManifestBuilder:
                 "finished": finished_iso,
                 "elapsed_seconds": round(elapsed, 2),
             },
+            workspace_id=self._workspace_id,
+            lakehouse_id=self._lakehouse_id,
+            sbom=self._sbom,
         )
 
     # ------------------------------------------------------------------
@@ -216,11 +239,26 @@ class ManifestBuilder:
             validation=raw.get("validation", {}),
             chaos=raw.get("chaos", {}),
             timestamps=raw.get("timestamps", {}),
+            workspace_id=raw.get("workspace_id", ""),
+            lakehouse_id=raw.get("lakehouse_id", ""),
+            sbom=raw.get("sbom", {}),
         )
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _collect_sbom() -> dict[str, str]:
+        """Collect a software bill of materials for key dependencies."""
+        sbom: dict[str, str] = {}
+        for pkg in ("sqllocks-spindle", "pandas", "numpy", "faker", "pyarrow", "scipy"):
+            try:
+                from importlib.metadata import version as pkg_version
+                sbom[pkg] = pkg_version(pkg)
+            except Exception:
+                pass
+        return sbom
 
     @staticmethod
     def _hash_path(path: Path) -> str:
@@ -248,4 +286,7 @@ def _manifest_to_dict(m: RunManifest) -> dict[str, Any]:
         "validation": m.validation,
         "chaos": m.chaos,
         "timestamps": m.timestamps,
+        "workspace_id": m.workspace_id,
+        "lakehouse_id": m.lakehouse_id,
+        "sbom": m.sbom,
     }
