@@ -46,3 +46,22 @@ Thumbs.db
 /star/
 /cdm/
 events.jsonl
+
+# Notebook execution output (demo data generated during D1)
+examples/notebooks/*_demo/
+examples/notebooks/f08_demo/
+examples/notebooks/f10_month_end/
+examples/notebooks/medallion_demo/
+examples/notebooks/*_sql/
+examples/notebooks/*_output/
+examples/notebooks/*.jsonl
+examples/notebooks/*.bim
+examples/notebooks/tutorials/*_demo/
+examples/notebooks/tutorials/*_output/
+
+# Source planning docs (not code artifacts)
+Spindle.zip
+Spindle_*.docx
+Spindle_*.zip
+SPINDLE_*.md
+scenario_packs_extracted/
