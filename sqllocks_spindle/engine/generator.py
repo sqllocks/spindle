@@ -109,6 +109,79 @@ class GenerationResult:
 
         return errors
 
+    # --- Convenience properties ---
+
+    @property
+    def table_names(self) -> list[str]:
+        """Return list of table names in generation order."""
+        return list(self.generation_order)
+
+    def __len__(self) -> int:
+        """Return total row count across all tables."""
+        return sum(self.row_counts.values())
+
+    def __contains__(self, table_name: str) -> bool:
+        """Check if a table exists in the result."""
+        return table_name in self.tables
+
+    # --- Export methods ---
+
+    def to_csv(self, output_dir: str | Path, **kwargs: Any) -> list[Path]:
+        """Write all tables to CSV files. Returns list of file paths."""
+        from sqllocks_spindle.output.pandas_writer import PandasWriter
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for name, df in self.tables.items():
+            path = output_dir / f"{name}.csv"
+            df.to_csv(path, index=False, **kwargs)
+            paths.append(path)
+        return paths
+
+    def to_parquet(self, output_dir: str | Path, **kwargs: Any) -> list[Path]:
+        """Write all tables to Parquet files. Requires pyarrow."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for name, df in self.tables.items():
+            path = output_dir / f"{name}.parquet"
+            df.to_parquet(path, index=False, **kwargs)
+            paths.append(path)
+        return paths
+
+    def to_jsonl(self, output_dir: str | Path) -> list[Path]:
+        """Write all tables to JSON Lines files."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for name, df in self.tables.items():
+            path = output_dir / f"{name}.jsonl"
+            df.to_json(path, orient="records", lines=True)
+            paths.append(path)
+        return paths
+
+    def to_excel(self, output_path: str | Path) -> Path:
+        """Write all tables to a single Excel file (one sheet per table). Requires openpyxl."""
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            for name, df in self.tables.items():
+                sheet_name = name[:31]  # Excel sheet name limit
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        return output_path
+
+    def to_sql(self, output_dir: str | Path, **kwargs: Any) -> list[Path]:
+        """Write all tables as SQL INSERT files."""
+        from sqllocks_spindle.output.pandas_writer import PandasWriter
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        writer = PandasWriter()
+        return writer.to_sql_inserts(self.tables, str(output_dir), **kwargs)
+
+    def to_dataframe(self, table_name: str) -> pd.DataFrame:
+        """Return the DataFrame for a given table. Alias for self[table_name]."""
+        return self.tables[table_name]
+
 
 class Spindle:
     """Main entry point for Spindle data generation."""
