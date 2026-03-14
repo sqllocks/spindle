@@ -801,3 +801,76 @@ class EducationDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Education domain.
+
+        Produces:
+          - dim_student    (from student)
+          - dim_course     (from course)
+          - dim_instructor (from instructor)
+          - dim_department (from department)
+          - fact_enrollment    (from enrollment)
+          - fact_financial_aid (from financial_aid)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_student": DimSpec(
+                    source="student",
+                    sk="sk_student",
+                    nk="student_id",
+                ),
+                "dim_course": DimSpec(
+                    source="course",
+                    sk="sk_course",
+                    nk="course_id",
+                ),
+                "dim_instructor": DimSpec(
+                    source="instructor",
+                    sk="sk_instructor",
+                    nk="instructor_id",
+                ),
+                "dim_department": DimSpec(
+                    source="department",
+                    sk="sk_department",
+                    nk="department_id",
+                ),
+            },
+            facts={
+                "fact_enrollment": FactSpec(
+                    primary="enrollment",
+                    fk_map={
+                        "student_id": "dim_student",
+                        "course_id": "dim_course",
+                        "instructor_id": "dim_instructor",
+                    },
+                    date_cols=["enrollment_date"],
+                ),
+                "fact_financial_aid": FactSpec(
+                    primary="financial_aid",
+                    fk_map={"student_id": "dim_student"},
+                    date_cols=["award_date"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Education domain.
+
+        Maps source table names to Microsoft Common Data Model entity names.
+        """
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "department": "BusinessUnit",
+            "instructor": "Worker",
+            "course": "Course",
+            "student": "Contact",
+            "enrollment": "CourseEnrollment",
+            "financial_aid": "Award",
+            "course_section": "CourseSection",
+            "grade_appeal": "Case",
+            "academic_standing": "Assessment",
+        })

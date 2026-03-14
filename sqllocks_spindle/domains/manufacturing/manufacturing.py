@@ -780,3 +780,83 @@ class ManufacturingDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Manufacturing domain.
+
+        Produces:
+          - dim_product         (from product)
+          - dim_production_line (from production_line)
+          - dim_equipment       (from equipment)
+          - dim_date            (generated from start_date / check_date / start_time)
+          - fact_work_order     (from work_order)
+          - fact_quality        (from quality_check + work_order)
+          - fact_downtime       (from downtime_event)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_product": DimSpec(
+                    source="product",
+                    sk="sk_product",
+                    nk="product_id",
+                ),
+                "dim_production_line": DimSpec(
+                    source="production_line",
+                    sk="sk_line",
+                    nk="line_id",
+                ),
+                "dim_equipment": DimSpec(
+                    source="equipment",
+                    sk="sk_equipment",
+                    nk="equipment_id",
+                ),
+            },
+            facts={
+                "fact_work_order": FactSpec(
+                    primary="work_order",
+                    fk_map={
+                        "product_id": "dim_product",
+                        "line_id": "dim_production_line",
+                    },
+                    date_cols=["start_date"],
+                ),
+                "fact_quality": FactSpec(
+                    primary="quality_check",
+                    joins=[{
+                        "table": "work_order",
+                        "left_on": "wo_id",
+                        "right_on": "wo_id",
+                    }],
+                    fk_map={
+                        "product_id": "dim_product",
+                        "line_id": "dim_production_line",
+                    },
+                    date_cols=["check_date"],
+                ),
+                "fact_downtime": FactSpec(
+                    primary="downtime_event",
+                    fk_map={
+                        "equipment_id": "dim_equipment",
+                    },
+                    date_cols=["start_time"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Manufacturing domain."""
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "production_line": "BusinessUnit",
+            "product": "Product",
+            "bom": "BillOfMaterials",
+            "work_order": "WorkOrder",
+            "quality_check": "QualityOrder",
+            "defect": "Case",
+            "equipment": "Asset",
+            "downtime_event": "Incident",
+            "production_metric": "Observation",
+        })

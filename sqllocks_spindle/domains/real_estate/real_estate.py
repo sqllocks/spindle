@@ -815,3 +815,74 @@ class RealEstateDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Real Estate domain.
+
+        Produces:
+          - dim_property (from property, enriched with neighborhood)
+          - dim_agent    (from agent)
+          - dim_listing  (from listing)
+          - dim_date     (generated from close_date / showing_date)
+          - fact_transaction (from transaction)
+          - fact_showing     (from showing)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_property": DimSpec(
+                    source="property",
+                    sk="sk_property",
+                    nk="property_id",
+                    enrich=[{
+                        "table": "neighborhood",
+                        "left_on": "neighborhood_id",
+                        "right_on": "neighborhood_id",
+                        "prefix": "nbr_",
+                    }],
+                ),
+                "dim_agent": DimSpec(
+                    source="agent",
+                    sk="sk_agent",
+                    nk="agent_id",
+                ),
+                "dim_listing": DimSpec(
+                    source="listing",
+                    sk="sk_listing",
+                    nk="listing_id",
+                ),
+            },
+            facts={
+                "fact_transaction": FactSpec(
+                    primary="transaction",
+                    fk_map={
+                        "listing_id": "dim_listing",
+                    },
+                    date_cols=["close_date"],
+                ),
+                "fact_showing": FactSpec(
+                    primary="showing",
+                    fk_map={
+                        "listing_id": "dim_listing",
+                    },
+                    date_cols=["showing_date"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Real Estate domain."""
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "neighborhood": "Location",
+            "agent": "Worker",
+            "property": "RealEstateProperty",
+            "listing": "Listing",
+            "showing": "Appointment",
+            "offer": "Proposal",
+            "transaction": "Transaction",
+            "inspection": "Inspection",
+            "appraisal": "Assessment",
+        })

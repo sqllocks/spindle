@@ -662,3 +662,71 @@ class IoTDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the IoT domain.
+
+        Produces:
+          - dim_device   (from device, enriched with device_type)
+          - dim_location (from location)
+          - dim_sensor   (from sensor)
+          - fact_reading (from reading)
+          - fact_alert   (from alert)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_device": DimSpec(
+                    source="device",
+                    sk="sk_device",
+                    nk="device_id",
+                    enrich=[{
+                        "table": "device_type",
+                        "left_on": "type_id",
+                        "right_on": "type_id",
+                        "prefix": "type_",
+                    }],
+                ),
+                "dim_location": DimSpec(
+                    source="location",
+                    sk="sk_location",
+                    nk="location_id",
+                ),
+                "dim_sensor": DimSpec(
+                    source="sensor",
+                    sk="sk_sensor",
+                    nk="sensor_id",
+                ),
+            },
+            facts={
+                "fact_reading": FactSpec(
+                    primary="reading",
+                    fk_map={"sensor_id": "dim_sensor"},
+                    date_cols=["reading_timestamp"],
+                ),
+                "fact_alert": FactSpec(
+                    primary="alert",
+                    fk_map={"device_id": "dim_device"},
+                    date_cols=["triggered_at"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the IoT domain.
+
+        Maps source table names to Microsoft Common Data Model entity names.
+        """
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "device_type": "Category",
+            "location": "Location",
+            "device": "Asset",
+            "sensor": "Component",
+            "reading": "Observation",
+            "alert": "Alert",
+            "maintenance_log": "WorkOrder",
+            "command": "Command",
+        })

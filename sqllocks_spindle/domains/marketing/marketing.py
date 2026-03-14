@@ -747,3 +747,91 @@ class MarketingDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Marketing domain.
+
+        Produces:
+          - dim_contact     (from contact)
+          - dim_campaign    (from campaign, enriched with campaign_type)
+          - dim_lead_source (from lead_source)
+          - dim_date        (generated from created_date / sent_date)
+          - fact_lead       (from lead)
+          - fact_opportunity (from opportunity + lead)
+          - fact_email      (from email_send)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_contact": DimSpec(
+                    source="contact",
+                    sk="sk_contact",
+                    nk="contact_id",
+                ),
+                "dim_campaign": DimSpec(
+                    source="campaign",
+                    sk="sk_campaign",
+                    nk="campaign_id",
+                    enrich=[{
+                        "table": "campaign_type",
+                        "left_on": "type_id",
+                        "right_on": "type_id",
+                        "prefix": "type_",
+                    }],
+                ),
+                "dim_lead_source": DimSpec(
+                    source="lead_source",
+                    sk="sk_source",
+                    nk="source_id",
+                ),
+            },
+            facts={
+                "fact_lead": FactSpec(
+                    primary="lead",
+                    fk_map={
+                        "contact_id": "dim_contact",
+                        "campaign_id": "dim_campaign",
+                    },
+                    date_cols=["created_date"],
+                ),
+                "fact_opportunity": FactSpec(
+                    primary="opportunity",
+                    joins=[{
+                        "table": "lead",
+                        "left_on": "lead_id",
+                        "right_on": "lead_id",
+                    }],
+                    fk_map={
+                        "contact_id": "dim_contact",
+                        "campaign_id": "dim_campaign",
+                    },
+                    date_cols=["created_date"],
+                ),
+                "fact_email": FactSpec(
+                    primary="email_send",
+                    fk_map={
+                        "contact_id": "dim_contact",
+                        "campaign_id": "dim_campaign",
+                    },
+                    date_cols=["sent_date"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Marketing domain."""
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "campaign_type": "Category",
+            "industry": "Category",
+            "campaign": "Campaign",
+            "lead_source": "Channel",
+            "contact": "Contact",
+            "lead": "Lead",
+            "opportunity": "Opportunity",
+            "email_send": "Activity",
+            "web_visit": "Activity",
+            "conversion": "Goal",
+        })

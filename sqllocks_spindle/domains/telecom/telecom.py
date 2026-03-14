@@ -773,3 +773,82 @@ class TelecomDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Telecom domain.
+
+        Produces:
+          - dim_subscriber   (from subscriber)
+          - dim_plan         (from plan)
+          - dim_device_model (from device_model)
+          - dim_service_line (from service_line)
+          - dim_date         (generated from record_date / billing_period_start / event_timestamp)
+          - fact_usage       (from usage_record)
+          - fact_billing     (from billing)
+          - fact_network     (from network_event)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_subscriber": DimSpec(
+                    source="subscriber",
+                    sk="sk_subscriber",
+                    nk="subscriber_id",
+                ),
+                "dim_plan": DimSpec(
+                    source="plan",
+                    sk="sk_plan",
+                    nk="plan_id",
+                ),
+                "dim_device_model": DimSpec(
+                    source="device_model",
+                    sk="sk_model",
+                    nk="model_id",
+                ),
+                "dim_service_line": DimSpec(
+                    source="service_line",
+                    sk="sk_line",
+                    nk="line_id",
+                ),
+            },
+            facts={
+                "fact_usage": FactSpec(
+                    primary="usage_record",
+                    fk_map={
+                        "line_id": "dim_service_line",
+                    },
+                    date_cols=["record_date"],
+                ),
+                "fact_billing": FactSpec(
+                    primary="billing",
+                    fk_map={
+                        "subscriber_id": "dim_subscriber",
+                    },
+                    date_cols=["billing_period_start"],
+                ),
+                "fact_network": FactSpec(
+                    primary="network_event",
+                    fk_map={
+                        "line_id": "dim_service_line",
+                    },
+                    date_cols=["event_timestamp"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Telecom domain."""
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "plan": "Product",
+            "device_model": "Product",
+            "subscriber": "Contact",
+            "service_line": "Subscription",
+            "usage_record": "Observation",
+            "billing": "Invoice",
+            "payment": "Payment",
+            "network_event": "Incident",
+            "churn_indicator": "Prediction",
+        })

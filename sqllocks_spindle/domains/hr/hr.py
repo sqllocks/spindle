@@ -750,3 +750,72 @@ class HrDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the HR domain.
+
+        Produces:
+          - dim_employee   (from employee)
+          - dim_department (from department)
+          - dim_position   (from position)
+          - fact_compensation (from compensation)
+          - fact_performance  (from performance_review)
+          - fact_time_off     (from time_off_request)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_employee": DimSpec(
+                    source="employee",
+                    sk="sk_employee",
+                    nk="employee_id",
+                ),
+                "dim_department": DimSpec(
+                    source="department",
+                    sk="sk_department",
+                    nk="department_id",
+                ),
+                "dim_position": DimSpec(
+                    source="position",
+                    sk="sk_position",
+                    nk="position_id",
+                ),
+            },
+            facts={
+                "fact_compensation": FactSpec(
+                    primary="compensation",
+                    fk_map={"employee_id": "dim_employee"},
+                    date_cols=["effective_date"],
+                ),
+                "fact_performance": FactSpec(
+                    primary="performance_review",
+                    fk_map={"employee_id": "dim_employee"},
+                    date_cols=["review_date"],
+                ),
+                "fact_time_off": FactSpec(
+                    primary="time_off_request",
+                    fk_map={"employee_id": "dim_employee"},
+                    date_cols=["start_date"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the HR domain.
+
+        Maps source table names to Microsoft Common Data Model entity names.
+        """
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "department": "BusinessUnit",
+            "position": "Position",
+            "employee": "Worker",
+            "compensation": "Compensation",
+            "performance_review": "PerformanceReview",
+            "time_off_request": "LeaveRequest",
+            "training": "Course",
+            "training_enrollment": "CourseEnrollment",
+            "termination": "Termination",
+        })
