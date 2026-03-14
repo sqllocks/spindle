@@ -958,3 +958,81 @@ class FinancialDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Financial domain.
+
+        Produces:
+          - dim_customer (from customer)
+          - dim_branch   (from branch)
+          - dim_account  (from account)
+          - dim_category (from transaction_category)
+          - fact_transaction  (from transaction)
+          - fact_loan_payment (from loan_payment + loan)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_customer": DimSpec(
+                    source="customer",
+                    sk="sk_customer",
+                    nk="customer_id",
+                ),
+                "dim_branch": DimSpec(
+                    source="branch",
+                    sk="sk_branch",
+                    nk="branch_id",
+                ),
+                "dim_account": DimSpec(
+                    source="account",
+                    sk="sk_account",
+                    nk="account_id",
+                ),
+                "dim_category": DimSpec(
+                    source="transaction_category",
+                    sk="sk_category",
+                    nk="category_id",
+                ),
+            },
+            facts={
+                "fact_transaction": FactSpec(
+                    primary="transaction",
+                    fk_map={
+                        "account_id": "dim_account",
+                        "category_id": "dim_category",
+                    },
+                    date_cols=["transaction_date"],
+                ),
+                "fact_loan_payment": FactSpec(
+                    primary="loan_payment",
+                    joins=[{
+                        "table": "loan",
+                        "left_on": "loan_id",
+                        "right_on": "loan_id",
+                    }],
+                    fk_map={"customer_id": "dim_customer"},
+                    date_cols=["payment_date"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Financial domain.
+
+        Maps source table names to Microsoft Common Data Model entity names.
+        """
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "customer": "Contact",
+            "branch": "Account",
+            "account": "FinancialAccount",
+            "card": "FinancialProduct",
+            "transaction": "Transaction",
+            "loan": "Loan",
+            "loan_payment": "Payment",
+            "fraud_flag": "Alert",
+            "transaction_category": "Category",
+            "statement": "Document",
+        })

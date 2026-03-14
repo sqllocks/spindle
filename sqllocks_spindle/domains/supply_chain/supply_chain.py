@@ -914,3 +914,84 @@ class SupplyChainDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Supply Chain domain.
+
+        Produces:
+          - dim_supplier  (from supplier)
+          - dim_warehouse (from warehouse)
+          - dim_material  (from material)
+          - dim_date      (generated from order_date / ship_date / last_counted_date)
+          - fact_po_line  (from purchase_order_line + purchase_order)
+          - fact_shipment (from shipment)
+          - fact_inventory (from inventory)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_supplier": DimSpec(
+                    source="supplier",
+                    sk="sk_supplier",
+                    nk="supplier_id",
+                ),
+                "dim_warehouse": DimSpec(
+                    source="warehouse",
+                    sk="sk_warehouse",
+                    nk="warehouse_id",
+                ),
+                "dim_material": DimSpec(
+                    source="material",
+                    sk="sk_material",
+                    nk="material_id",
+                ),
+            },
+            facts={
+                "fact_po_line": FactSpec(
+                    primary="purchase_order_line",
+                    joins=[{
+                        "table": "purchase_order",
+                        "left_on": "po_id",
+                        "right_on": "po_id",
+                    }],
+                    fk_map={
+                        "supplier_id": "dim_supplier",
+                        "material_id": "dim_material",
+                    },
+                    date_cols=["order_date"],
+                ),
+                "fact_shipment": FactSpec(
+                    primary="shipment",
+                    fk_map={
+                        "warehouse_id": "dim_warehouse",
+                    },
+                    date_cols=["ship_date"],
+                ),
+                "fact_inventory": FactSpec(
+                    primary="inventory",
+                    fk_map={
+                        "warehouse_id": "dim_warehouse",
+                        "material_id": "dim_material",
+                    },
+                    date_cols=["last_counted_date"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Supply Chain domain."""
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "warehouse": "Warehouse",
+            "supplier": "Vendor",
+            "material": "Product",
+            "purchase_order": "PurchaseOrder",
+            "purchase_order_line": "PurchaseOrderDetail",
+            "inventory": "InventoryRecord",
+            "shipment": "Shipment",
+            "shipment_event": "ShipmentEvent",
+            "quality_inspection": "QualityOrder",
+            "demand_forecast": "Forecast",
+        })

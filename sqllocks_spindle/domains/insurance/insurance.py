@@ -763,3 +763,83 @@ class InsuranceDomain(Domain):
 
         parser = SchemaParser()
         return parser.parse_dict(schema_dict)
+
+    def star_schema_map(self):
+        """Return the star schema mapping for the Insurance domain.
+
+        Produces:
+          - dim_policyholder (from policyholder)
+          - dim_agent        (from agent)
+          - dim_policy_type  (from policy_type)
+          - dim_policy       (from policy)
+          - fact_claim         (from claim)
+          - fact_claim_payment (from claim_payment + claim)
+          - fact_premium       (from premium_payment)
+        """
+        from sqllocks_spindle.transform.star_schema import DimSpec, FactSpec, StarSchemaMap
+
+        return StarSchemaMap(
+            dims={
+                "dim_policyholder": DimSpec(
+                    source="policyholder",
+                    sk="sk_policyholder",
+                    nk="policyholder_id",
+                ),
+                "dim_agent": DimSpec(
+                    source="agent",
+                    sk="sk_agent",
+                    nk="agent_id",
+                ),
+                "dim_policy_type": DimSpec(
+                    source="policy_type",
+                    sk="sk_policy_type",
+                    nk="policy_type_id",
+                ),
+                "dim_policy": DimSpec(
+                    source="policy",
+                    sk="sk_policy",
+                    nk="policy_id",
+                ),
+            },
+            facts={
+                "fact_claim": FactSpec(
+                    primary="claim",
+                    fk_map={"policy_id": "dim_policy"},
+                    date_cols=["filed_date"],
+                ),
+                "fact_claim_payment": FactSpec(
+                    primary="claim_payment",
+                    joins=[{
+                        "table": "claim",
+                        "left_on": "claim_id",
+                        "right_on": "claim_id",
+                    }],
+                    fk_map={"policy_id": "dim_policy"},
+                    date_cols=["payment_date"],
+                ),
+                "fact_premium": FactSpec(
+                    primary="premium_payment",
+                    fk_map={"policy_id": "dim_policy"},
+                    date_cols=["payment_date"],
+                ),
+            },
+        )
+
+    def cdm_map(self):
+        """Return the CDM entity map for the Insurance domain.
+
+        Maps source table names to Microsoft Common Data Model entity names.
+        """
+        from sqllocks_spindle.transform.cdm_mapper import CdmEntityMap
+
+        return CdmEntityMap({
+            "agent": "Worker",
+            "policyholder": "Contact",
+            "policy_type": "Category",
+            "policy": "Contract",
+            "coverage": "ContractDetail",
+            "claim": "Case",
+            "claim_payment": "Payment",
+            "premium_payment": "Payment",
+            "underwriting": "Assessment",
+        })
