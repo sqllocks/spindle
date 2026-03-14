@@ -45,6 +45,21 @@ from sqllocks_spindle.streaming import (
     TimePattern,
 )
 
+# Incremental (continue) engine
+from sqllocks_spindle.incremental import ContinueEngine, ContinueConfig, DeltaResult
+
+# Time-travel snapshots
+from sqllocks_spindle.incremental import TimeTravelEngine, TimeTravelConfig, TimeTravelResult
+
+# Inference (optional — requires [inference] extra)
+try:
+    from sqllocks_spindle.inference import DataMasker, DataProfiler, ExportedProfile, MaskConfig, ProfileIO, SchemaBuilder
+except ImportError:
+    pass
+
+# Presets
+from sqllocks_spindle.presets import get_preset, list_presets
+
 __all__ = [
     # Core
     "Spindle",
@@ -85,4 +100,22 @@ __all__ = [
     "FactSpec",
     "CdmMapper",
     "CdmEntityMap",
+    # Incremental
+    "ContinueEngine",
+    "ContinueConfig",
+    "DeltaResult",
+    # Time-travel
+    "TimeTravelEngine",
+    "TimeTravelConfig",
+    "TimeTravelResult",
+    # Inference
+    "DataMasker",
+    "DataProfiler",
+    "ExportedProfile",
+    "MaskConfig",
+    "ProfileIO",
+    "SchemaBuilder",
+    # Presets
+    "get_preset",
+    "list_presets",
 ]

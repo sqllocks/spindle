@@ -1,0 +1,258 @@
+"""Tests for the Spindle inference engine (DataProfiler + SchemaBuilder)."""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from sqllocks_spindle.inference.profiler import DataProfiler, DatasetProfile, HAS_SCIPY
+from sqllocks_spindle.inference.schema_builder import SchemaBuilder
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _simple_df() -> pd.DataFrame:
+    """A small DataFrame with known types for basic profiling tests."""
+    return pd.DataFrame(
+        {
+            "id": range(1, 101),
+            "name": [f"user_{i}" for i in range(1, 101)],
+            "score": np.random.default_rng(42).normal(50, 10, 100).round(2),
+            "active": [True, False] * 50,
+            "category": np.random.default_rng(42).choice(
+                ["A", "B", "C", "D"], size=100
+            ),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# TestDataProfiler
+# ---------------------------------------------------------------------------
+
+
+class TestDataProfiler:
+    def test_profile_simple_dataframe(self):
+        profiler = DataProfiler()
+        df = _simple_df()
+        profile = profiler.profile_dataframe(df, table_name="users")
+
+        assert profile.name == "users"
+        assert profile.row_count == 100
+        assert "id" in profile.columns
+        assert "name" in profile.columns
+        assert "score" in profile.columns
+        assert "active" in profile.columns
+        assert "category" in profile.columns
+
+        # Check inferred types
+        assert profile.columns["id"].dtype == "integer"
+        assert profile.columns["score"].dtype == "float"
+        assert profile.columns["active"].dtype == "boolean"
+        assert profile.columns["category"].dtype == "string"
+
+    def test_null_rate_detection(self):
+        profiler = DataProfiler()
+        df = pd.DataFrame(
+            {
+                "id": range(1, 101),
+                "value": [None if i % 4 == 0 else float(i) for i in range(1, 101)],
+            }
+        )
+        profile = profiler.profile_dataframe(df, table_name="test")
+
+        col = profile.columns["value"]
+        assert col.null_count == 25
+        assert abs(col.null_rate - 0.25) < 0.01
+
+    def test_enum_detection(self):
+        profiler = DataProfiler()
+        df = pd.DataFrame(
+            {
+                "id": range(1, 201),
+                "status": np.random.default_rng(42).choice(
+                    ["open", "closed", "pending"], size=200
+                ),
+            }
+        )
+        profile = profiler.profile_dataframe(df, table_name="tickets")
+
+        col = profile.columns["status"]
+        assert col.is_enum is True
+        assert col.enum_values is not None
+        assert "open" in col.enum_values
+        assert "closed" in col.enum_values
+        assert "pending" in col.enum_values
+        # Probabilities should sum to ~1
+        assert abs(sum(col.enum_values.values()) - 1.0) < 0.01
+
+    def test_primary_key_detection(self):
+        profiler = DataProfiler()
+        df = pd.DataFrame(
+            {
+                "id": range(1, 51),
+                "name": [f"item_{i}" for i in range(1, 51)],
+            }
+        )
+        profile = profiler.profile_dataframe(df, table_name="items")
+
+        assert profile.primary_key == ["id"]
+        assert profile.columns["id"].is_primary_key is True
+
+    def test_foreign_key_detection(self):
+        profiler = DataProfiler()
+        customers = pd.DataFrame(
+            {
+                "id": range(1, 11),
+                "name": [f"cust_{i}" for i in range(1, 11)],
+            }
+        )
+        orders = pd.DataFrame(
+            {
+                "id": range(1, 51),
+                "customer_id": np.random.default_rng(42).choice(range(1, 11), size=50),
+                "amount": np.random.default_rng(42).uniform(10, 500, 50).round(2),
+            }
+        )
+        tables = {"customer": customers, "order": orders}
+        dataset = profiler.profile_dataset(tables)
+
+        order_profile = dataset.tables["order"]
+        assert "customer_id" in order_profile.detected_fks
+        assert order_profile.detected_fks["customer_id"] == "customer"
+        assert order_profile.columns["customer_id"].is_foreign_key is True
+        assert order_profile.columns["customer_id"].fk_ref_table == "customer"
+
+        # Relationship should be recorded
+        assert len(dataset.relationships) >= 1
+        rel = dataset.relationships[0]
+        assert rel["parent"] == "customer"
+        assert rel["child"] == "order"
+
+    @pytest.mark.skipif(not HAS_SCIPY, reason="scipy not installed")
+    def test_distribution_fitting(self):
+        profiler = DataProfiler()
+        rng = np.random.default_rng(42)
+        values = rng.normal(100, 15, 500)
+        df = pd.DataFrame({"id": range(1, 501), "measurement": values})
+        profile = profiler.profile_dataframe(df, table_name="measurements")
+
+        col = profile.columns["measurement"]
+        assert col.distribution is not None
+        # A column drawn from a normal distribution should be detected as normal
+        assert col.distribution == "normal"
+        assert col.distribution_params is not None
+        assert "loc" in col.distribution_params
+        assert "scale" in col.distribution_params
+
+    def test_pattern_detection(self):
+        profiler = DataProfiler()
+        emails = [f"user{i}@example.com" for i in range(1, 101)]
+        df = pd.DataFrame({"id": range(1, 101), "email": emails})
+        profile = profiler.profile_dataframe(df, table_name="contacts")
+
+        col = profile.columns["email"]
+        assert col.pattern == "email"
+
+    def test_profile_dataset(self):
+        profiler = DataProfiler()
+        department = pd.DataFrame(
+            {
+                "id": range(1, 6),
+                "name": ["Engineering", "Sales", "HR", "Finance", "Marketing"],
+            }
+        )
+        employee = pd.DataFrame(
+            {
+                "id": range(1, 21),
+                "department_id": np.random.default_rng(42).choice(range(1, 6), size=20),
+                "name": [f"emp_{i}" for i in range(1, 21)],
+            }
+        )
+        tables = {"department": department, "employee": employee}
+        dataset = profiler.profile_dataset(tables)
+
+        assert "department" in dataset.tables
+        assert "employee" in dataset.tables
+        assert dataset.tables["department"].row_count == 5
+        assert dataset.tables["employee"].row_count == 20
+
+        # FK should be detected
+        emp = dataset.tables["employee"]
+        assert "department_id" in emp.detected_fks
+
+
+# ---------------------------------------------------------------------------
+# TestSchemaBuilder
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaBuilder:
+    def _make_profile(self) -> DatasetProfile:
+        """Build a small DatasetProfile for schema building tests."""
+        profiler = DataProfiler()
+        customer = pd.DataFrame(
+            {
+                "id": range(1, 11),
+                "name": [f"customer_{i}" for i in range(1, 11)],
+                "email": [f"c{i}@example.com" for i in range(1, 11)],
+                "status": np.random.default_rng(42).choice(
+                    ["active", "inactive"], size=10
+                ),
+            }
+        )
+        order = pd.DataFrame(
+            {
+                "id": range(1, 51),
+                "customer_id": np.random.default_rng(42).choice(range(1, 11), size=50),
+                "amount": np.random.default_rng(42).uniform(10, 500, 50).round(2),
+            }
+        )
+        return profiler.profile_dataset({"customer": customer, "order": order})
+
+    def test_build_from_profile(self):
+        builder = SchemaBuilder()
+        profile = self._make_profile()
+        schema = builder.build(profile, domain_name="test_shop")
+
+        assert schema.model.domain == "test_shop"
+        assert "customer" in schema.tables
+        assert "order" in schema.tables
+        assert len(schema.tables["customer"].columns) == 4
+        assert len(schema.tables["order"].columns) == 3
+
+        # Generation config should have scales
+        assert "small" in schema.generation.scales
+        assert "medium" in schema.generation.scales
+        assert "large" in schema.generation.scales
+
+    def test_enum_to_weighted_enum(self):
+        builder = SchemaBuilder()
+        profile = self._make_profile()
+        schema = builder.build(profile)
+
+        # status column has 2 distinct values — should be enum
+        status_gen = schema.tables["customer"].columns["status"].generator
+        assert status_gen["strategy"] == "weighted_enum"
+        assert "values" in status_gen
+
+    def test_fk_to_foreign_key(self):
+        builder = SchemaBuilder()
+        profile = self._make_profile()
+        schema = builder.build(profile)
+
+        fk_gen = schema.tables["order"].columns["customer_id"].generator
+        assert fk_gen["strategy"] == "foreign_key"
+        assert "ref" in fk_gen
+
+    def test_pk_to_sequence(self):
+        builder = SchemaBuilder()
+        profile = self._make_profile()
+        schema = builder.build(profile)
+
+        pk_gen = schema.tables["customer"].columns["id"].generator
+        assert pk_gen["strategy"] == "sequence"
+        assert pk_gen.get("start", 1) == 1
