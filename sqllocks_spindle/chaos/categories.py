@@ -355,7 +355,8 @@ class ValueChaosMutator(ChaosMutator):
 
 class FileChaosMutator(ChaosMutator):
     """Corrupt raw file bytes: truncation, encoding corruption, partial
-    writes, zero-byte files, wrong extension content.
+    writes, zero-byte files, wrong extension content, wrong delimiters,
+    invalid JSON/Parquet poison payloads.
     """
 
     @property
@@ -378,6 +379,9 @@ class FileChaosMutator(ChaosMutator):
             self._partial_write,
             self._zero_byte,
             self._garbage_header,
+            self._wrong_delimiter,
+            self._invalid_json_poison,
+            self._bom_injection,
         ]
         choice = rng.randint(0, len(mutations))
         return mutations[choice](data, rng, intensity_multiplier)
@@ -436,6 +440,61 @@ class FileChaosMutator(ChaosMutator):
         garbage_len = rng.randint(8, 64)
         garbage = bytes(rng.randint(0, 256, size=garbage_len).tolist())
         return garbage + data
+
+    @staticmethod
+    def _wrong_delimiter(
+        data: bytes,
+        rng: np.random.RandomState,
+        intensity: float,
+    ) -> bytes:
+        """Replace commas with pipes or tabs to break CSV parsing."""
+        replacements = {b",": b"|", b"\t": b",", b"|": b"\t"}
+        text = data
+        for old, new in replacements.items():
+            if old in text:
+                text = text.replace(old, new)
+                break
+        return text
+
+    @staticmethod
+    def _invalid_json_poison(
+        data: bytes,
+        rng: np.random.RandomState,
+        intensity: float,
+    ) -> bytes:
+        """Inject invalid JSON fragments to break JSONL parsers."""
+        poison_payloads = [
+            b'\n{"_poison": true, "value": NaN}\n',
+            b"\n{incomplete json\n",
+            b"\n\x00\x00\x00\n",
+            b'\n{"nested": {"too": {"deep": {"for": {"parsers": "maybe"}}}}}\n',
+            b"\n[]\n",  # array instead of object
+        ]
+        payload = poison_payloads[rng.randint(0, len(poison_payloads))]
+        # Insert at a random position
+        if len(data) > 1:
+            pos = rng.randint(0, len(data))
+            return data[:pos] + payload + data[pos:]
+        return data + payload
+
+    @staticmethod
+    def _bom_injection(
+        data: bytes,
+        rng: np.random.RandomState,
+        intensity: float,
+    ) -> bytes:
+        """Prepend a UTF-8 BOM or inject mid-stream BOMs."""
+        bom = b"\xef\xbb\xbf"
+        choice = rng.randint(0, 2)
+        if choice == 0:
+            # Prepend BOM
+            return bom + data
+        else:
+            # Inject BOM at random position
+            if len(data) > 1:
+                pos = rng.randint(1, len(data))
+                return data[:pos] + bom + data[pos:]
+            return bom + data
 
 
 # ======================================================================

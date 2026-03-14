@@ -4,6 +4,10 @@ from sqllocks_spindle.fabric.onelake_paths import OneLakePaths
 from sqllocks_spindle.fabric.lakehouse_files_writer import LakehouseFilesWriter
 
 __all__ = [
+    "CredentialResolver",
+    "CredentialError",
+    "EventhouseWriter",
+    "EventhouseWriteResult",
     "EventstreamClient",
     "FabricSqlDatabaseWriter",
     "FabricStreamWriter",
@@ -15,6 +19,11 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    if name in ("CredentialResolver", "CredentialError"):
+        from sqllocks_spindle.fabric.credentials import CredentialResolver, CredentialError
+        if name == "CredentialResolver":
+            return CredentialResolver
+        return CredentialError
     if name == "EventstreamClient":
         from sqllocks_spindle.fabric.eventstream_client import EventstreamClient
         return EventstreamClient
@@ -29,4 +38,9 @@ def __getattr__(name: str):
     if name == "FabricStreamWriter":
         from sqllocks_spindle.fabric.stream_writer_convenience import FabricStreamWriter
         return FabricStreamWriter
+    if name in ("EventhouseWriter", "EventhouseWriteResult"):
+        from sqllocks_spindle.fabric.eventhouse_writer import EventhouseWriter, EventhouseWriteResult
+        if name == "EventhouseWriter":
+            return EventhouseWriter
+        return EventhouseWriteResult
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,12 @@ class FileDropConfig:
     duplicate_probability: float = 0.02
     backfill_enabled: bool = False
     max_days_back: int = 0
+    restatement_enabled: bool = False
+    restatement_probability: float = 0.05
+    restatement_max_correction_pct: float = 0.10
+    multi_file_enabled: bool = False
+    multi_file_chunks: int = 4
+    multi_file_checksum: bool = True
     seed: int = 42
 
 
@@ -178,20 +185,36 @@ class FileDropSimulator:
                 if cfg.duplicates_enabled and not slot_df.empty:
                     slot_df = self._inject_duplicates(slot_df)
 
-                written = self._write_data(slot_df, entity, slot_dt, partition_dir)
+                # Multi-file chunking: split entity into N chunks per slot
+                if cfg.multi_file_enabled and cfg.multi_file_chunks > 1 and len(slot_df) > cfg.multi_file_chunks:
+                    chunks = np.array_split(slot_df, cfg.multi_file_chunks)
+                    written = []
+                    for chunk_idx, chunk_df in enumerate(chunks):
+                        if chunk_df.empty:
+                            continue
+                        chunk_files = self._write_data(
+                            chunk_df, entity, slot_dt, partition_dir,
+                            seq_start=chunk_idx + 1,
+                        )
+                        written.extend(chunk_files)
+                else:
+                    written = self._write_data(slot_df, entity, slot_dt, partition_dir)
                 entity_files.extend(written)
                 entity_rows += len(slot_df)
 
-                # Manifest
+                # Manifest (with optional checksums for multi-file mode)
                 if cfg.manifest_enabled:
-                    mp = self._write_manifest(partition_dir, written, slot_dt, entity)
+                    mp = self._write_manifest(
+                        partition_dir, written, slot_dt, entity,
+                        include_checksums=cfg.multi_file_enabled and cfg.multi_file_checksum,
+                    )
                     manifest_paths.append(mp)
 
                 # Done flag
                 if cfg.done_flag_enabled:
                     dp = partition_dir / "_done"
                     dp.write_text(
-                        datetime.utcnow().isoformat(), encoding="utf-8",
+                        datetime.now(timezone.utc).isoformat(), encoding="utf-8",
                     )
                     done_flag_paths.append(dp)
 
@@ -199,6 +222,11 @@ class FileDropSimulator:
             if cfg.backfill_enabled and cfg.max_days_back > 0 and slots:
                 bf_files = self._generate_backfills(entity, df, ts_col, slots)
                 entity_files.extend(bf_files)
+
+            # Restatements — re-drop historical partitions with corrected values
+            if cfg.restatement_enabled and slots:
+                rs_files = self._generate_restatements(entity, df, ts_col, slots)
+                entity_files.extend(rs_files)
 
             files_written.extend(entity_files)
             stats[entity] = {
@@ -359,18 +387,29 @@ class FileDropSimulator:
         data_files: list[Path],
         slot_dt: datetime,
         entity: str,
+        include_checksums: bool = False,
     ) -> Path:
         """Write a JSON manifest summarising the partition drop."""
-        manifest = {
+        file_entries: list[Any] = []
+        for f in data_files:
+            entry: dict[str, Any] = {"name": str(f.name)}
+            if include_checksums and f.exists():
+                entry["sha256"] = hashlib.sha256(f.read_bytes()).hexdigest()
+                entry["size_bytes"] = f.stat().st_size
+            file_entries.append(entry)
+
+        manifest: dict[str, Any] = {
             "entity": entity,
             "domain": self._config.domain,
             "slot": slot_dt.isoformat(),
             "cadence": self._config.cadence,
             "files": [str(f.name) for f in data_files],
             "file_count": len(data_files),
-            "created_utc": datetime.utcnow().isoformat(),
+            "created_utc": datetime.now(timezone.utc).isoformat(),
             "correlation_id": str(uuid.uuid4()),
         }
+        if include_checksums:
+            manifest["file_details"] = file_entries
         path = partition_dir / "_manifest.json"
         path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return path
@@ -460,4 +499,80 @@ class FileDropSimulator:
         files.extend(
             self._write_data(backfill_df, entity, slot_dt, partition_dir, seq_start=990)
         )
+        return files
+
+    def _generate_restatements(
+        self,
+        entity: str,
+        df: pd.DataFrame,
+        ts_col: str | None,
+        slots: list[datetime],
+    ) -> list[Path]:
+        """Re-drop a historical partition with corrected numeric values.
+
+        Simulates a fact-table restatement where upstream issues (e.g. wrong
+        exchange rate, duplicate counting) are corrected by re-landing the
+        partition with adjusted values.
+        """
+        cfg = self._config
+        files: list[Path] = []
+
+        if len(slots) < 2:
+            return files
+
+        # Decide which slots to restate (probabilistic)
+        restate_mask = self._rng.random(len(slots)) < cfg.restatement_probability
+        restate_indices = np.where(restate_mask)[0]
+        if len(restate_indices) == 0:
+            return files
+
+        cadence_map = {
+            "daily": timedelta(days=1),
+            "hourly": timedelta(hours=1),
+            "every_15m": timedelta(minutes=15),
+        }
+        delta = cadence_map.get(cfg.cadence, timedelta(days=1))
+
+        for idx in restate_indices:
+            slot_dt = slots[idx]
+
+            # Re-slice for that slot
+            if ts_col and ts_col in df.columns:
+                ts_series = pd.to_datetime(df[ts_col], errors="coerce")
+                mask = (ts_series >= slot_dt) & (ts_series < slot_dt + delta)
+                slot_df = df.loc[mask].copy()
+            else:
+                chunk_size = max(1, len(df) // len(slots))
+                start_pos = idx * chunk_size
+                slot_df = df.iloc[start_pos : start_pos + chunk_size].copy()
+
+            if slot_df.empty:
+                continue
+
+            # Apply corrections to numeric columns
+            numeric_cols = slot_df.select_dtypes(include="number").columns.tolist()
+            # Exclude ID-like columns from correction
+            correction_cols = [
+                c for c in numeric_cols
+                if not c.endswith("_id") and c != slot_df.columns[0]
+            ]
+
+            for col in correction_cols:
+                correction = self._rng.uniform(
+                    -cfg.restatement_max_correction_pct,
+                    cfg.restatement_max_correction_pct,
+                    size=len(slot_df),
+                )
+                slot_df[col] = slot_df[col] * (1 + correction)
+
+            # Mark as restatement
+            slot_df["_restatement"] = True
+            slot_df["_restated_at"] = datetime.now(timezone.utc).isoformat()
+
+            partition_dir = self._partition_path(entity, slot_dt)
+            partition_dir.mkdir(parents=True, exist_ok=True)
+            files.extend(
+                self._write_data(slot_df, entity, slot_dt, partition_dir, seq_start=980)
+            )
+
         return files

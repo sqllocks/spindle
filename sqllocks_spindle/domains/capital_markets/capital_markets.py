@@ -188,7 +188,7 @@ class CapitalMarketsDomain(Domain):
                             "type": "string",
                             "max_length": 10,
                             "generator": {
-                                "strategy": "reference_data",
+                                "strategy": "record_sample",
                                 "dataset": "sp500_constituents",
                                 "field": "ticker",
                             },

@@ -59,6 +59,11 @@ fabric-sql = [
     "pyodbc>=5.0",
     "azure-identity>=1.15",
 ]
+eventhouse = [
+    "azure-kusto-data>=4.3",
+    "azure-kusto-ingest>=4.3",
+    "azure-identity>=1.15",
+]
 docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.24",

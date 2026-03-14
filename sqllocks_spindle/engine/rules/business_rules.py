@@ -180,8 +180,13 @@ class BusinessRulesEngine:
 
         # Right side can be a column name or a numeric literal
         if right in df.columns:
-            left_vals = df[left].astype(float)
-            right_vals = df[right].astype(float)
+            is_dt = pd.api.types.is_datetime64_any_dtype(df[left])
+            if is_dt:
+                left_vals = pd.to_datetime(df[left])
+                right_vals = pd.to_datetime(df[right])
+            else:
+                left_vals = df[left].astype(float)
+                right_vals = df[right].astype(float)
             if op == ">":
                 violations = (left_vals <= right_vals).sum()
             elif op == ">=":
@@ -238,19 +243,36 @@ class BusinessRulesEngine:
         if left not in df.columns or right not in df.columns:
             return
 
-        left_vals = df[left].astype(float)
-        right_vals = df[right].astype(float)
+        is_datetime = pd.api.types.is_datetime64_any_dtype(df[left])
 
-        if op == "<":
-            mask = left_vals >= right_vals
-            if mask.any():
-                factors = rng.uniform(0.3, 0.95, size=mask.sum())
-                df.loc[mask, left] = (right_vals[mask] * factors).round(2)
-        elif op == ">":
-            mask = left_vals <= right_vals
-            if mask.any():
-                factors = rng.uniform(1.05, 2.0, size=mask.sum())
-                df.loc[mask, left] = (right_vals[mask] * factors).round(2)
+        if is_datetime:
+            left_vals = pd.to_datetime(df[left])
+            right_vals = pd.to_datetime(df[right])
+
+            if op == "<":
+                mask = left_vals >= right_vals
+                if mask.any():
+                    offsets = pd.to_timedelta(rng.integers(1, 30, size=mask.sum()), unit="D")
+                    df.loc[mask, left] = right_vals[mask] - offsets
+            elif op == ">":
+                mask = left_vals <= right_vals
+                if mask.any():
+                    offsets = pd.to_timedelta(rng.integers(1, 30, size=mask.sum()), unit="D")
+                    df.loc[mask, left] = right_vals[mask] + offsets
+        else:
+            left_vals = df[left].astype(float)
+            right_vals = df[right].astype(float)
+
+            if op == "<":
+                mask = left_vals >= right_vals
+                if mask.any():
+                    factors = rng.uniform(0.3, 0.95, size=mask.sum())
+                    df.loc[mask, left] = (right_vals[mask] * factors).round(2)
+            elif op == ">":
+                mask = left_vals <= right_vals
+                if mask.any():
+                    factors = rng.uniform(1.05, 2.0, size=mask.sum())
+                    df.loc[mask, left] = (right_vals[mask] * factors).round(2)
 
     def _fix_cross_table(
         self,
