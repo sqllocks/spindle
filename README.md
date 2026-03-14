@@ -44,7 +44,7 @@ print(result.summary())
 
 ## Domains
 
-Spindle ships **12 production-ready domains** — each with calibrated distribution profiles, referential integrity enforcement, and 20+ passing tests:
+Spindle ships **13 production-ready domains** — each with calibrated distribution profiles, referential integrity enforcement, and 1,250+ passing tests:
 
 | Domain | Tables | Description |
 |--------|--------|-------------|
@@ -60,6 +60,7 @@ Spindle ships **12 production-ready domains** — each with calibrated distribut
 | **Real Estate** | 9 | Agents, listings, offers, transactions, inspections |
 | **Manufacturing** | 9 | Production lines, work orders, quality control, equipment |
 | **Telecom** | 9 | Subscribers, service lines, usage records, billing, churn |
+| **Capital Markets** | 10 | S&P 500 companies, daily prices (GBM), dividends, earnings, trades |
 
 Each domain ships with calibrated distribution profiles based on real-world data (see `METHODOLOGY.md`).
 
@@ -128,7 +129,7 @@ Drop the lat/lng columns directly into a Power BI map visual — no geocoding re
 
 ## Generation Strategies
 
-Spindle supports 20 column-level strategies:
+Spindle supports 21 column-level strategies:
 
 | Strategy | Description |
 |---|---|
@@ -152,6 +153,7 @@ Spindle supports 20 column-level strategies:
 | `self_ref_field` | Read level info stashed by self_referencing |
 | `record_sample` | Sample complete records from a reference dataset (anchor) |
 | `record_field` | Read a field from a previously sampled record (correlated derived columns) |
+| `scd2` | SCD Type 2 versioning: effective_date, end_date, is_current, version |
 
 ---
 
@@ -198,6 +200,15 @@ Schemas are defined in `.spindle.json` files. See `PHASE-0-SPEC.md` for the full
 ## CLI
 
 ```bash
+# Publish directly to Fabric Lakehouse
+spindle publish retail --target lakehouse --base-path "abfss://..." --scale small
+
+# Publish to Fabric SQL Database
+spindle publish retail --target sql-database --connection-string "env://SPINDLE_SQL_CONNECTION"
+
+# Publish to Eventhouse (KQL)
+spindle publish retail --target eventhouse --connection-string "https://..." --database mydb
+
 # Generate retail data at small scale
 spindle generate retail --scale small --seed 42 --output ./output/
 
@@ -260,10 +271,14 @@ MIT — see `LICENSE`
 
 ## Roadmap
 
-- **Phase 0** ✅ Core engine, 21 strategies, Retail + Healthcare domains, calibrated profiles, 103 tests
+- **Phase 0** ✅ Core engine, 21 strategies, Retail + Healthcare domains, calibrated profiles
 - **Phase 1** ✅ Fabric Lakehouse writer, CSV/Parquet/Delta/JSONL/Excel output, CLI
-- **Phase 2** ✅ Streaming engine — `SpindleStreamer`, Poisson inter-arrivals, token-bucket rate limiting, `AnomalyRegistry` (point/contextual/collective), Event Hub + Kafka sinks, `spindle stream` CLI
-- **Phase 3** ✅ Domain expansion — 10 new domains (12 total), 409 tests, shared reference data
-- **Phase 4** ✅ spindle-forge MCP server — TypeScript bridge with `spindle_list_domains`, `spindle_describe_domain`, `spindle_generate`
-- **Phase 5** ✅ PyPI packaging, GitHub Actions CI/CD, sample notebooks
-- **Phase 6** ✅ Star schema output, CDM folder export, `fabric_demo` + `warehouse` scale presets, `spindle to-star` / `spindle to-cdm` CLI
+- **Phase 2** ✅ Streaming engine, AnomalyRegistry, Event Hub + Kafka sinks, `spindle stream` CLI
+- **Phase 3** ✅ Domain expansion — 12 domains, shared reference data
+- **Phase 4** ✅ MCP server bridge, PyPI packaging, GitHub Actions CI/CD
+- **Phase 5** ✅ Star schema output, CDM export, `spindle to-star` / `spindle to-cdm` CLI
+- **Tier 1** ✅ MkDocs site, 17 doc guides, 4 tutorial notebooks, GenerationResult convenience methods
+- **Tier 2** ✅ SQL/DDL pipeline, FabricSqlDatabaseWriter, Capital Markets domain, star/CDM maps for all 13 domains, 12 notebooks
+- **Tier 3** ✅ Inference engine (`spindle learn/compare/mask`), incremental engine (`spindle continue`), SCD2, time-travel snapshots, composite presets, 11 notebooks
+- **Blueprint** ✅ Credential resolver, `spindle publish` CLI, Eventhouse writer, observability, 6 simulation pattern modules (clickstream, IoT telemetry, financial streams, operational logs, workflow state machines, SCD2 file drops), acceptance tests, provisioning guide
+- **Launch** 🚧 PyPI final publish, beta outreach, content pieces
