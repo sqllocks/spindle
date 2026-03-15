@@ -140,3 +140,16 @@ Every emitted event includes metadata columns:
 | `_spindle_event_time` | Auto-detected timestamp from the first datetime column |
 | `_spindle_is_anomaly` | `True` if this row was injected as an anomaly |
 | `_spindle_anomaly_type` | Anomaly type label (e.g., `point:extreme_amount`) |
+
+---
+
+## See Also
+
+- **Tutorial:** [06: Streaming](../tutorials/intermediate/06-streaming.md) — step-by-step walkthrough
+- **Tutorial:** [12: Fabric Streaming](../tutorials/fabric/12-fabric-streaming.md) — step-by-step walkthrough
+- **Example script:** [`08_streaming_basics.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/08_streaming_basics.py)
+- **Example script:** [`09_streaming_realtime.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/09_streaming_realtime.py)
+- **Example script:** [`10_streaming_anomalies.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/10_streaming_anomalies.py)
+- **Example script:** [`11_streaming_eventhub_kafka.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/11_streaming_eventhub_kafka.py)
+- **Notebook:** [`T12_streaming_events.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/intermediate/T12_streaming_events.ipynb)
+- **Notebook:** [`F04_realtime_streaming.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/fabric-scenarios/F04_realtime_streaming.ipynb)

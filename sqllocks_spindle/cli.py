@@ -729,13 +729,17 @@ def export_model(
 @click.option("--output", "-o", default=None, help="Output path for .spindle.json file")
 @click.option("--domain", default="custom", help="Domain name for the generated schema")
 @click.option("--scale", "-s", default=None, help="Scale override: small:table1=N,table2=N")
-def from_ddl(input_file: str, output: str | None, domain: str, scale: str | None):
+@click.option("--smart/--no-smart", default=True, help="Enable smart inference (realistic distributions, FK patterns, business rules)")
+@click.option("--explain", is_flag=True, help="Print inference explanation report")
+def from_ddl(input_file: str, output: str | None, domain: str, scale: str | None,
+             smart: bool, explain: bool):
     """Import SQL DDL (CREATE TABLE) into a .spindle.json schema.
 
     Parses SQL Server, PostgreSQL, MySQL, and ANSI SQL dialects.
-    Automatically infers generator strategies from column types and names.
+    With --smart (default), infers realistic distributions, FK patterns,
+    temporal seasonality, and business rules from schema structure.
 
-    Example: spindle from-ddl my_tables.sql --output my_schema.spindle.json
+    Example: spindle from-ddl adventureworks.sql --output aw.spindle.json
     """
     import json
 
@@ -753,6 +757,13 @@ def from_ddl(input_file: str, output: str | None, domain: str, scale: str | None
     schema.model.domain = domain
     schema.model.name = f"{domain}_ddl_import"
 
+    # Smart inference: upgrade strategies based on schema structure
+    annotations = []
+    if smart:
+        from sqllocks_spindle.schema.inference import SchemaInferenceEngine
+        engine = SchemaInferenceEngine()
+        schema, annotations = engine.infer_with_report(schema)
+
     # Apply scale overrides if provided
     if scale:
         _apply_scale_overrides(schema, scale)
@@ -769,19 +780,31 @@ def from_ddl(input_file: str, output: str | None, domain: str, scale: str | None
     with open(output, "w", encoding="utf-8") as f:
         json.dump(schema_dict, f, indent=2)
 
-    click.echo(f"Spindle v{__version__} — DDL Import")
+    click.echo(f"Spindle v{__version__} — DDL Import{' (Smart)' if smart else ''}")
     click.echo()
     click.echo(f"  Source: {input_file}")
     click.echo(f"  Output: {output}")
     click.echo(f"  Tables: {len(schema.tables)}")
     click.echo(f"  Relationships: {len(schema.relationships)}")
+    click.echo(f"  Business rules: {len(schema.business_rules)}")
+    if smart:
+        click.echo(f"  Inferences: {len(annotations)}")
     click.echo()
     for tname, tdef in schema.tables.items():
         pk_str = f" (PK: {', '.join(tdef.primary_key)})" if tdef.primary_key else ""
         click.echo(f"  {tname}: {len(tdef.columns)} columns{pk_str}")
     click.echo()
     click.echo(f"Schema written to {output}")
-    click.echo("Run: spindle generate custom --schema {output} --scale small")
+    click.echo(f"Run: spindle generate custom --schema {output} --scale small")
+
+    # Print explain report if requested
+    if explain and annotations:
+        click.echo()
+        click.echo("--- Inference Report ---")
+        click.echo()
+        for ann in annotations:
+            col_str = f".{ann.column}" if ann.column else ""
+            click.echo(f"  [{ann.rule_id}] {ann.table}{col_str}: {ann.description} (confidence: {ann.confidence:.0%})")
 
 
 @main.command(name="continue")

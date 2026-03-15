@@ -87,3 +87,11 @@ All default profile weights are documented with real-world sources in the [Metho
 - **Other domains:** Industry-specific authoritative sources
 
 See [Methodology & Calibration](../methodology/calibration.md) for the full citation trail.
+
+---
+
+## See Also
+
+- **Tutorial:** [01: Hello Spindle](../tutorials/beginner/01-hello-spindle.md) — step-by-step walkthrough
+- **Example script:** [`05_distribution_overrides.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/05_distribution_overrides.py)
+- **Notebook:** [`T05_distribution_overrides.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/quickstart/T05_distribution_overrides.ipynb)

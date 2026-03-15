@@ -116,3 +116,13 @@ spindle simulate file-drop --domain retail --scale small \
 - **`gradual`** — injection probability increases linearly from `chaos_start_day` to the end of the date range
 - **`random`** — each day has an independent random probability based on intensity
 - **`front-loaded`** — high probability early, decreasing over time (useful for testing recovery)
+
+---
+
+## See Also
+
+- **Tutorial:** [07: Chaos Engineering](../tutorials/intermediate/07-chaos-engineering.md) — step-by-step walkthrough
+- **Tutorial:** [13: Medallion Architecture](../tutorials/fabric/13-medallion.md) — step-by-step walkthrough
+- **Example script:** [`13_chaos_injection.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/13_chaos_injection.py)
+- **Notebook:** [`T14_chaos_engineering.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/intermediate/T14_chaos_engineering.ipynb)
+- **Notebook:** [`F05_chaos_pipeline.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/fabric-scenarios/F05_chaos_pipeline.ipynb)

@@ -1,6 +1,6 @@
 # Domain Catalog
 
-Spindle ships 12 industry domains, each with realistic table schemas, weighted distributions, and configurable scale presets.
+Spindle ships 13 industry domains, each with realistic table schemas, weighted distributions, and configurable scale presets.
 
 ## Available Domains
 
@@ -18,6 +18,7 @@ Spindle ships 12 industry domains, each with realistic table schemas, weighted d
 | [Real Estate](real-estate.md) | `RealEstateDomain` | 9 | Properties, listings, offers, transactions, and inspections |
 | [Manufacturing](manufacturing.md) | `ManufacturingDomain` | 9 | Production lines, work orders, quality control, and equipment |
 | [Telecom](telecom.md) | `TelecomDomain` | 9 | Subscribers, service lines, usage records, billing, and churn |
+| [Capital Markets](capital-markets.md) | `CapitalMarketsDomain` | 10 | S&P 500 equities, daily OHLCV, dividends, earnings, insider transactions |
 
 ## Quick Start
 

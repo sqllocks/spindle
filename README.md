@@ -12,6 +12,42 @@ pip install sqllocks-spindle
 
 ---
 
+## Why Spindle?
+
+Every Fabric project starts with the same problem: **where's the test data?**
+
+Random data generators give you `Customer_001` buying `Product_ABC` for `$10.00`. Dashboards look flat. Pipelines pass testing but fail on real cardinality. ML models train on data with no signal to find.
+
+Spindle generates data that **looks and behaves like production data** — without any real data involved:
+
+- **13 pre-built domains** with distributions sourced from published data (BLS, NAIC, NCES, NAR, FDIC, Federal Reserve, SEC, and 40+ more)
+- **Schema-aware generation** — tables generated in dependency order, FK integrity guaranteed, composite keys handled
+- **Chaos engine** — intentionally corrupt data (nulls, duplicates, schema drift) to stress-test your pipeline
+- **Fabric-native** — write directly to Lakehouse, Warehouse, SQL Database, Eventhouse, and Semantic Models
+- **Transparent** — every generation rule is a human-readable `.spindle.json` schema you can inspect and version control
+
+Unlike ML-based generators (SDV, MOSTLY AI, Gretel), Spindle doesn't need training data. Unlike Faker, it produces relationally correct, statistically calibrated datasets at any scale.
+
+---
+
+## Documentation
+
+| I want to... | Go to |
+|-------------|-------|
+| Get started in 5 minutes | [Quickstart (Python)](docs/getting-started/quickstart.md) |
+| Use the CLI without writing Python | [Quickstart (CLI)](docs/getting-started/quickstart-cli.md) |
+| Generate data in a Fabric notebook | [Quickstart (Fabric)](docs/getting-started/quickstart-fabric.md) |
+| Follow step-by-step tutorials | [Tutorials](docs/tutorials/) (17 learning paths) |
+| Understand a specific feature | [Guides](docs/guides/) (18 feature guides) |
+| Run working example code | [Examples](examples/) (22 scripts + 35 notebooks) |
+| Browse the API | [API Reference](https://sqllocks.github.io/spindle/reference/) |
+| See all 13 domains | [Domain Catalog](docs/domains/) |
+| Check calibration sources | [Methodology](docs/methodology/calibration.md) |
+
+Full docs site: [sqllocks.github.io/spindle](https://sqllocks.github.io/spindle)
+
+---
+
 ## Quick Start
 
 ```python
@@ -272,7 +308,7 @@ spindle profile export retail --output retail_profile.json
 
 ```bash
 # Create virtual environment
-python3.13 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 

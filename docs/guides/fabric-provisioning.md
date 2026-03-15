@@ -188,3 +188,9 @@ Tests are automatically skipped for targets without credentials configured.
 | `ModuleNotFoundError: azure.kusto` | `pip install sqllocks-spindle[eventhouse]` |
 | `ModuleNotFoundError: pyodbc` | `pip install sqllocks-spindle[fabric-sql]` |
 | OneLake path errors | Verify `abfss://` format includes `.Lakehouse` suffix |
+
+---
+
+## See Also
+
+- **Tutorial:** [10: Fabric Lakehouse](../tutorials/fabric/10-fabric-lakehouse.md) — step-by-step walkthrough

@@ -88,3 +88,10 @@ writer.write(result)
 | Query development | `small` | ~15K |
 | Performance testing | `medium` | ~1M |
 | Load testing | `large` | ~15M |
+
+---
+
+## See Also
+
+- **Tutorial:** [11: Fabric Warehouse](../tutorials/fabric/11-fabric-warehouse.md) — step-by-step walkthrough
+- **Notebook:** [`F02_warehouse_dimensional.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/fabric-scenarios/F02_warehouse_dimensional.ipynb)

@@ -5,6 +5,19 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-14
+
+### Added
+
+- All 18 Blueprint items (E1-E18): CredentialResolver, RunManifest enhancements, observability, IoT/financial/clickstream/operational log simulation, state machines, SCD2 file drops, `spindle publish` CLI, acceptance tests, EventhouseWriter, Fabric provisioning guide
+- Tier 3 features: `spindle learn`, `spindle continue`, `spindle compare`, `spindle time-travel`, `spindle mask`, composite presets, profile sharing
+- 34/35 notebooks pre-executed with saved output
+
+### Changed
+
+- Version: 1.3.0 -> 2.0.0 (major bump reflects complete feature set)
+- Test count: 989 -> 1,250
+
 ## [1.3.0] - 2026-03-13
 
 ### Added
@@ -98,7 +111,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     - Microsoft CDM folder structure (model.json + entity data files)
     - `RetailDomain.cdm_map()` and `HealthcareDomain.cdm_map()`
 
-- **Scale presets** -- `fabric_demo` and `warehouse` added to all 12 domains
+- **Scale presets** -- `fabric_demo` and `warehouse` added to all 13 domains
 
 - **CLI commands** -- `spindle to-star` and `spindle to-cdm`
 
@@ -114,7 +127,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Version: 1.0.0 -> 1.2.0
 
-## [0.1.0] - 2026-03-11
+## [1.0.0] - 2026-03-11
 
 ### Added
 

@@ -81,4 +81,4 @@ pip install sqllocks-spindle[fabric]    # Delta Lake support (deltalake)
 - [Installation](installation.md) — all extras and environment setup
 - [CLI Cheatsheet](cli-cheatsheet.md) — all 12 CLI commands
 - [Generation Strategies](../guides/strategies.md) — the 21 column-level strategies
-- [Domain Catalog](../domains/index.md) — all 12 industry domains
+- [Domain Catalog](../domains/index.md) — all 13 industry domains

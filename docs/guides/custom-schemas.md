@@ -195,3 +195,10 @@ spindle describe retail
 ```
 
 Shows tables, columns, generation order, relationships, and scale presets.
+
+---
+
+## See Also
+
+- **Tutorial:** [03: Custom Schemas](../tutorials/beginner/03-custom-schemas.md) — step-by-step walkthrough
+- **Notebook:** [`T03_custom_schema.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/quickstart/T03_custom_schema.ipynb)

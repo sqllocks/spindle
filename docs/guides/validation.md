@@ -139,3 +139,12 @@ class MyCustomGate(ValidationGate):
 
 GateRunner.register_gate("my_custom_check", MyCustomGate)
 ```
+
+---
+
+## See Also
+
+- **Tutorial:** [08: Validation Gates](../tutorials/intermediate/08-validation-gates.md) — step-by-step walkthrough
+- **Tutorial:** [13: Medallion](../tutorials/fabric/13-medallion.md) — step-by-step walkthrough
+- **Example script:** [`18_validation_gates.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/18_validation_gates.py)
+- **Notebook:** [`T15_validation_gates.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/intermediate/T15_validation_gates.ipynb)

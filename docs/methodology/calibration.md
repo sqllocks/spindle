@@ -14,6 +14,30 @@ Every domain has a default profile with distribution weights derived from publis
 | **Medium** | Derived from multiple consistent industry sources | Loyalty tiers, promotion types, seasonal patterns |
 | **Low** | Informed estimates without direct public benchmarks | Addresses per customer, product lifecycle phases |
 
+## Domain Calibration Status
+
+All 13 domains have distribution parameters sourced from published data. The depth varies by domain:
+
+| Domain | Sources | Key References |
+| --- | --- | --- |
+| **Retail** | 20+ | NRF, Census, Statista, Shopify, CapitalOne Shopping |
+| **Healthcare** | 20+ | CDC, CMS, AAMC, KFF, AHA, BLS, MEPS |
+| **HR** | 10+ | BLS JOLTS, BLS OEWS, SHRM, ATD, Mercer |
+| **Education** | 10+ | NCES IPEDS, AAUP, GradeInflation.com |
+| **Insurance** | 10+ | NAIC, AM Best, III, KFF, LOMA |
+| **Telecom** | 8+ | CTIA, FCC, Counterpoint, JD Power |
+| **Financial** | 8+ | FDIC, Federal Reserve, FICO, Fed Payments Study |
+| **Capital Markets** | 8+ | SEC EDGAR, S&P/MSCI GICS, FactSet, CRSP |
+| **Marketing** | 6+ | HubSpot, Salesforce, Belkins, Mailchimp |
+| **Real Estate** | 5+ | NAR, Census Bureau |
+| **Manufacturing** | 5+ | LNS Research, Gartner, ASQ, OEE.com |
+| **Supply Chain** | 5+ | ISM, APQC, APICS/ASCM |
+| **IoT** | 5+ | Gartner, McKinsey, Frost & Sullivan, IEEE |
+
+All domains produce relationally correct data with proper FK integrity. Users can override any distribution via profiles or the `overrides` parameter. Full per-parameter citations are in [METHODOLOGY.md](https://github.com/sqllocks/spindle/blob/main/METHODOLOGY.md).
+
+---
+
 ## Retail Domain Sources
 
 **Customer Demographics:** CapitalOne Shopping Research, US Census Bureau, Antavo/Mastercard tiered program guides, Bond Brand Loyalty Report 2024.

@@ -517,7 +517,8 @@ class DdlParser:
         for fk in all_fks:
             fk_index[(fk.child_table.lower(), fk.child_column.lower())] = fk
 
-        # Build tables
+        # Build tables — also track naming-convention FKs discovered during resolution
+        convention_fks: list[_ParsedForeignKey] = []
         spindle_tables: dict[str, TableDef] = {}
         for pt in parsed_tables:
             columns: dict[str, ColumnDef] = {}
@@ -526,6 +527,21 @@ class DdlParser:
                 if generator is None:
                     # Binary column — skip
                     continue
+
+                # Track naming-convention FKs (not in fk_index) for relationship building
+                if (
+                    generator.get("strategy") == "foreign_key"
+                    and (pt.name.lower(), pc.name.lower()) not in fk_index
+                ):
+                    ref = generator.get("ref", "")
+                    if "." in ref:
+                        parent_table, parent_col = ref.split(".", 1)
+                        convention_fks.append(_ParsedForeignKey(
+                            child_table=pt.name,
+                            child_column=pc.name,
+                            parent_table=parent_table,
+                            parent_column=parent_col,
+                        ))
 
                 col_type = self._resolve_spindle_type(pc)
 
@@ -545,8 +561,9 @@ class DdlParser:
                 primary_key=pt.primary_key,
             )
 
-        # Build relationships from FKs
-        relationships = self._build_relationships(all_fks, spindle_tables)
+        # Build relationships from explicit + naming-convention FKs
+        combined_fks = all_fks + convention_fks
+        relationships = self._build_relationships(combined_fks, spindle_tables)
 
         # Build scale defaults
         generation = self._build_generation(spindle_tables)
@@ -593,9 +610,9 @@ class DdlParser:
         # 3. Naming-convention FK detection: column ends with _id and matches a table
         col_lower = col.name.lower()
         if col_lower.endswith("_id") and col_lower not in ("id",):
-            candidate_table = col_lower[:-3]  # strip _id
-            if candidate_table in table_names and candidate_table != table.name.lower():
-                real_table = table_names[candidate_table]
+            candidate = col_lower[:-3]  # strip _id
+            real_table = self._find_table_by_singular(candidate, table_names)
+            if real_table is not None and real_table.lower() != table.name.lower():
                 return {
                     "strategy": "foreign_key",
                     "ref": f"{real_table}.{col.name}",
@@ -633,6 +650,41 @@ class DdlParser:
 
         # Fallback
         return {"strategy": "faker", "provider": "text", "max_nb_chars": 50}
+
+    @staticmethod
+    def _find_table_by_singular(
+        candidate: str, table_names: dict[str, str]
+    ) -> str | None:
+        """Find a table matching a singular FK candidate, trying plural forms.
+
+        Given ``candidate`` (e.g. ``"order"``), look up in *table_names*
+        (keyed by lowercase) for ``order``, ``orders``, ``orderes``, or
+        ``orderies`` (for -y → -ies plurals).
+        """
+        # Exact match (singular table name)
+        if candidate in table_names:
+            return table_names[candidate]
+        # Common English plurals
+        if candidate + "s" in table_names:
+            return table_names[candidate + "s"]
+        if candidate + "es" in table_names:
+            return table_names[candidate + "es"]
+        if candidate.endswith("y") and candidate[:-1] + "ies" in table_names:
+            return table_names[candidate[:-1] + "ies"]
+        # Reverse: candidate might already be plural — try singularising
+        if candidate.endswith("ies"):
+            singular = candidate[:-3] + "y"
+            if singular in table_names:
+                return table_names[singular]
+        if candidate.endswith("ses") or candidate.endswith("xes") or candidate.endswith("zes"):
+            singular = candidate[:-2]
+            if singular in table_names:
+                return table_names[singular]
+        if candidate.endswith("s") and not candidate.endswith("ss"):
+            singular = candidate[:-1]
+            if singular in table_names:
+                return table_names[singular]
+        return None
 
     def _resolve_string_heuristic(self, col: _ParsedColumn) -> dict[str, Any] | None:
         """Apply name heuristics for string-type columns."""

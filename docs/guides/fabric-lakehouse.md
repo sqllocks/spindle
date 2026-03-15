@@ -88,3 +88,13 @@ Spindle writes one file per table, organized by domain:
 - Set `seed=42` (or any fixed seed) for reproducible datasets across environments.
 - For multi-domain loads, generate each domain into its own subfolder.
 - After loading, create shortcuts to other Lakehouses or Warehouses as needed.
+
+---
+
+## See Also
+
+- **Tutorial:** [10: Fabric Lakehouse](../tutorials/fabric/10-fabric-lakehouse.md) — step-by-step walkthrough
+- **Tutorial:** [13: Medallion](../tutorials/fabric/13-medallion.md) — step-by-step walkthrough
+- **Example script:** [`22_fabric_integration.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/22_fabric_integration.py)
+- **Notebook:** [`T08_fabric_lakehouse.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/intermediate/T08_fabric_lakehouse.ipynb)
+- **Notebook:** [`F01_medallion_architecture.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/fabric-scenarios/F01_medallion_architecture.ipynb)

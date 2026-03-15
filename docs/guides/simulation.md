@@ -139,3 +139,15 @@ pack = PackLoader().load_builtin("retail", "fd_daily_batch")
 result = PackRunner().run(pack, domain=RetailDomain(), scale="small", seed=42)
 print(result.summary())
 ```
+
+---
+
+## See Also
+
+- **Tutorial:** [14: Scenario Packs](../tutorials/advanced/14-scenario-packs.md) — step-by-step walkthrough
+- **Example script:** [`14_file_drop_simulation.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/14_file_drop_simulation.py)
+- **Example script:** [`15_stream_emitter.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/15_stream_emitter.py)
+- **Example script:** [`16_hybrid_simulation.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/16_hybrid_simulation.py)
+- **Example script:** [`19_scenario_packs.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/19_scenario_packs.py)
+- **Notebook:** [`T13_file_drop_simulation.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/intermediate/T13_file_drop_simulation.ipynb)
+- **Notebook:** [`08_scenario_packs.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/showcase/08_scenario_packs.ipynb)
