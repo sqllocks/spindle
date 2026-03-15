@@ -292,7 +292,14 @@ class Spindle:
             "seed": parsed.model.seed,
         }
         if domain and hasattr(domain, "domain_path"):
-            model_config["_domain_path"] = domain.domain_path
+            # For composite domains, collect all child domain paths so
+            # reference_data strategy can find datasets from each child.
+            if hasattr(domain, "child_domains"):
+                model_config["_domain_path"] = [
+                    d.domain_path for d in domain.child_domains
+                ]
+            else:
+                model_config["_domain_path"] = domain.domain_path
 
         # Generate tables in dependency order
         start_time = time.time()

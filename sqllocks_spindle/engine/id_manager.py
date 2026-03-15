@@ -2,8 +2,54 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 import numpy as np
 import pandas as pd
+
+
+@runtime_checkable
+class PKPool(Protocol):
+    """Protocol for PK pool implementations."""
+
+    def __len__(self) -> int: ...
+    def __getitem__(self, indices: np.ndarray) -> np.ndarray: ...
+
+
+class RangePKPool:
+    """Memory-efficient PK pool for contiguous integer ranges.
+
+    Instead of storing all PK values (16 GB for 2B int64s), stores only
+    (start, count) — 16 bytes total. FK sampling uses rng.integers()
+    for O(1) memory.
+    """
+
+    def __init__(self, start: int, count: int):
+        self._start = start
+        self._count = count
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, indices: np.ndarray) -> np.ndarray:
+        return np.asarray(indices, dtype=np.int64) + self._start
+
+    def extend(self, additional_count: int) -> None:
+        """Grow the range by additional_count contiguous values."""
+        self._count += additional_count
+
+    @property
+    def start(self) -> int:
+        return self._start
+
+    @property
+    def end(self) -> int:
+        """Exclusive end of the range."""
+        return self._start + self._count
+
+    @property
+    def count(self) -> int:
+        return self._count
 
 
 class IDManager:
@@ -31,6 +77,26 @@ class IDManager:
                 list(df[pk_columns].itertuples(index=False, name=None))
             )
         self._table_data[table_name] = df
+
+    def register_range(self, table_name: str, start: int, count: int) -> None:
+        """Register a contiguous integer PK range without storing all values.
+
+        Uses RangePKPool for O(1) memory regardless of count.
+        """
+        self._pk_pools[table_name] = RangePKPool(start, count)
+
+    def append_pks(self, table_name: str, new_pks: np.ndarray) -> None:
+        """Grow a table's PK pool incrementally with new values.
+
+        For RangePKPool, extends the range. For ndarray pools, concatenates.
+        """
+        pool = self._pk_pools.get(table_name)
+        if pool is None:
+            self._pk_pools[table_name] = new_pks
+        elif isinstance(pool, RangePKPool):
+            pool.extend(len(new_pks))
+        else:
+            self._pk_pools[table_name] = np.concatenate([pool, new_pks])
 
     def get_random_fks(
         self,

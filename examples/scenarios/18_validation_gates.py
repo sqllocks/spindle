@@ -98,7 +98,7 @@ if not ri_bad.passed:
         table_name="order",
         reason="Referential integrity violations detected",
         gate_name="referential_integrity",
-        fmt="parquet",
+        fmt="csv",
     )
     print(f"  Quarantined order table -> {path}")
 
@@ -110,7 +110,7 @@ if not sc_bad.passed:
         table_name="order",
         reason="Schema drift — unexpected / missing columns",
         gate_name="schema_conformance",
-        fmt="parquet",
+        fmt="csv",
     )
     print(f"  Quarantined drifted table -> {path}")
 

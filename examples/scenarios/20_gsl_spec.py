@@ -159,7 +159,7 @@ if spec_hybrid.outputs and spec_hybrid.outputs.eventstream:
     es = spec_hybrid.outputs.eventstream
     print(f"  eventstream.enabled:      {es.enabled}")
     print(f"  eventstream.secret_ref:   {es.endpoint_secret_ref}")
-    print(f"  eventstream.topic_prefix: {es.topic_prefix}")
+    print(f"  eventstream.topics:       {es.topics}")
 
 # ── 4. resolve_path ───────────────────────────────────────────────────────────
 print("\n── 4. spec.resolve_path() — relative path resolution ──")

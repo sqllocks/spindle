@@ -26,8 +26,14 @@ class TableGenerator:
         rng: np.random.Generator,
         model_config: dict[str, Any],
         schema: SpindleSchema,
+        sequence_offset: int = 0,
     ) -> pd.DataFrame:
-        """Generate a DataFrame for a single table."""
+        """Generate a DataFrame for a single table.
+
+        Args:
+            sequence_offset: Offset applied to sequence strategies so each chunk
+                produces contiguous, non-overlapping PKs.
+        """
         ctx = GenerationContext(
             rng=rng,
             id_manager=self._id_manager,
@@ -35,6 +41,7 @@ class TableGenerator:
             row_count=row_count,
         )
         ctx.current_table_name = table.name
+        ctx.sequence_offset = sequence_offset
 
         # Determine column generation order:
         # 1. PKs first (sequences, UUIDs)

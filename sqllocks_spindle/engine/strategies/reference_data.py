@@ -15,7 +15,7 @@ from sqllocks_spindle.schema.parser import ColumnDef
 _dataset_cache: dict[str, list] = {}
 
 
-def _load_dataset(dataset_name: str, domain_path: Path | None = None) -> list:
+def _load_dataset(dataset_name: str, domain_path: Path | list[Path] | None = None) -> list:
     """Load a reference dataset from JSON file."""
     if dataset_name in _dataset_cache:
         return _dataset_cache[dataset_name]
@@ -23,7 +23,10 @@ def _load_dataset(dataset_name: str, domain_path: Path | None = None) -> list:
     # Search paths: domain-specific → shared → global data dir
     search_paths = []
     if domain_path:
-        search_paths.append(domain_path / "reference_data" / f"{dataset_name}.json")
+        # Support multiple domain paths (composite domains)
+        paths = domain_path if isinstance(domain_path, list) else [domain_path]
+        for dp in paths:
+            search_paths.append(dp / "reference_data" / f"{dataset_name}.json")
 
     # Shared reference data (cross-domain datasets like us_zip_locations)
     shared_dir = Path(__file__).parent.parent.parent / "domains" / "_shared" / "reference_data"

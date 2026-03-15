@@ -26,9 +26,9 @@ from sqllocks_spindle.packs.validator import PackValidator
 # ── 1. List built-in packs ────────────────────────────────────────────────────
 print("── 1. List built-in packs ──")
 
-from sqllocks_spindle.packs.loader import list_builtin
+from sqllocks_spindle.packs.loader import PackLoader
 
-packs = list_builtin()
+packs = PackLoader().list_builtin()
 print(f"  Total built-in packs: {len(packs)}")
 # Group by domain
 domains = {}

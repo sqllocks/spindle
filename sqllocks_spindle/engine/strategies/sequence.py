@@ -21,4 +21,8 @@ class SequenceStrategy(Strategy):
     ) -> np.ndarray:
         start = config.get("start", 1)
         step = config.get("step", 1)
-        return np.arange(start, start + ctx.row_count * step, step, dtype=np.int64)
+        # sequence_offset shifts the start for chunked generation so each
+        # chunk produces contiguous, non-overlapping PKs.
+        offset = getattr(ctx, "sequence_offset", 0)
+        effective_start = start + offset * step
+        return np.arange(effective_start, effective_start + ctx.row_count * step, step, dtype=np.int64)

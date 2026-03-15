@@ -4,6 +4,7 @@ from sqllocks_spindle.fabric.onelake_paths import OneLakePaths
 from sqllocks_spindle.fabric.lakehouse_files_writer import LakehouseFilesWriter
 
 __all__ = [
+    "BulkWriteResult",
     "CredentialResolver",
     "CredentialError",
     "EventhouseWriter",
@@ -14,6 +15,7 @@ __all__ = [
     "LakehouseFilesWriter",
     "OneLakePaths",
     "SemanticModelExporter",
+    "WarehouseBulkWriter",
     "WriteResult",
 ]
 
@@ -43,4 +45,9 @@ def __getattr__(name: str):
         if name == "EventhouseWriter":
             return EventhouseWriter
         return EventhouseWriteResult
+    if name in ("WarehouseBulkWriter", "BulkWriteResult"):
+        from sqllocks_spindle.fabric.warehouse_bulk_writer import WarehouseBulkWriter, BulkWriteResult
+        if name == "WarehouseBulkWriter":
+            return WarehouseBulkWriter
+        return BulkWriteResult
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

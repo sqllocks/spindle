@@ -479,7 +479,10 @@ class CapitalMarketsDomain(Domain):
                         },
                         "ratio_to": {
                             "type": "integer",
-                            "generator": {"fixed": 1},
+                            "generator": {
+                                "strategy": "weighted_enum",
+                                "values": {"1": 1.0},
+                            },
                         },
                     },
                 },
