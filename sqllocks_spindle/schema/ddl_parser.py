@@ -104,7 +104,7 @@ NAME_SUFFIX: dict[str, dict[str, Any] | str] = {
     "_email": {"strategy": "faker", "provider": "email"},
     "_phone": {"strategy": "faker", "provider": "phone_number"},
     "_date": {"strategy": "temporal", "pattern": "uniform", "range_ref": "model.date_range"},
-    "_code": {"strategy": "pattern", "template": "{seq:6}"},
+    "_code": {"strategy": "pattern", "format": "{seq:6}"},
     "_type": {"strategy": "weighted_enum", "values": {"type_a": 0.5, "type_b": 0.3, "type_c": 0.2}},
     "_status": {"strategy": "weighted_enum", "values": {"active": 0.7, "inactive": 0.2, "pending": 0.1}},
     "_id": "fk_candidate",  # sentinel — handled by FK detection
@@ -301,35 +301,26 @@ class DdlParser:
             if not part:
                 continue
 
-            # Check for table-level PRIMARY KEY
-            pk_match = _TABLE_PK.search(part)
-            if pk_match and not re.match(r"^\w", part.split()[0] if part.split() else "", re.IGNORECASE):
-                # This is a standalone PK constraint, not a column
-                pk_cols = [_unquote(c.strip()) for c in pk_match.group(1).split(",")]
-                table.primary_key = pk_cols
-                continue
-
-            # Check for inline FOREIGN KEY constraint (table-level)
-            fk_match = _INLINE_FK.search(part)
-            if fk_match and part.strip().upper().startswith(("FOREIGN", "CONSTRAINT")):
-                child_col = _unquote(fk_match.group(1))
-                parent_table = _extract_table_name(fk_match.group(2))
-                parent_col = _unquote(fk_match.group(3))
-                table.foreign_keys.append({
-                    "child_column": child_col,
-                    "parent_table": parent_table,
-                    "parent_column": parent_col,
-                })
-                continue
-
             # Check if this looks like a constraint line (not a column)
             first_word = part.split()[0].upper() if part.split() else ""
-            if first_word in ("CONSTRAINT", "UNIQUE", "CHECK", "INDEX"):
+            if first_word in ("CONSTRAINT", "UNIQUE", "CHECK", "INDEX", "PRIMARY", "FOREIGN"):
                 # Check for PK inside constraint
-                pk_match2 = _TABLE_PK.search(part)
-                if pk_match2:
-                    pk_cols = [_unquote(c.strip()) for c in pk_match2.group(1).split(",")]
+                pk_match = _TABLE_PK.search(part)
+                if pk_match:
+                    pk_cols = [_unquote(c.strip()) for c in pk_match.group(1).split(",")]
                     table.primary_key = pk_cols
+
+                # Check for inline FOREIGN KEY constraint (table-level)
+                fk_match = _INLINE_FK.search(part)
+                if fk_match:
+                    child_col = _unquote(fk_match.group(1))
+                    parent_table = _extract_table_name(fk_match.group(2))
+                    parent_col = _unquote(fk_match.group(3))
+                    table.foreign_keys.append({
+                        "child_column": child_col,
+                        "parent_table": parent_table,
+                        "parent_column": parent_col,
+                    })
                 continue
 
             # Parse as column definition
@@ -601,6 +592,14 @@ class DdlParser:
         fk_key = (table.name.lower(), col.name.lower())
         if fk_key in fk_index:
             fk = fk_index[fk_key]
+            # Self-referencing FK → use self_referencing strategy
+            if fk.parent_table.lower() == table.name.lower():
+                return {
+                    "strategy": "self_referencing",
+                    "pk_column": fk.parent_column,
+                    "levels": 3,
+                    "root_count": 8,
+                }
             return {
                 "strategy": "foreign_key",
                 "ref": f"{fk.parent_table}.{fk.parent_column}",
@@ -638,7 +637,7 @@ class DdlParser:
             # Fallback for strings
             length = col.max_length or 255
             if length <= 10:
-                return {"strategy": "pattern", "template": "{seq:6}"}
+                return {"strategy": "pattern", "format": "{seq:6}"}
             return {"strategy": "faker", "provider": "text", "max_nb_chars": min(length, 200)}
 
         # Direct type mapping

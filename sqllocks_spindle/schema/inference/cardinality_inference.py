@@ -71,7 +71,8 @@ class CardinalityInferrer:
             )
 
             ctx.schema.generation.derived_counts[table_name] = {
-                "per_parent": {"ratio": ratio, "parent": parent_table},
+                "per_parent": parent_table,
+                "ratio": ratio,
             }
             ctx.annotate(
                 table=table_name, column=None,

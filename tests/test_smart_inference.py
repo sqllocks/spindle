@@ -425,8 +425,8 @@ class TestCardinalityInferrer:
         ctx.table_roles = {"customers": TableRole.ENTITY, "orders": TableRole.TRANSACTION}
         CardinalityInferrer().analyze(ctx)
         dc = schema.generation.derived_counts["orders"]
-        assert dc["per_parent"]["ratio"] == 5.0
-        assert dc["per_parent"]["parent"] == "customers"
+        assert dc["ratio"] == 5.0
+        assert dc["per_parent"] == "customers"
 
     def test_transaction_to_detail_ratio(self):
         orders = _table("orders", {"id": _seq_col("id")}, pk=["id"])
@@ -443,7 +443,7 @@ class TestCardinalityInferrer:
         ctx.table_roles = {"orders": TableRole.TRANSACTION, "order_lines": TableRole.TRANSACTION_DETAIL}
         CardinalityInferrer().analyze(ctx)
         dc = schema.generation.derived_counts["order_lines"]
-        assert dc["per_parent"]["ratio"] == 2.5
+        assert dc["ratio"] == 2.5
 
 
 # ===========================================================================
@@ -621,7 +621,7 @@ class TestTemporalPatternInferrer:
         }}
         TemporalPatternInferrer().analyze(ctx)
         assert end.generator["strategy"] == "derived"
-        assert end.generator["source_column"] == "start_date"
+        assert end.generator["source"] == "start_date"
         assert end.generator["rule"] == "add_days"
 
     def test_birth_date_range(self):

@@ -68,6 +68,8 @@ class TableClassifier:
         for col in table_def.columns.values():
             if col.is_foreign_key and col.fk_ref_table == name:
                 return TableRole.HIERARCHY
+            if col.generator.get("strategy") == "self_referencing":
+                return TableRole.HIERARCHY
 
         # TC-06: Log/audit/history tables
         if _LOG_PATTERNS.search(name):

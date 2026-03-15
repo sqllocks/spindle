@@ -23,9 +23,9 @@ class DependencyResolver:
                     deps.add(ref_table)
             graph[table_name] = deps
 
-        # Also add dependency info from relationships
+        # Also add dependency info from relationships (skip self-references)
         for rel in schema.relationships:
-            if rel.type != "self_referencing" and rel.child in graph:
+            if rel.parent != rel.child and rel.type != "self_referencing" and rel.child in graph:
                 graph[rel.child].add(rel.parent)
 
         return self._topological_sort(graph)
