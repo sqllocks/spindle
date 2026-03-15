@@ -23,8 +23,8 @@ class TemporalStrategy(Strategy):
     ) -> np.ndarray:
         pattern = config.get("pattern", "uniform")
 
-        # Resolve date range
-        date_range = config.get("range", {})
+        # Resolve date range (check both "date_range" and "range" keys)
+        date_range = config.get("date_range", config.get("range", {}))
         if config.get("range_ref") == "model.date_range":
             date_range = ctx.model_config.get("date_range", {})
 
