@@ -127,6 +127,200 @@ spindle stream retail --table order --max-events 1000 --anomaly-fraction 0.05
 
 ---
 
+## Schema Import & Inference
+
+### `spindle from-ddl`
+
+Import SQL DDL (CREATE TABLE) into a `.spindle.json` schema.
+
+```bash
+spindle from-ddl my_tables.sql --output my_schema.spindle.json
+spindle from-ddl warehouse_ddl.sql --output schema.json --domain custom
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `INPUT_FILE` | — | Path to SQL DDL file (required) |
+| `--output, -o` | — | Output `.spindle.json` path |
+| `--domain` | `custom` | Domain name for the generated schema |
+| `--scale` | — | Scale overrides: `small:table1=1000,table2=5000` |
+
+### `spindle learn`
+
+Infer a `.spindle.json` schema from existing data files.
+
+```bash
+spindle learn ./real_data/ --format csv --output inferred.spindle.json
+spindle learn ./exports/ --format parquet --output schema.json --domain my_retail
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `INPUT_PATH` | — | Directory or single file (required) |
+| `--output, -o` | — | Output `.spindle.json` path |
+| `--format` | `csv` | Input format: `csv`, `parquet`, `jsonl` |
+| `--domain` | `inferred` | Domain name for the schema |
+
+### `spindle compare`
+
+Compare real vs synthetic data and generate a fidelity report.
+
+```bash
+spindle compare ./real_data/ ./synthetic/ --format csv --output report.md
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `REAL_PATH` | — | Path to real data (required) |
+| `SYNTH_PATH` | — | Path to synthetic data (required) |
+| `--format` | `csv` | Input format: `csv`, `parquet` |
+| `--output, -o` | — | Save markdown report to file |
+
+### `spindle mask`
+
+Mask PII columns in real datasets.
+
+```bash
+spindle mask ./real_data/ --output ./masked/ --format csv --seed 42
+spindle mask ./exports/ --output ./masked/ --exclude customer_id --exclude order_id
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `INPUT_PATH` | — | Directory or file to mask (required) |
+| `--output, -o` | — | Output directory (required) |
+| `--format` | `csv` | Input format: `csv`, `parquet`, `jsonl` |
+| `--seed` | `42` | Random seed |
+| `--exclude` | — | Columns to skip (repeatable) |
+
+---
+
+## Incremental & Day 2
+
+### `spindle continue`
+
+Generate incremental deltas (inserts, updates, deletes) from existing data.
+
+```bash
+spindle continue retail --input ./day1/ --output ./deltas/ --inserts 100
+spindle continue healthcare --input ./baseline/ --output ./day2/ --update-fraction 0.15
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `DOMAIN_NAME` | — | Domain to continue (required) |
+| `--input` | — | Directory with existing data (required) |
+| `--output, -o` | — | Output directory for deltas |
+| `--format` | `csv` | Output format: `csv`, `parquet`, `jsonl` |
+| `--inserts` | `100` | New rows per anchor table |
+| `--update-fraction` | `0.1` | Fraction of rows to update |
+| `--delete-fraction` | `0.02` | Fraction of rows to delete |
+| `--seed` | `42` | Random seed |
+
+### `spindle time-travel`
+
+Generate monthly point-in-time snapshots showing data evolution.
+
+```bash
+spindle time-travel retail --months 12 --output ./snapshots/ --format parquet
+spindle time-travel financial --months 6 --growth-rate 0.08 --churn-rate 0.03 --output ./snaps/
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `DOMAIN_NAME` | — | Domain to snapshot (required) |
+| `--months` | `12` | Number of monthly snapshots |
+| `--scale, -s` | `small` | Scale preset |
+| `--output, -o` | — | Output directory (required) |
+| `--format` | `parquet` | `csv` or `parquet` |
+| `--growth-rate` | `0.05` | Monthly growth rate |
+| `--churn-rate` | `0.02` | Monthly churn rate |
+| `--seed` | `42` | Random seed |
+
+---
+
+## Semantic Model & Publishing
+
+### `spindle export-model`
+
+Export a domain schema as a Power BI / Fabric semantic model (.bim).
+
+```bash
+spindle export-model retail --output retail.bim --source-type lakehouse
+spindle export-model financial --output fin.bim --source-type warehouse --source-name FinDW
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `DOMAIN_NAME` | — | Domain to export (required) |
+| `--output, -o` | `model.bim` | Output file path |
+| `--source-type` | `lakehouse` | `lakehouse`, `warehouse`, or `sql_database` |
+| `--source-name` | — | Data source name in M expression |
+| `--include-measures` | `True` | Generate starter DAX measures |
+| `--schema-name` | `dbo` | SQL schema name |
+
+### `spindle publish`
+
+Generate and publish data directly to a Fabric workspace.
+
+```bash
+spindle publish retail --target lakehouse --base-path "abfss://..." --scale small
+spindle publish retail --target sql-database --connection-string "env://SPINDLE_SQL_CONNECTION"
+spindle publish retail --target eventhouse --connection-string "https://..." --database mydb
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `DOMAIN_NAME` | — | Domain to publish (required) |
+| `--target` | — | `lakehouse`, `sql-database`, or `eventhouse` |
+| `--scale, -s` | `small` | Scale preset |
+| `--seed` | `42` | Random seed |
+| `--base-path` | — | OneLake path (lakehouse target) |
+| `--connection-string` | — | Connection string or `env://VAR` reference |
+| `--database` | — | Database name (eventhouse target) |
+| `--dry-run` | — | Preview without writing |
+
+---
+
+## Multi-Domain
+
+### `spindle composite`
+
+Generate data from a composite preset or ad-hoc domain combination.
+
+```bash
+spindle composite enterprise --scale small --output ./data/ --format parquet
+spindle composite retail+hr+financial --scale medium --output ./enterprise/
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `PRESET_OR_DOMAINS` | — | Preset name or `domain+domain` (required) |
+| `--scale, -s` | `small` | Scale preset |
+| `--seed` | `42` | Random seed |
+| `--output, -o` | — | Output directory |
+| `--format` | `summary` | `summary`, `csv`, `parquet`, `jsonl` |
+
+### `spindle presets`
+
+List all available composite presets.
+
+```bash
+spindle presets
+```
+
+### `spindle profile`
+
+Manage domain distribution profiles.
+
+```bash
+spindle profile list retail
+spindle profile export retail --output retail_profile.json
+spindle profile import custom_profile.json retail --save-as custom
+```
+
+---
+
 ## Simulation
 
 ### `spindle simulate file-drop`
