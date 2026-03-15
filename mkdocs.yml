@@ -84,6 +84,11 @@ nav:
     - Generation Strategies: guides/strategies.md
     - Custom Schemas: guides/custom-schemas.md
     - Distribution Profiles: guides/profiles.md
+    - DDL Import: guides/ddl-import.md
+    - Schema Learning: guides/schema-learning.md
+    - Incremental & Day 2: guides/incremental-day2.md
+    - Composite Presets: guides/presets.md
+    - Semantic Model Export: guides/semantic-model.md
     - Chaos Engine: guides/chaos.md
     - Validation Gates: guides/validation.md
     - Simulation: guides/simulation.md
@@ -95,6 +100,7 @@ nav:
     - Fabric Warehouse: guides/fabric-warehouse.md
     - Fabric SQL Database: guides/fabric-sql-database.md
     - Fabric Notebooks: guides/fabric-notebook.md
+    - Fabric Provisioning: guides/fabric-provisioning.md
     - Star Schema Export: guides/star-schema.md
     - CDM Export: guides/cdm-export.md
   - Domains:
@@ -111,6 +117,7 @@ nav:
     - Real Estate: domains/real-estate.md
     - Manufacturing: domains/manufacturing.md
     - Telecom: domains/telecom.md
+    - Capital Markets: domains/capital-markets.md
   - Methodology: methodology/calibration.md
   - API Reference: reference/
   - Changelog: changelog.md

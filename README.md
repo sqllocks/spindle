@@ -199,45 +199,71 @@ Schemas are defined in `.spindle.json` files. See `PHASE-0-SPEC.md` for the full
 
 ## CLI
 
+Spindle provides 21 CLI commands covering generation, export, inference, incremental workflows, and Fabric publishing.
+
+### Core Generation
+
 ```bash
-# Publish directly to Fabric Lakehouse
-spindle publish retail --target lakehouse --base-path "abfss://..." --scale small
-
-# Publish to Fabric SQL Database
-spindle publish retail --target sql-database --connection-string "env://SPINDLE_SQL_CONNECTION"
-
-# Publish to Eventhouse (KQL)
-spindle publish retail --target eventhouse --connection-string "https://..." --database mydb
-
-# Generate retail data at small scale
 spindle generate retail --scale small --seed 42 --output ./output/
-
-# Dry run — show what would be generated without generating
-spindle generate retail --scale medium --dry-run
-
-# Generate healthcare data as Parquet
 spindle generate healthcare --scale small --format parquet --output ./data
+spindle generate retail --scale medium --dry-run
+```
 
-# Stream retail orders to a file (fast mode)
-spindle stream retail --table order --max-events 5000 --sink file --output events.jsonl
+### Export & Transform
 
-# Stream with real-time rate limiting and a burst window
-spindle stream retail --table order --rate 100 --realtime --burst 30:60:10 --sink console
-
-# Export to star schema (dim_* + fact_* tables as CSV)
+```bash
 spindle to-star retail --scale small --output ./star/
-
-# Export to CDM folder (model.json + entity CSV files)
 spindle to-cdm retail --scale small --output ./cdm/
+spindle export-model retail --output retail.bim --source-type lakehouse
+```
 
-# Describe a domain's schema and active profile
-spindle describe retail
+### Schema Import & Inference
 
-# List available domains and profiles
+```bash
+spindle from-ddl my_tables.sql --output my_schema.spindle.json
+spindle learn ./real_data/ --format csv --output inferred.spindle.json
+spindle compare ./real/ ./synthetic/ --format csv --output report.md
+spindle mask ./real_data/ --output ./masked/ --seed 42
+```
+
+### Incremental & Day 2
+
+```bash
+spindle continue retail --input ./day1/ --output ./deltas/ --inserts 100
+spindle time-travel retail --months 12 --output ./snapshots/ --growth-rate 0.08
+```
+
+### Multi-Domain
+
+```bash
+spindle composite enterprise --scale small --output ./data/ --format parquet
+spindle composite retail+hr+financial --scale medium --output ./enterprise/
+spindle presets
+```
+
+### Streaming & Simulation
+
+```bash
+spindle stream retail --table order --max-events 5000 --sink file --output events.jsonl
+spindle stream retail --table order --rate 100 --realtime --burst 30:60:10
+```
+
+### Fabric Publishing
+
+```bash
+spindle publish retail --target lakehouse --base-path "abfss://..." --scale small
+spindle publish retail --target sql-database --connection-string "env://SPINDLE_SQL_CONNECTION"
+spindle publish retail --target eventhouse --connection-string "https://..." --database mydb
+```
+
+### Discovery & Profiles
+
+```bash
 spindle list
-
-# Validate a schema file
+spindle describe retail
 spindle validate my_schema.spindle.json
+spindle profile list retail
+spindle profile export retail --output retail_profile.json
 ```
 
 ---
@@ -274,7 +300,7 @@ MIT — see `LICENSE`
 - **Phase 0** ✅ Core engine, 21 strategies, Retail + Healthcare domains, calibrated profiles
 - **Phase 1** ✅ Fabric Lakehouse writer, CSV/Parquet/Delta/JSONL/Excel output, CLI
 - **Phase 2** ✅ Streaming engine, AnomalyRegistry, Event Hub + Kafka sinks, `spindle stream` CLI
-- **Phase 3** ✅ Domain expansion — 12 domains, shared reference data
+- **Phase 3** ✅ Domain expansion — 13 domains, shared reference data
 - **Phase 4** ✅ MCP server bridge, PyPI packaging, GitHub Actions CI/CD
 - **Phase 5** ✅ Star schema output, CDM export, `spindle to-star` / `spindle to-cdm` CLI
 - **Tier 1** ✅ MkDocs site, 17 doc guides, 4 tutorial notebooks, GenerationResult convenience methods
