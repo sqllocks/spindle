@@ -80,8 +80,12 @@ class RecordSampleStrategy(Strategy):
                 f"Available fields: {available}"
             )
 
-        # Sample row indices (with replacement)
-        indices = ctx.rng.integers(0, len(data), size=ctx.row_count)
+        # Sample row indices
+        unique = config.get("unique", False)
+        if unique and ctx.row_count <= len(data):
+            indices = ctx.rng.choice(len(data), size=ctx.row_count, replace=False)
+        else:
+            indices = ctx.rng.integers(0, len(data), size=ctx.row_count)
         sampled = [data[i] for i in indices]
 
         # Stash ALL fields into ctx.current_table for record_field to read.

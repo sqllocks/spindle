@@ -96,6 +96,7 @@ NAME_EXACT: dict[str, dict[str, Any]] = {
     "username": {"strategy": "faker", "provider": "user_name"},
     "user_name": {"strategy": "faker", "provider": "user_name"},
     "ip_address": {"strategy": "faker", "provider": "ipv4"},
+    "status": {"strategy": "weighted_enum", "values": {"active": 0.7, "inactive": 0.2, "pending": 0.1}},
 }
 
 # Suffix-based partial matches (case-insensitive)

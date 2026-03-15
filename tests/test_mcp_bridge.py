@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from sqllocks_spindle.mcp_bridge import (
@@ -18,13 +16,14 @@ from sqllocks_spindle.mcp_bridge import (
 
 
 class TestMcpBridgeList:
-    def test_list_returns_ok(self):
+    def test_list_returns_domains(self):
         result = cmd_list({})
-        assert result["status"] == "ok"
+        assert "domains" in result
+        assert "count" in result
 
     def test_list_contains_domains(self):
         result = cmd_list({})
-        domains = result["data"]["domains"]
+        domains = result["domains"]
         assert len(domains) >= 12
         names = [d["name"] for d in domains]
         assert "retail" in names
@@ -34,23 +33,23 @@ class TestMcpBridgeList:
 class TestMcpBridgeDescribe:
     def test_describe_retail(self):
         result = cmd_describe({"domain": "retail"})
-        assert result["status"] == "ok"
-        assert "tables" in result["data"]
+        assert "tables" in result
+        assert result["table_count"] > 0
 
     def test_describe_healthcare(self):
         result = cmd_describe({"domain": "healthcare"})
-        assert result["status"] == "ok"
+        assert "tables" in result
 
     def test_describe_unknown_domain_errors(self):
-        result = cmd_describe({"domain": "nonexistent_domain_xyz"})
-        assert result["status"] == "error"
+        with pytest.raises(ValueError, match="Unknown domain"):
+            cmd_describe({"domain": "nonexistent_domain_xyz"})
 
 
 class TestMcpBridgeDryRun:
     def test_dry_run_returns_counts(self):
         result = cmd_dry_run({"domain": "retail", "scale": "small"})
-        assert result["status"] == "ok"
-        assert "row_counts" in result["data"] or "tables" in result["data"]
+        assert "planned_rows" in result
+        assert result["total_rows"] > 0
 
 
 class TestMcpBridgeGenerate:
@@ -61,7 +60,8 @@ class TestMcpBridgeGenerate:
             "seed": 42,
             "format": "summary",
         })
-        assert result["status"] == "ok"
+        assert result["total_rows"] > 0
+        assert result["integrity_pass"] is True
 
     def test_generate_returns_summary(self):
         result = cmd_generate({
@@ -70,7 +70,7 @@ class TestMcpBridgeGenerate:
             "seed": 42,
             "format": "summary",
         })
-        assert "summary" in result["data"] or "tables" in result["data"]
+        assert "tables" in result
 
 
 class TestMcpBridgePreview:
@@ -80,17 +80,21 @@ class TestMcpBridgePreview:
             "rows": 5,
             "seed": 42,
         })
-        assert result["status"] == "ok"
-        assert "tables" in result["data"] or "preview" in result["data"]
+        assert "tables" in result
+        # Each table should have preview data
+        for tname, tdata in result["tables"].items():
+            assert "data" in tdata
+            assert tdata["preview_rows"] <= 5
 
 
 class TestMcpBridgeProfileInfo:
     def test_profile_info_retail(self):
         result = cmd_profile_info({"domain": "retail"})
-        assert result["status"] == "ok"
+        assert result["domain"] == "retail"
+        assert "available_profiles" in result
 
 
 class TestMcpBridgeValidate:
     def test_validate_missing_file_errors(self):
-        result = cmd_validate({"schema_path": "/nonexistent/path.spindle.json"})
-        assert result["status"] == "error"
+        with pytest.raises(FileNotFoundError):
+            cmd_validate({"schema_path": "/nonexistent/path.spindle.json"})
