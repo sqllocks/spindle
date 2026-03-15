@@ -120,6 +120,19 @@ _URL_PATTERN = re.compile(r"(url|website|homepage|link|uri)", re.IGNORECASE)
 _NAME_PATTERN = re.compile(r"(name|title|label)$", re.IGNORECASE)
 
 
+def _camel_to_snake(name: str) -> str:
+    """Convert CamelCase to snake_case for pattern matching.
+
+    Examples: OrderDate → order_date, SalesOrderID → sales_order_id,
+    firstName → first_name, HTTPResponse → http_response.
+    """
+    # Insert underscore before uppercase letters that follow lowercase/digits
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    # Insert underscore between consecutive uppercase and following lowercase
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", s)
+    return s.lower()
+
+
 class ColumnClassifier:
     """Assign a ColumnSemantic to each column based on name, type, and table context."""
 
@@ -133,6 +146,8 @@ class ColumnClassifier:
                 ctx.column_semantics[table_name][col_name] = semantic
 
     def _classify(self, name: str, col_def, table_role: TableRole, table_def) -> ColumnSemantic:
+        # Normalize CamelCase names for pattern matching
+        match_name = _camel_to_snake(name) if name != name.lower() else name
         # PK / FK take priority
         if name in table_def.primary_key:
             return ColumnSemantic.PRIMARY_KEY
@@ -146,86 +161,86 @@ class ColumnClassifier:
         is_boolean = col_type in ("boolean", "bit")
 
         # Boolean flags
-        if is_boolean or _BOOLEAN_PATTERNS.match(name):
+        if is_boolean or _BOOLEAN_PATTERNS.match(match_name):
             return ColumnSemantic.BOOLEAN_FLAG
 
         # Temporal (order matters — check specific patterns before generic)
-        if is_temporal or name.lower().endswith(("_date", "_at", "_time", "_timestamp")):
-            if _TEMPORAL_BIRTH_PATTERNS.search(name):
+        if is_temporal or match_name.endswith(("_date", "_at", "_time", "_timestamp")):
+            if _TEMPORAL_BIRTH_PATTERNS.search(match_name):
                 return ColumnSemantic.TEMPORAL_BIRTH
-            if _TEMPORAL_TXN_PATTERNS.search(name):
+            if _TEMPORAL_TXN_PATTERNS.search(match_name):
                 return ColumnSemantic.TEMPORAL_TRANSACTION
-            if _TEMPORAL_AUDIT_PATTERNS.search(name):
+            if _TEMPORAL_AUDIT_PATTERNS.search(match_name):
                 return ColumnSemantic.TEMPORAL_AUDIT
-            if _TEMPORAL_START_PATTERNS.search(name):
+            if _TEMPORAL_START_PATTERNS.search(match_name):
                 return ColumnSemantic.TEMPORAL_START
-            if _TEMPORAL_END_PATTERNS.search(name):
+            if _TEMPORAL_END_PATTERNS.search(match_name):
                 return ColumnSemantic.TEMPORAL_END
             # Context-aware: date on a transaction table → transaction date
-            if table_role == TableRole.TRANSACTION and "date" in name.lower():
+            if table_role == TableRole.TRANSACTION and "date" in match_name:
                 return ColumnSemantic.TEMPORAL_TRANSACTION
             return ColumnSemantic.TEMPORAL_GENERIC
 
         # Monetary (must check before generic numeric)
-        if is_numeric and _MONETARY_PATTERNS.search(name):
+        if is_numeric and _MONETARY_PATTERNS.search(match_name):
             return ColumnSemantic.MONETARY
         if col_type == "money":
             return ColumnSemantic.MONETARY
 
         # Quantity
-        if is_numeric and _QUANTITY_PATTERNS.search(name):
+        if is_numeric and _QUANTITY_PATTERNS.search(match_name):
             return ColumnSemantic.QUANTITY
 
         # Percentage
-        if is_numeric and _PERCENTAGE_PATTERNS.search(name):
+        if is_numeric and _PERCENTAGE_PATTERNS.search(match_name):
             return ColumnSemantic.PERCENTAGE
 
         # Measurement
-        if is_numeric and _MEASUREMENT_PATTERNS.search(name):
+        if is_numeric and _MEASUREMENT_PATTERNS.search(match_name):
             return ColumnSemantic.MEASUREMENT
 
         # Rating/score
-        if is_numeric and _RATING_PATTERNS.search(name):
+        if is_numeric and _RATING_PATTERNS.search(match_name):
             return ColumnSemantic.RATING
 
         # Status (string, short)
-        if is_string and _STATUS_PATTERNS.search(name):
+        if is_string and _STATUS_PATTERNS.search(match_name):
             return ColumnSemantic.STATUS
 
-        # Categorical/type
-        if is_string and _CATEGORICAL_PATTERNS.search(name):
+        # Categorical/type — relaxed max_length for strong name matches
+        if is_string and _CATEGORICAL_PATTERNS.search(match_name):
             max_len = col_def.max_length or 255
-            if max_len <= 100:
+            if max_len <= 255:
                 return ColumnSemantic.CATEGORICAL
 
         # Contact info
-        if _EMAIL_PATTERN.search(name):
+        if _EMAIL_PATTERN.search(match_name):
             return ColumnSemantic.EMAIL
-        if _PHONE_PATTERN.search(name):
+        if _PHONE_PATTERN.search(match_name):
             return ColumnSemantic.PHONE
-        if _ADDRESS_PATTERN.search(name):
+        if _ADDRESS_PATTERN.search(match_name):
             return ColumnSemantic.ADDRESS
-        if _CITY_PATTERN.match(name):
+        if _CITY_PATTERN.match(match_name):
             return ColumnSemantic.CITY
-        if _STATE_PATTERN.match(name):
+        if _STATE_PATTERN.match(match_name):
             return ColumnSemantic.STATE_CODE
-        if _POSTAL_PATTERN.search(name):
+        if _POSTAL_PATTERN.search(match_name):
             return ColumnSemantic.POSTAL_CODE
-        if _COUNTRY_PATTERN.match(name):
+        if _COUNTRY_PATTERN.match(match_name):
             return ColumnSemantic.COUNTRY
-        if _URL_PATTERN.search(name):
+        if _URL_PATTERN.search(match_name):
             return ColumnSemantic.URL
 
         # Code/identifier
-        if is_string and _CODE_PATTERNS.search(name):
+        if is_string and _CODE_PATTERNS.search(match_name):
             return ColumnSemantic.CODE
 
         # Text/description
-        if is_string and _TEXT_PATTERNS.search(name):
+        if is_string and _TEXT_PATTERNS.search(match_name):
             return ColumnSemantic.TEXT_DESCRIPTION
 
         # Name (catch-all for *name* strings that aren't FK or code)
-        if is_string and _NAME_PATTERN.search(name):
+        if is_string and _NAME_PATTERN.search(match_name):
             return ColumnSemantic.NAME
 
         return ColumnSemantic.UNKNOWN

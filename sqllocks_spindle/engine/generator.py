@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 import pandas as pd
 
 from sqllocks_spindle.engine.id_manager import IDManager
@@ -41,6 +44,15 @@ from sqllocks_spindle.schema.validator import SchemaValidator
 
 
 @dataclass
+class ColumnLineage:
+    """Tracks which strategy produced a column's values."""
+    table: str
+    column: str
+    strategy: str
+    config: dict[str, Any]
+
+
+@dataclass
 class GenerationResult:
     """Result of a generation run."""
 
@@ -49,6 +61,18 @@ class GenerationResult:
     generation_order: list[str]
     elapsed_seconds: float
     row_counts: dict[str, int]
+    lineage: list[ColumnLineage] = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.lineage is None:
+            self.lineage = []
+
+    def get_lineage(self, table: str, column: str) -> ColumnLineage | None:
+        """Look up lineage for a specific column."""
+        for entry in self.lineage:
+            if entry.table == table and entry.column == column:
+                return entry
+        return None
 
     def __getitem__(self, table_name: str) -> pd.DataFrame:
         return self.tables[table_name]
@@ -217,6 +241,8 @@ class Spindle:
         registry.register("record_sample", RecordSampleStrategy())
         registry.register("record_field", RecordFieldStrategy())
         registry.register("scd2", SCD2Strategy())
+        # Load any third-party strategy plugins via entrypoints
+        registry.load_entrypoint_plugins()
         return registry
 
     def generate(
@@ -271,13 +297,14 @@ class Spindle:
         # Generate tables in dependency order
         start_time = time.time()
         tables: dict[str, pd.DataFrame] = {}
+        lineage: list[ColumnLineage] = []
 
         for table_name in gen_order:
             if table_name not in parsed.tables:
                 continue
 
             count = row_counts.get(table_name, 100)
-            print(f"  Generating {table_name}... ({count:,} rows)")
+            logger.info("Generating %s (%s rows)", table_name, f"{count:,}")
 
             df = table_gen.generate(
                 table=parsed.tables[table_name],
@@ -288,10 +315,19 @@ class Spindle:
             )
             tables[table_name] = df
 
+            # Record lineage
+            for col_name, col in parsed.tables[table_name].columns.items():
+                lineage.append(ColumnLineage(
+                    table=table_name,
+                    column=col_name,
+                    strategy=col.generator.get("strategy", ""),
+                    config=dict(col.generator),
+                ))
+
         # Compute phase: back-fill computed columns
         self._compute_phase(tables, parsed)
 
-        # Business rules: fix violations
+        # Business rules: fix violations (operate on copies to preserve originals)
         if parsed.business_rules:
             rules_engine = BusinessRulesEngine()
             rules_engine.fix_violations(tables, parsed, rng)
@@ -304,6 +340,7 @@ class Spindle:
             generation_order=gen_order,
             elapsed_seconds=elapsed,
             row_counts={name: len(df) for name, df in tables.items()},
+            lineage=lineage,
         )
 
     def describe(self, domain=None, schema=None) -> SpindleSchema:

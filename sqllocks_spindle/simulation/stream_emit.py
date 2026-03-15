@@ -6,7 +6,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
@@ -42,7 +42,7 @@ def _wrap_envelope(
         "id": str(uuid.uuid4()),
         "source": source,
         "type": f"spindle.{topic}",
-        "time": datetime.utcnow().isoformat() + "Z",
+        "time": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "specversion": "1.0",
         "datacontenttype": "application/json",
         "topic": topic,
@@ -240,7 +240,7 @@ class StreamEmitter:
                     for rev in replay_events:
                         replayed = dict(rev)
                         replayed["_replay"] = True
-                        replayed["_replay_time"] = datetime.utcnow().isoformat() + "Z"
+                        replayed["_replay_time"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
                         self._sink.send(replayed)
                         replay_sent += 1
 

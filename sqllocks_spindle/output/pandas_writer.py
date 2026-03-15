@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -344,7 +344,7 @@ class PandasWriter:
                     if seed is not None:
                         parts.append(f"Seed: {seed}")
                     f.write(f"-- {' | '.join(parts)}\n")
-                f.write(f"-- Generated: {datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}\n\n")
+                f.write(f"-- Generated: {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}\n\n")
 
                 # Section header
                 f.write(f"-- {'=' * 60}\n")

@@ -14,6 +14,33 @@ class ValidationError:
     location: str  # e.g., "tables.order.columns.customer_id"
 
 
+# Known strategies and their required config keys
+_STRATEGY_REQUIRED_KEYS: dict[str, set[str]] = {
+    "sequence": set(),
+    "uuid": set(),
+    "faker": {"provider"},
+    "weighted_enum": {"values"},
+    "distribution": {"distribution"},
+    "temporal": set(),
+    "formula": {"expression"},
+    "derived": {"source", "rule"},
+    "correlated": {"source"},
+    "foreign_key": {"ref"},
+    "lookup": {"source_table", "source_column"},
+    "reference_data": {"file"},
+    "pattern": {"format"},
+    "conditional": {"conditions"},
+    "computed": {"rule", "child_table", "child_column"},
+    "lifecycle": {"states"},
+    "self_referencing": {"pk_column"},
+    "self_ref_field": {"source_column"},
+    "first_per_parent": {"parent_table"},
+    "record_sample": {"source_table"},
+    "record_field": {"source_column"},
+    "scd2": {"effective_from"},
+}
+
+
 class SchemaValidator:
     """Validate a parsed SpindleSchema."""
 
@@ -24,6 +51,7 @@ class SchemaValidator:
         errors.extend(self._validate_foreign_keys(schema))
         errors.extend(self._validate_business_rules(schema))
         errors.extend(self._validate_generation(schema))
+        errors.extend(self._validate_strategy_configs(schema))
         return errors
 
     def validate_or_raise(self, schema: SpindleSchema) -> None:
@@ -145,4 +173,32 @@ class SchemaValidator:
                 f"Scale '{gen.scale}' not defined in scales",
                 "generation.scale",
             ))
+        return errors
+
+    def _validate_strategy_configs(self, schema: SpindleSchema) -> list[ValidationError]:
+        """Validate that generator configs have required keys for their strategy."""
+        errors = []
+        for table_name, table in schema.tables.items():
+            for col_name, col in table.columns.items():
+                gen = col.generator
+                if not gen:
+                    continue
+                strategy = gen.get("strategy", "")
+                if not strategy:
+                    continue
+                if strategy not in _STRATEGY_REQUIRED_KEYS:
+                    errors.append(ValidationError(
+                        "warning",
+                        f"Unknown strategy '{strategy}'",
+                        f"tables.{table_name}.columns.{col_name}.generator",
+                    ))
+                    continue
+                required = _STRATEGY_REQUIRED_KEYS[strategy]
+                for key in required:
+                    if key not in gen:
+                        errors.append(ValidationError(
+                            "warning",
+                            f"Strategy '{strategy}' expects key '{key}'",
+                            f"tables.{table_name}.columns.{col_name}.generator",
+                        ))
         return errors

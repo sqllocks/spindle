@@ -187,10 +187,17 @@ _INLINE_FK = re.compile(
 )
 
 # Match inline PRIMARY KEY in column block (table-level)
+# Handles optional CLUSTERED/NONCLUSTERED and ASC/DESC per column
 _TABLE_PK = re.compile(
-    r"(?:CONSTRAINT\s+[\w.\[\]\"` ]+\s+)?PRIMARY\s+KEY\s*\(\s*([\w,\s.\[\]\"` ]+)\s*\)",
+    r"(?:CONSTRAINT\s+[\w.\[\]\"` ]+\s+)?"
+    r"PRIMARY\s+KEY\s*"
+    r"(?:(?:NON)?CLUSTERED\s*)?"
+    r"\(\s*([\w,\s.\[\]\"` ]+)\s*\)",
     re.IGNORECASE,
 )
+
+# Strip ASC/DESC from PK column names
+_ASC_DESC = re.compile(r"\s+(?:ASC|DESC)\b", re.IGNORECASE)
 
 # Match SQL type with optional precision/scale/length: e.g. NVARCHAR(50), DECIMAL(18,2)
 _TYPE_SPEC = re.compile(
@@ -222,6 +229,10 @@ def _extract_table_name(raw: str) -> str:
 # DdlParser
 # ---------------------------------------------------------------------------
 
+# Maximum DDL input size to prevent ReDoS on pathological inputs
+_MAX_DDL_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 class DdlParser:
     """Parse SQL DDL (CREATE TABLE) into a SpindleSchema.
 
@@ -244,6 +255,12 @@ class DdlParser:
 
     def parse_string(self, sql: str) -> SpindleSchema:
         """Parse SQL DDL string into a SpindleSchema."""
+        if len(sql) > _MAX_DDL_SIZE:
+            raise ValueError(
+                f"DDL input exceeds maximum size ({len(sql):,} bytes > "
+                f"{_MAX_DDL_SIZE:,} bytes). Split into smaller files."
+            )
+
         # Step 1: Extract raw table definitions
         parsed_tables = self._extract_tables(sql)
 
@@ -307,7 +324,8 @@ class DdlParser:
                 # Check for PK inside constraint
                 pk_match = _TABLE_PK.search(part)
                 if pk_match:
-                    pk_cols = [_unquote(c.strip()) for c in pk_match.group(1).split(",")]
+                    raw_cols = _ASC_DESC.sub("", pk_match.group(1))
+                    pk_cols = [_unquote(c.strip()) for c in raw_cols.split(",")]
                     table.primary_key = pk_cols
 
                 # Check for inline FOREIGN KEY constraint (table-level)
