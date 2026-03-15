@@ -43,7 +43,8 @@ class TestCapitalMarketsStructure:
 
     def test_generation_order_respects_dependencies(self, result_small):
         order = result_small.generation_order
-        assert order.index("exchange") < order.index("company")
+        # sector → industry (FK), company → child tables (FK)
+        # exchange has no FK to company (linked via string exchange_code)
         assert order.index("sector") < order.index("industry")
         assert order.index("company") < order.index("daily_price")
         assert order.index("company") < order.index("trade")

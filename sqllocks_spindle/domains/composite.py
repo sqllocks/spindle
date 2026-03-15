@@ -151,6 +151,9 @@ class CompositeDomain(Domain):
         )
         merged_relationships.extend(cross_rels)
 
+        # Ensure bridge FK columns exist in child tables for cross-domain rels
+        self._ensure_bridge_columns(merged_tables, cross_rels)
+
         # Merge business rules
         merged_rules = self._merge_business_rules(child_schemas, shared_tables)
 
@@ -300,6 +303,42 @@ class CompositeDomain(Domain):
             )
 
         return new_columns
+
+    # ── Bridge column injection ──────────────────────────────────────────
+
+    def _ensure_bridge_columns(
+        self,
+        tables: dict[str, TableDef],
+        cross_rels: list[RelationshipDef],
+    ) -> None:
+        """Add missing bridge FK columns referenced by cross-domain relationships.
+
+        When the SharedEntityRegistry builds default relationships, it creates
+        bridge column names (e.g. ``shared_person_hr_employee_id``) that don't
+        exist in the child table schema. This method injects those columns as
+        ``foreign_key`` generators so the engine populates them during generation.
+        """
+        for rel in cross_rels:
+            if rel.child not in tables:
+                continue
+
+            child_table = tables[rel.child]
+
+            for parent_col, bridge_col in zip(rel.parent_columns, rel.child_columns):
+                # Skip if the column already exists (explicit config case)
+                if bridge_col in child_table.columns:
+                    continue
+
+                # Inject a foreign_key column pointing at the parent table's PK
+                child_table.columns[bridge_col] = ColumnDef(
+                    name=bridge_col,
+                    type="integer",
+                    generator={
+                        "strategy": "foreign_key",
+                        "ref": f"{rel.parent}.{parent_col}",
+                    },
+                    nullable=getattr(rel, "optional", True),
+                )
 
     # ── Relationship merging ───────────────────────────────────────────
 

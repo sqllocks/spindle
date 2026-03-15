@@ -191,6 +191,7 @@ class CapitalMarketsDomain(Domain):
                                 "strategy": "record_sample",
                                 "dataset": "sp500_constituents",
                                 "field": "ticker",
+                                "unique": True,
                             },
                         },
                         "company_name": {
@@ -322,14 +323,10 @@ class CapitalMarketsDomain(Domain):
                             "precision": 10,
                             "scale": 2,
                             "generator": {
-                                "strategy": "distribution",
-                                "distribution": "log_normal",
-                                "params": {
-                                    "mean": 4.0,
-                                    "sigma": 1.2,
-                                    "min": 0.01,
-                                    "max": 10000.00,
-                                },
+                                "strategy": "correlated",
+                                "source_column": "open",
+                                "rule": "multiply",
+                                "params": {"factor_min": 1.00, "factor_max": 1.10},
                             },
                         },
                         "low": {
@@ -337,14 +334,10 @@ class CapitalMarketsDomain(Domain):
                             "precision": 10,
                             "scale": 2,
                             "generator": {
-                                "strategy": "distribution",
-                                "distribution": "log_normal",
-                                "params": {
-                                    "mean": 4.0,
-                                    "sigma": 1.2,
-                                    "min": 0.01,
-                                    "max": 10000.00,
-                                },
+                                "strategy": "correlated",
+                                "source_column": "open",
+                                "rule": "multiply",
+                                "params": {"factor_min": 0.90, "factor_max": 1.00},
                             },
                         },
                         "close": {
@@ -352,14 +345,10 @@ class CapitalMarketsDomain(Domain):
                             "precision": 10,
                             "scale": 2,
                             "generator": {
-                                "strategy": "distribution",
-                                "distribution": "log_normal",
-                                "params": {
-                                    "mean": 4.0,
-                                    "sigma": 1.2,
-                                    "min": 0.01,
-                                    "max": 10000.00,
-                                },
+                                "strategy": "correlated",
+                                "source_column": "open",
+                                "rule": "multiply",
+                                "params": {"factor_min": 0.93, "factor_max": 1.07},
                             },
                         },
                         "adj_close": {

@@ -18,7 +18,7 @@ def exporter():
 
 @pytest.fixture()
 def retail_schema():
-    return RetailDomain().schema()
+    return RetailDomain().get_schema()
 
 
 class TestSemanticModelExporterToDict:
@@ -114,7 +114,7 @@ class TestSemanticModelExporterFile:
 
     def test_export_different_domains(self, exporter, tmp_path):
         for domain_cls in [RetailDomain, HealthcareDomain]:
-            schema = domain_cls().schema()
+            schema = domain_cls().get_schema()
             output = tmp_path / f"{domain_cls.__name__}.bim"
             exporter.export_bim(schema, source_type="lakehouse", output_path=str(output))
             assert output.exists()

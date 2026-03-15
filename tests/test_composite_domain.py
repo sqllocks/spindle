@@ -398,3 +398,100 @@ class TestCompositeDomainSchemaMode:
         comp = CompositeDomain(domains=[d1], schema_mode="star")
         schema = comp.get_schema()
         assert schema.model.schema_mode == "star"
+
+
+# ---------------------------------------------------------------------------
+# CompositeDomain — bridge FK column injection (default registry)
+# ---------------------------------------------------------------------------
+
+class TestBridgeFKColumnInjection:
+    """Verify that cross-domain default relationships get bridge columns injected."""
+
+    def test_default_registry_injects_bridge_columns(self):
+        """When no explicit shared_entities, bridge FK columns must be created."""
+        d1 = _StubDomain("retail", ["customer", "store"])
+        d2 = _StubDomain("hr", ["employee", "department"])
+        comp = CompositeDomain(domains=[d1, d2])
+        schema = comp.get_schema()
+
+        # Default registry: PERSON maps retail.customer (primary) → hr.employee (linked)
+        # Should inject shared_person_retail_customer_id into hr_employee
+        hr_employee = schema.tables["hr_employee"]
+        bridge_col = "shared_person_retail_customer_id"
+        assert bridge_col in hr_employee.columns, (
+            f"Bridge column {bridge_col} not found in hr_employee. "
+            f"Columns: {list(hr_employee.columns.keys())}"
+        )
+        col_def = hr_employee.columns[bridge_col]
+        assert col_def.generator["strategy"] == "foreign_key"
+        assert "retail_customer" in col_def.generator["ref"]
+
+    def test_bridge_columns_have_correct_fk_ref(self):
+        """Bridge FK ref must point to the prefixed parent table and PK."""
+        d1 = _StubDomain("retail", ["customer", "store"])
+        d2 = _StubDomain("hr", ["employee", "department"])
+        comp = CompositeDomain(domains=[d1, d2])
+        schema = comp.get_schema()
+
+        # Check LOCATION concept: retail.store (primary) → hr.department (linked)
+        hr_dept = schema.tables["hr_department"]
+        bridge_col = "shared_location_retail_store_id"
+        assert bridge_col in hr_dept.columns
+        assert hr_dept.columns[bridge_col].generator["ref"] == "retail_store.store_id"
+
+    def test_explicit_shared_entities_no_spurious_bridge_cols(self):
+        """When explicit shared_entities reference existing columns, no extra cols added."""
+        d1 = _StubDomain("retail", ["customer"])
+        d2 = _StubDomain("hr", ["employee"])
+
+        # Add the FK column to hr.employee manually (simulating a real domain)
+        d2_schema = d2.get_schema()
+        d2_schema.tables["employee"].columns["retail_customer_id"] = ColumnDef(
+            name="retail_customer_id",
+            type="integer",
+            generator={"strategy": "foreign_key", "ref": "customer.customer_id"},
+        )
+
+        shared = {
+            "person": {
+                "primary": "retail.customer",
+                "links": {"hr": "employee.retail_customer_id"},
+            }
+        }
+        comp = CompositeDomain(domains=[d1, d2], shared_entities=shared)
+        schema = comp.get_schema()
+
+        # The explicit config references retail_customer_id which exists,
+        # so no bridge column should be injected
+        hr_emp = schema.tables["hr_employee"]
+        bridge_cols = [c for c in hr_emp.columns if c.startswith("shared_")]
+        assert len(bridge_cols) == 0
+
+    def test_bridge_columns_are_nullable_when_optional(self):
+        """Default registry relationships are optional=True → bridge cols nullable."""
+        d1 = _StubDomain("retail", ["customer"])
+        d2 = _StubDomain("hr", ["employee"])
+        comp = CompositeDomain(domains=[d1, d2])
+        schema = comp.get_schema()
+
+        hr_emp = schema.tables["hr_employee"]
+        bridge_col = "shared_person_retail_customer_id"
+        assert hr_emp.columns[bridge_col].nullable is True
+
+    def test_cross_domain_rels_reference_injected_columns(self):
+        """Each cross-domain rel's child_columns must exist in the child table."""
+        d1 = _StubDomain("retail", ["customer", "store"])
+        d2 = _StubDomain("hr", ["employee", "department"])
+        comp = CompositeDomain(domains=[d1, d2])
+        schema = comp.get_schema()
+
+        for rel in schema.relationships:
+            if not rel.name.startswith("xdomain_"):
+                continue
+            child_table = schema.tables.get(rel.child)
+            assert child_table is not None, f"Child table {rel.child} not found"
+            for c_col in rel.child_columns:
+                assert c_col in child_table.columns, (
+                    f"Relationship {rel.name}: column {c_col} missing from {rel.child}. "
+                    f"Columns: {list(child_table.columns.keys())}"
+                )

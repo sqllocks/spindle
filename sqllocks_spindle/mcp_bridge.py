@@ -105,11 +105,11 @@ def cmd_describe(params: dict) -> dict:
     tables = {}
     for tname, tdef in schema.tables.items():
         columns = []
-        for col in tdef.columns:
+        for col_name, col_def in tdef.columns.items():
             columns.append({
-                "name": col.name,
-                "type": col.type,
-                "nullable": col.nullable,
+                "name": col_def.name,
+                "type": col_def.type,
+                "nullable": col_def.nullable,
             })
         tables[tname] = {
             "description": tdef.description or "",
@@ -125,15 +125,15 @@ def cmd_describe(params: dict) -> dict:
             "name": rel.name,
             "parent": rel.parent,
             "child": rel.child,
-            "parent_key": rel.parent_key,
-            "child_key": rel.child_key,
+            "parent_columns": rel.parent_columns,
+            "child_columns": rel.child_columns,
         })
 
     rules = []
     for rule in schema.business_rules:
         rules.append({
             "name": rule.name,
-            "description": rule.description,
+            "rule": rule.rule,
             "type": rule.type,
         })
 
