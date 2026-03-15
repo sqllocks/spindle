@@ -277,16 +277,16 @@ class TestGSLParserFile:
 # ---------------------------------------------------------------------------
 
 class TestGenerationSpecResolvePath:
-    def test_absolute_path_returned_unchanged(self):
-        spec = GenerationSpec(_base_dir=Path("/some/dir"))
-        resolved = spec.resolve_path("/absolute/path/file.json")
-        assert resolved == Path("/absolute/path/file.json")
+    def test_absolute_path_returned_unchanged(self, tmp_path):
+        abs_path = str(tmp_path / "file.json")
+        spec = GenerationSpec(_base_dir=tmp_path)
+        resolved = spec.resolve_path(abs_path)
+        assert resolved == Path(abs_path)
 
     def test_relative_path_resolved_against_base(self, tmp_path):
         spec = GenerationSpec(_base_dir=tmp_path)
         resolved = spec.resolve_path("subdir/schema.json")
-        assert str(resolved).endswith("subdir/schema.json")
-        assert str(tmp_path) in str(resolved)
+        assert resolved == tmp_path / "subdir" / "schema.json"
 
 
 # ---------------------------------------------------------------------------

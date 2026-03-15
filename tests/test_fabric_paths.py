@@ -35,7 +35,7 @@ class TestOneLakePathsLandingZone:
     def test_landing_zone_path_no_hour(self, tmp_path):
         paths = OneLakePaths(base_path=tmp_path)
         result = paths.landing_zone_path("retail", "order", "2024-01-15")
-        assert str(result).endswith("landing/retail/order/dt=2024-01-15")
+        assert result == tmp_path / "landing" / "retail" / "order" / "dt=2024-01-15"
 
     def test_landing_zone_path_with_hour_int(self, tmp_path):
         paths = OneLakePaths(base_path=tmp_path)
