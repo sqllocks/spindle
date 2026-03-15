@@ -218,7 +218,7 @@ class TemporalPatternInferrer:
 
         return {
             "strategy": "derived",
-            "source_column": start_col,
+            "source": start_col,
             "rule": "add_days",
             "params": {"min": 1, "max": 365},
         }

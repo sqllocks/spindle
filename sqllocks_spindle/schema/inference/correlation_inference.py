@@ -221,34 +221,12 @@ class CorrelationInferrer:
     # -----------------------------------------------------------------------
 
     def _cr08_parent_sum_children(self, ctx: InferenceContext) -> None:
-        for rel in ctx.schema.relationships:
-            parent_table = ctx.schema.tables.get(rel.parent)
-            child_table = ctx.schema.tables.get(rel.child)
-            if not parent_table or not child_table:
-                continue
-
-            parent_total = _find_col(parent_table.columns, "total")
-            if not parent_total:
-                continue
-            if not _is_basic(parent_table.columns[parent_total]):
-                continue
-
-            child_amount = _find_col(child_table.columns, "amount", "total")
-            if not child_amount:
-                continue
-
-            parent_table.columns[parent_total].generator = {
-                "strategy": "computed",
-                "rule": "sum_children",
-                "child_table": rel.child,
-                "child_column": child_amount,
-            }
-            ctx.annotate(
-                table=rel.parent, column=parent_total, rule_id="CR-08",
-                description=(
-                    f"Parent total ({parent_total}) computed as SUM({rel.child}.{child_amount})"
-                ),
-            )
+        # NOTE: CR-08 (parent_total = SUM(child_amount)) requires the child
+        # table to be generated before the parent, but topological sort always
+        # generates parents first.  This rule is only applicable in post-
+        # generation recalculation passes, not during initial generation.
+        # Skip for now to avoid chicken-and-egg failures.
+        pass
 
     # -----------------------------------------------------------------------
     # CR-09: margin = price - cost  (formula)

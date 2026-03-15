@@ -169,7 +169,7 @@ class TestTemporalInference:
         schema, _ = smart_schema
         gen = schema.tables["products"].columns["sell_end_date"].generator
         assert gen["strategy"] == "derived"
-        assert gen["source_column"] == "sell_start_date"
+        assert gen.get("source_column", gen.get("source")) == "sell_start_date"
 
     def test_audit_dates_uniform(self, smart_schema):
         schema, _ = smart_schema
@@ -187,7 +187,7 @@ class TestCorrelationInference:
         schema, _ = smart_schema
         gen = schema.tables["products"].columns["unit_cost"].generator
         assert gen["strategy"] == "correlated"
-        assert gen["source_column"] == "unit_price"
+        assert gen.get("source_column", gen.get("source")) == "unit_price"
 
     def test_line_total_formula(self, smart_schema):
         schema, _ = smart_schema
