@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -10,6 +11,8 @@ import pandas as pd
 
 from sqllocks_spindle.engine.id_manager import IDManager
 from sqllocks_spindle.schema.parser import ColumnDef
+
+logger = logging.getLogger(__name__)
 
 
 class GenerationContext:
@@ -94,6 +97,38 @@ class StrategyRegistry:
 
     def has(self, name: str) -> bool:
         return name in self._strategies
+
+    def load_entrypoint_plugins(self, group: str = "spindle.strategies") -> None:
+        """Discover and register strategies from installed entrypoint plugins.
+
+        Third-party packages can register custom strategies by defining an
+        entrypoint in their ``pyproject.toml``::
+
+            [project.entry-points."spindle.strategies"]
+            my_strategy = "my_package.strategies:MyStrategy"
+
+        The entrypoint value must be a class implementing :class:`Strategy`.
+        """
+        try:
+            from importlib.metadata import entry_points
+        except ImportError:
+            return
+
+        eps = entry_points()
+        # Python 3.12+ returns SelectableGroups; 3.9-3.11 returns dict
+        if hasattr(eps, "select"):
+            plugin_eps = eps.select(group=group)
+        else:
+            plugin_eps = eps.get(group, [])
+
+        for ep in plugin_eps:
+            try:
+                cls = ep.load()
+                instance = cls()
+                self.register(ep.name, instance)
+                logger.info("Loaded plugin strategy '%s' from %s", ep.name, ep.value)
+            except Exception as exc:
+                logger.warning("Failed to load plugin strategy '%s': %s", ep.name, exc)
 
     @property
     def available(self) -> list[str]:
