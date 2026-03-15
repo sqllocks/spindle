@@ -467,3 +467,14 @@ Generate formatted strings with token substitution.
 | `{seq:N}` | Zero-padded sequence number (N digits) |
 | `{random:N}` | Random alphanumeric string (N chars) |
 | `{column_name}` | Value from another column in the same row |
+
+---
+
+## See Also
+
+- **Tutorial:** [01: Hello Spindle](../tutorials/beginner/01-hello-spindle.md) — step-by-step walkthrough
+- **Tutorial:** [03: Custom Schemas](../tutorials/beginner/03-custom-schemas.md) — step-by-step walkthrough
+- **Example script:** [`01_hello_world.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/01_hello_world.py)
+- **Example script:** [`05_distribution_overrides.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/05_distribution_overrides.py)
+- **Notebook:** [`T01_hello_spindle.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/quickstart/T01_hello_spindle.ipynb)
+- **Notebook:** [`T05_distribution_overrides.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/quickstart/T05_distribution_overrides.ipynb)

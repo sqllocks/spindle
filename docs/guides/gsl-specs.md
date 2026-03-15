@@ -177,3 +177,11 @@ from sqllocks_spindle.packs import PackLoader
 for p in PackLoader().list_builtin():
     print(f"{p['domain']:15} {p['pack_id']}")
 ```
+
+---
+
+## See Also
+
+- **Tutorial:** [15: GSL Specs](../tutorials/advanced/15-gsl-specs.md) — step-by-step walkthrough
+- **Tutorial:** [17: CI Integration](../tutorials/advanced/17-ci-integration.md) — step-by-step walkthrough
+- **Example script:** [`20_gsl_spec.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/20_gsl_spec.py)

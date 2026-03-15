@@ -128,3 +128,11 @@ for table_name, stats in write_result.table_stats.items():
 | `AADSTS700016` | Verify `AZURE_TENANT_ID` matches your Fabric tenant |
 | `Cannot open database` | Database name must match the SQL Database item name |
 | `ODBC Driver not found` | Install Microsoft ODBC Driver 18 for SQL Server |
+
+---
+
+## See Also
+
+- **Tutorial:** [11: Fabric Warehouse](../tutorials/fabric/11-fabric-warehouse.md) — step-by-step walkthrough
+- **Notebook:** [`T10_fabric_sql_database.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/intermediate/T10_fabric_sql_database.ipynb)
+- **Notebook:** [`F03_sql_database_oltp.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/fabric-scenarios/F03_sql_database_oltp.ipynb)

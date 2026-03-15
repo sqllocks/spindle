@@ -116,3 +116,11 @@ for domain in domains:
 - Use `scale="demo"` for quick iteration, `scale="small"` for realistic demos.
 - Fabric notebooks have a 20-minute idle timeout — large scales may need a keep-alive cell.
 - Install Spindle once per session; the package persists until the Spark session restarts.
+
+---
+
+## See Also
+
+- **Tutorial:** [10: Fabric Lakehouse](../tutorials/fabric/10-fabric-lakehouse.md) — step-by-step walkthrough
+- **Quickstart:** [Fabric Quickstart](../getting-started/quickstart-fabric.md)
+- **Notebooks:** All F-series notebooks in [`fabric-scenarios/`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/fabric-scenarios/)

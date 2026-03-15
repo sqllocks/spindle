@@ -76,10 +76,36 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started:
+    - Before You Start: getting-started/before-you-start.md
     - 60-Second Overview: getting-started/60-seconds.md
-    - Quickstart: getting-started/quickstart.md
+    - Quickstart (Python): getting-started/quickstart.md
+    - Quickstart (CLI): getting-started/quickstart-cli.md
+    - Quickstart (Fabric): getting-started/quickstart-fabric.md
     - Installation: getting-started/installation.md
     - CLI Cheatsheet: getting-started/cli-cheatsheet.md
+  - Tutorials:
+    - Learning Paths: tutorials/index.md
+    - Beginner:
+      - "01: Hello Spindle": tutorials/beginner/01-hello-spindle.md
+      - "02: Explore Domains": tutorials/beginner/02-explore-domains.md
+      - "03: Custom Schemas": tutorials/beginner/03-custom-schemas.md
+      - "04: Output Formats": tutorials/beginner/04-output-formats.md
+    - Intermediate:
+      - "05: Star Schema": tutorials/intermediate/05-star-schema.md
+      - "06: Streaming": tutorials/intermediate/06-streaming.md
+      - "07: Chaos Engineering": tutorials/intermediate/07-chaos-engineering.md
+      - "08: Validation Gates": tutorials/intermediate/08-validation-gates.md
+      - "09: Composite Domains": tutorials/intermediate/09-composite-domains.md
+    - Fabric:
+      - "10: Fabric Lakehouse": tutorials/fabric/10-fabric-lakehouse.md
+      - "11: Fabric Warehouse": tutorials/fabric/11-fabric-warehouse.md
+      - "12: Fabric Streaming": tutorials/fabric/12-fabric-streaming.md
+      - "13: Medallion Architecture": tutorials/fabric/13-medallion.md
+    - Advanced:
+      - "14: Scenario Packs": tutorials/advanced/14-scenario-packs.md
+      - "15: GSL Specs": tutorials/advanced/15-gsl-specs.md
+      - "16: Day 2 Operations": tutorials/advanced/16-day2-operations.md
+      - "17: CI Integration": tutorials/advanced/17-ci-integration.md
   - Guides:
     - Generation Strategies: guides/strategies.md
     - Custom Schemas: guides/custom-schemas.md
@@ -103,6 +129,7 @@ nav:
     - Fabric Provisioning: guides/fabric-provisioning.md
     - Star Schema Export: guides/star-schema.md
     - CDM Export: guides/cdm-export.md
+    - Troubleshooting: guides/troubleshooting.md
   - Domains:
     - domains/index.md
     - Retail: domains/retail.md

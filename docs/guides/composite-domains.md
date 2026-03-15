@@ -38,7 +38,7 @@ print(result.table_names)
 
 ## SharedEntityRegistry
 
-The built-in registry has default mappings for all 12 domains:
+The built-in registry has default mappings for all 13 domains:
 
 ```python
 from sqllocks_spindle.domains.shared_registry import SharedEntityRegistry, SharedConcept
@@ -82,3 +82,12 @@ composite = CompositeDomain(
 ```
 
 The `primary` entity is generated first. Linked entities get FK references to the primary's PK.
+
+---
+
+## See Also
+
+- **Tutorial:** [09: Composite Domains](../tutorials/intermediate/09-composite-domains.md) — step-by-step walkthrough
+- **Example script:** [`17_composite_domain.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/17_composite_domain.py)
+- **Notebook:** [`T16_composite_domains.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/intermediate/T16_composite_domains.ipynb)
+- **Notebook:** [`F09_cross_domain_enterprise.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/fabric-scenarios/F09_cross_domain_enterprise.ipynb)

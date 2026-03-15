@@ -6,12 +6,12 @@ Transform Spindle's normalized 3NF output into star schemas with surrogate keys,
 
 ```python
 from sqllocks_spindle import Spindle, RetailDomain
-from sqllocks_spindle.transform.star_schema import StarSchemaTransformer
+from sqllocks_spindle.transform.star_schema import StarSchemaTransform
 
 domain = RetailDomain()
 result = Spindle().generate(domain=domain, scale="small", seed=42)
 
-transformer = StarSchemaTransformer(
+transformer = StarSchemaTransform(
     schema=domain.get_schema(),
     star_map=domain.star_schema_map(),
 )
@@ -114,3 +114,12 @@ for name, df in star.facts.items():
 
 star.date_dim.to_parquet("/lakehouse/default/Files/star/dim_date.parquet", index=False)
 ```
+
+---
+
+## See Also
+
+- **Tutorial:** [05: Star Schema](../tutorials/intermediate/05-star-schema.md) — step-by-step walkthrough
+- **Example script:** [`06_star_schema.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/06_star_schema.py)
+- **Notebook:** [`T06_star_schema_export.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/quickstart/T06_star_schema_export.ipynb)
+- **Notebook:** [`04_star_schema.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/showcase/04_star_schema.ipynb)

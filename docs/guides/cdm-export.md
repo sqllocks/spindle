@@ -121,3 +121,11 @@ spindle generate retail --scale small --format cdm --output ./cdm_output/retail
 - **Synapse Analytics** — CDM folders are natively supported as linked datasets.
 - **Cross-system testing** — Validate data pipelines that consume CDM format.
 - **Power Apps prototyping** — Populate test data matching Dataverse entity schemas.
+
+---
+
+## See Also
+
+- **Tutorial:** [05: Star Schema](../tutorials/intermediate/05-star-schema.md) — step-by-step walkthrough
+- **Example script:** [`07_cdm_export.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/07_cdm_export.py)
+- **Notebook:** [`T06_star_schema_export.ipynb`](https://github.com/sqllocks/spindle/blob/main/examples/notebooks/quickstart/T06_star_schema_export.ipynb)

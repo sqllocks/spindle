@@ -28,11 +28,11 @@ print(result.summary())
 
 <div class="grid cards" markdown>
 
--   :material-database-outline:{ .lg .middle } **12 Industry Domains**
+-   :material-database-outline:{ .lg .middle } **13 Industry Domains**
 
     ---
 
-    Retail, Healthcare, Financial, Supply Chain, IoT, HR, Insurance, Marketing, Education, Real Estate, Manufacturing, Telecom — each with calibrated distribution profiles from real-world data.
+    Retail, Healthcare, Financial, Supply Chain, IoT, HR, Insurance, Marketing, Education, Real Estate, Manufacturing, Telecom, Capital Markets — each with calibrated distribution profiles from real-world data.
 
     [:octicons-arrow-right-24: Domain Catalog](domains/index.md)
 
@@ -80,13 +80,29 @@ print(result.summary())
 
 ---
 
+## Where Do I Start?
+
+| I am a... | Start here |
+|-----------|-----------|
+| :material-school: **Developer new to synthetic data** | [Before You Start](getting-started/before-you-start.md) then [Quickstart](getting-started/quickstart.md) |
+| :material-pipe: **Data engineer building Fabric pipelines** | [Quickstart](getting-started/quickstart.md) then [Fabric Tutorials](tutorials/fabric/) |
+| :material-database: **DBA who wants SQL test data** | [CLI Quickstart](getting-started/quickstart-cli.md) — no Python required |
+| :material-chart-bell-curve: **Data scientist evaluating distributions** | [Methodology](methodology/calibration.md) then [Domain Catalog](domains/) |
+| :material-sitemap: **Architect evaluating Spindle** | [Why Spindle?](#why-spindle) then [Domain Catalog](domains/) |
+| :material-cog: **DevOps automating data generation** | [CLI Quickstart](getting-started/quickstart-cli.md) then [CI Integration](tutorials/advanced/17-ci-integration.md) |
+| :material-presentation: **Presenter building a demo** | [60-Second Overview](getting-started/60-seconds.md) |
+| :material-microsoft: **Already in a Fabric notebook** | [Fabric Quickstart](getting-started/quickstart-fabric.md) |
+
 ## Quick Links
 
 | | |
 |---|---|
-| :material-rocket-launch: [Quickstart](getting-started/quickstart.md) | Generate your first dataset in 5 minutes |
+| :material-rocket-launch: [Quickstart (Python)](getting-started/quickstart.md) | Generate your first dataset in 5 minutes |
+| :material-console: [Quickstart (CLI)](getting-started/quickstart-cli.md) | Generate data from the command line |
+| :material-microsoft: [Quickstart (Fabric)](getting-started/quickstart-fabric.md) | Generate data in a Fabric notebook |
+| :material-school: [Tutorials](tutorials/) | 17 step-by-step learning paths |
 | :material-download: [Installation](getting-started/installation.md) | `pip install sqllocks-spindle` and optional extras |
-| :material-console: [CLI Cheatsheet](getting-started/cli-cheatsheet.md) | All 12 CLI commands at a glance |
+| :material-console: [CLI Cheatsheet](getting-started/cli-cheatsheet.md) | All CLI commands at a glance |
 | :fontawesome-brands-github: [GitHub](https://github.com/sqllocks/spindle) | Source code, issues, contributing |
 | :fontawesome-brands-python: [PyPI](https://pypi.org/project/sqllocks-spindle/) | `pip install sqllocks-spindle` |
 
@@ -101,7 +117,7 @@ Every Fabric project starts with the same problem: **where's the test data?**
 - ML models train on data that has no signal to find
 - Stakeholders can't relate to `Customer_001` buying `Product_ABC` for `$10.00`
 
-Spindle solves this with **rule-based, transparent** generation. Unlike ML generators that output black-box models, Spindle gives you a human-readable `.spindle.json` schema you can inspect, tweak, and version control. Every distribution is calibrated from real-world sources (CDC, CMS, BLS, AAMC, KFF) and documented in the [Methodology](methodology/calibration.md).
+Spindle solves this with **rule-based, transparent** generation. Unlike ML generators that output black-box models, Spindle gives you a human-readable `.spindle.json` schema you can inspect, tweak, and version control. All 13 domains have distributions sourced from published data — BLS, NAIC, NCES, NAR, FDIC, Federal Reserve, SEC, and 40+ more. See the [Methodology](methodology/calibration.md) for per-parameter citations.
 
 ---
 

@@ -1,66 +1,48 @@
 # Capital Markets Domain
 
-Securities, market data, corporate actions, and trading for S&P 500-scale datasets.
+Public equities market data with real S&P 500 tickers, daily OHLCV pricing via Geometric Brownian Motion, corporate actions, earnings, and insider transactions.
 
 ## Tables
 
 | Table | Rows (small) | Description |
 | --- | --- | --- |
-| `exchange` | 3 | Stock exchanges (NYSE, NASDAQ, CBOE) |
+| `exchange` | 3 | Stock exchanges (NYSE, NASDAQ, AMEX) |
 | `sector` | 11 | GICS sectors |
-| `industry` | 69 | GICS industries within sectors |
-| `company` | 100 | Public companies with ticker, market cap, sector/industry |
-| `daily_price` | ~25,000 | OHLCV daily bars via geometric Brownian motion (GBM) |
-| `dividend` | ~400 | Quarterly dividend payments |
-| `split` | ~20 | Stock split events |
-| `earnings` | ~400 | Quarterly earnings (EPS, revenue, beat/miss) |
-| `insider_transaction` | ~1,000 | SEC Form 4 insider buys/sells |
-| `trade` | ~50,000 | Tick-level trade execution records |
+| `industry` | 61 | GICS industries with sector FK |
+| `company` | 100 | Public companies with real S&P 500 tickers and SEC EDGAR CIKs |
+| `daily_price` | ~75,600 | Daily OHLCV bars (252 trading days/year x 3 years x 100 companies) |
+| `trade` | ~300,000 | Tick-level trades for streaming demos |
+| `dividend` | ~450 | Dividend payments with ex-date, pay-date, frequency |
+| `split` | ~15 | Stock splits with ratio (2:1, 3:1, etc.) |
+| `earnings` | ~1,200 | Quarterly earnings with EPS estimate, actual, and surprise % |
+| `insider_transaction` | ~600 | SEC Form 4 insider trades (BUY/SELL/GRANT) |
 
 ## Quick Start
 
 ```python
-from sqllocks_spindle import Spindle
-from sqllocks_spindle.domains.capital_markets import CapitalMarketsDomain
+from sqllocks_spindle import Spindle, CapitalMarketsDomain
 
 result = Spindle().generate(domain=CapitalMarketsDomain(), scale="small", seed=42)
 print(result.summary())
-
-# Access market data
-prices = result["daily_price"]
-print(prices[["ticker", "trade_date", "open", "high", "low", "close", "volume"]].head())
 ```
 
 ## Key Features
 
-- **Geometric Brownian Motion (GBM)** for daily price generation — produces realistic random walks with drift and volatility
-- **S&P 500 reference data** for company tickers, sectors, and industries
-- **GICS sector/industry hierarchy** with proper FK relationships
-- **Corporate actions** — dividends, splits, and earnings tied to company calendars
-- **Insider transactions** modeled on SEC Form 4 patterns
-- **Tick-level trades** with realistic price/volume distributions
+- **Real tickers** — 110 S&P 500 companies with actual CIK numbers, GICS sectors/industries, and exchanges
+- **GBM pricing** — daily OHLCV via Geometric Brownian Motion with enforced OHLC business rules (high >= low, close within range)
+- **Log-normal volumes** — realistic trading volume distributions (mean ~33K shares/day)
+- **Zipf ticker distribution** — tick-level trades concentrated in mega-cap names (alpha=1.5)
+- **Dividend frequency** — 75% quarterly, 20% annual, 5% special
+- **Earnings surprise** — EPS actual correlated to estimate (85-120%), surprise % normal(0%, 2.5%)
+- **Insider titles** — weighted distribution (CEO 15%, CFO 12%, Director 25%, VP 15%, etc.)
+- **Star schema map** — 4 dimensions (company, exchange, sector, industry) + 4 facts (daily_price, dividend, earnings, insider_txn)
 
 ## Scale Presets
 
-| Preset | `company` | `daily_price` | `trade` |
+| Preset | `company` | Years | Approx `daily_price` Rows |
 | --- | --- | --- | --- |
-| `fabric_demo` | 30 | ~7,500 | ~15,000 |
-| `small` | 100 | ~25,000 | ~50,000 |
-| `medium` | 500 | ~125,000 | ~500,000 |
-| `large` | 1,000 | ~250,000 | ~2,000,000 |
-| `xlarge` | 4,000 | ~1,000,000 | ~10,000,000 |
-
-## Star Schema
-
-4 dimensions + 4 fact tables:
-
-| Type | Table | Description |
-| --- | --- | --- |
-| Dimension | `dim_company` | Company master with sector/industry denormalized |
-| Dimension | `dim_exchange` | Exchange reference |
-| Dimension | `dim_sector` | GICS sector reference |
-| Dimension | `dim_date` | Standard date dimension |
-| Fact | `fact_daily_price` | Daily OHLCV bars |
-| Fact | `fact_dividend` | Dividend events |
-| Fact | `fact_earnings` | Quarterly earnings |
-| Fact | `fact_insider_transaction` | Insider trades |
+| `fabric_demo` | 30 | 1 | ~7,500 |
+| `small` | 100 | 3 | ~75,600 |
+| `medium` | 500 | 5 | ~630,000 |
+| `large` | 1,000 | 10 | ~2,520,000 |
+| `xlarge` | 4,000 | 20 | ~20,160,000 |
