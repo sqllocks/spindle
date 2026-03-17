@@ -77,9 +77,9 @@ def _sql_type_for_column(
     if schema_meta:
         spindle_type = schema_meta.get("type", "string")
         template = type_map.get(spindle_type, type_map.get("string", "NVARCHAR(255)"))
-        length = schema_meta.get("max_length", 255)
-        precision = schema_meta.get("precision", 18)
-        scale = schema_meta.get("scale", 2)
+        length = schema_meta.get("max_length") or 255
+        precision = schema_meta.get("precision") or 18
+        scale = schema_meta.get("scale") or 2
         return template.format(length=length, precision=precision, scale=scale)
 
     # Fallback: infer from pandas dtype

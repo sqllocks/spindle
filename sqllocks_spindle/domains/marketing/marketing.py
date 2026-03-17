@@ -729,7 +729,10 @@ class MarketingDomain(Domain):
                     "small": {"campaign": 200},
                     "medium": {"campaign": 2000},
                     "large": {"campaign": 20000},
+                    "xlarge": {"campaign": 500000},
                     "warehouse": {"campaign": 200000},
+                    "xxl": {"campaign": 2000000},
+                    "xxxl": {"campaign": 10000000},
                 },
                 "derived_counts": {
                     "campaign_type": {"fixed": 15},

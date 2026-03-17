@@ -784,7 +784,10 @@ class EducationDomain(Domain):
                     "small": {"student": 2000},
                     "medium": {"student": 20000},
                     "large": {"student": 200000},
+                    "xlarge": {"student": 5000000},
                     "warehouse": {"student": 2000000},
+                    "xxl": {"student": 20000000},
+                    "xxxl": {"student": 100000000},
                 },
                 "derived_counts": {
                     "department": {"fixed": 25},

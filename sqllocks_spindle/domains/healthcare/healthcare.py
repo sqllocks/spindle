@@ -974,6 +974,8 @@ class HealthcareDomain(Domain):
                     "large": {"patient": 250000, "provider": 15000, "encounter": 1500000},
                     "xlarge": {"patient": 2500000, "provider": 100000, "encounter": 20000000},
                     "warehouse": {"patient": 500000, "provider": 30000, "encounter": 5000000},
+                    "xxl": {"patient": 10000000, "provider": 200000, "encounter": 100000000},
+                    "xxxl": {"patient": 50000000, "provider": 500000, "encounter": 1000000000},
                 },
                 "derived_counts": {
                     "facility": {"fixed": 50},

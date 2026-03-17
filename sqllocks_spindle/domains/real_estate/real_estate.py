@@ -798,7 +798,10 @@ class RealEstateDomain(Domain):
                     "small": {"property": 1000},
                     "medium": {"property": 10000},
                     "large": {"property": 100000},
+                    "xlarge": {"property": 5000000},
                     "warehouse": {"property": 1000000},
+                    "xxl": {"property": 20000000},
+                    "xxxl": {"property": 100000000},
                 },
                 "derived_counts": {
                     "neighborhood": {"fixed": 50},

@@ -647,6 +647,8 @@ class IoTDomain(Domain):
                     "large": {"device": 50000},
                     "xlarge": {"device": 500000},
                     "warehouse": {"device": 5000000},
+                    "xxl": {"device": 20000000},
+                    "xxxl": {"device": 100000000},
                 },
                 "derived_counts": {
                     "device_type": {"fixed": 20},

@@ -328,7 +328,7 @@ class DataProfiler:
         for name, dist in candidates.items():
             try:
                 params = dist.fit(values)
-                ks_stat, p_value = sp_stats.kstest(values, name, args=params)
+                ks_stat, p_value = sp_stats.kstest(values, dist.name, args=params)
                 if p_value > 0.05 and ks_stat < best_stat:
                     best_name = name
                     best_stat = ks_stat

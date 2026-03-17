@@ -5,6 +5,53 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] - 2026-03-17
+
+### Fixed
+- `DataProfiler._detect_distribution()`: KS test was using friendly names (`"normal"`,
+  `"exponential"`) instead of scipy names (`"norm"`, `"expon"`), causing all distribution
+  fits to silently fail — now uses `dist.name` for correct scipy lookup
+- Sink import-error tests: fixed flaky `sys.modules` removal approach that failed to
+  block re-import — now uses `unittest.mock.patch("builtins.__import__")` to properly
+  simulate missing `azure-eventhub` and `kafka-python` packages
+- Test count: 1715 passed + 3 failed → **1718 passed, 0 failed**
+
+## [2.2.1] - 2026-03-17
+
+### Fixed
+- `WarehouseBulkWriter.write_tables()`: replaced Unicode arrow (`→`) in log messages
+  with ASCII `->` to prevent `UnicodeEncodeError` on Windows cp1252 consoles
+- `WarehouseBulkWriter.write_tables()`: reduced `max_workers` from 30 to 4 — concurrent
+  COPY INTO operations were overwhelming Fabric Warehouse, causing socket timeouts on
+  queued tables
+- `WarehouseBulkWriter.copy_into()`: added `conn.timeout = 600` (10 min) to prevent
+  premature connection drops during long-running COPY INTO loads
+
+### Verified
+- 23/23 integration test groups PASS on two consecutive seeds (42, 7) against live
+  Fabric Warehouse at `large` scale (~37.7M rows across Retail/Financial/CapitalMarkets)
+
+## [2.2.0] - 2026-03-17
+
+### Fixed
+- `FabricSqlDatabaseWriter`: boolean string columns (`"true"`/`"false"`) now correctly
+  converted to Python `bool` before INSERT, preventing HY000 right-truncation on BIT
+  columns with pyodbc `fast_executemany` (affected enterprise composite domain writes)
+
+### Performance
+- `FabricSqlDatabaseWriter`: `fast_executemany=True` + vectorized `_coerce_df_for_insert()`
+  reduces SQL Database write time from 34 min → ~24s for 100K rows
+- `FabricSqlDatabaseWriter`: COPY INTO path for Fabric Warehouse via `WarehouseBulkWriter`
+  with parallel multi-file staging and concurrent table loading (per MS Learn performance guidelines)
+- Cover-row algorithm ensures pyodbc VARCHAR buffer is sized from max-length row,
+  eliminating right-truncation for variable-length string columns
+
+### Added
+- `--seed` CLI arg for `fabric_integration_sweep.py` — enables multi-seed regression testing
+- `xxl` scale tier: ~1B orders; `xxxl` scale tier: ~1T rows total across all tables
+- Warehouse load test upgraded to `scale="xxxl"` to validate COPY INTO at extreme volume
+- `WarehouseBulkWriter`: parallel multi-file staging (all chunks first) + concurrent table COPY INTO
+
 ## [2.0.0] - 2026-03-14
 
 ### Added

@@ -72,8 +72,13 @@ class Strategy(ABC):
             return values
 
         mask = ctx.rng.random(len(values)) < column.null_rate
-        # Convert to object array to support None
-        result = values.astype(object)
+        # Convert to object array to support None.
+        # For datetime arrays, .astype(object) returns ints (ns epoch);
+        # convert via pd.Series to preserve Timestamp objects.
+        if np.issubdtype(values.dtype, np.datetime64):
+            result = np.array(pd.Series(values).astype(object).values, dtype=object)
+        else:
+            result = values.astype(object)
         result[mask] = None
         return result
 

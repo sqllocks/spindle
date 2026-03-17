@@ -69,12 +69,14 @@ def main():
 @click.option("--connection-string", default=None, envvar="SPINDLE_SQL_CONNECTION", help="SQL connection string (for sql-database format)")
 @click.option("--auth", "auth_method", default="cli", type=click.Choice(["cli", "msi", "spn", "sql"]), help="Auth method for sql-database")
 @click.option("--write-mode", default="create_insert", type=click.Choice(["create_insert", "insert_only", "truncate_insert", "append"]), help="SQL write mode")
-@click.option("--batch-size", default=1000, type=int, help="Rows per INSERT batch")
+@click.option("--batch-size", default=5000, type=int, help="Rows per INSERT batch")
+@click.option("--staging-path", default=None, envvar="SPINDLE_STAGING_PATH", help="OneLake staging path for Warehouse COPY INTO (abfss://...)")
 def generate(
     domain_name: str, scale: str, seed: int, output: str | None, fmt: str,
     mode: str, dry_run: bool, schema_name: str | None,
     sql_ddl: bool, sql_drop: bool, sql_go: bool, sql_dialect: str,
     connection_string: str | None, auth_method: str, write_mode: str, batch_size: int,
+    staging_path: str | None,
 ):
     """Generate synthetic data for a domain.
 
@@ -148,10 +150,12 @@ def generate(
         db_writer = FabricSqlDatabaseWriter(
             connection_string=connection_string,
             auth_method=auth_method,
+            staging_lakehouse_path=staging_path,
         )
 
+        strategy = "COPY INTO" if db_writer._bulk_writer else "INSERT"
         click.echo()
-        click.echo(f"Writing to SQL database (mode={write_mode}, auth={auth_method})...")
+        click.echo(f"Writing to SQL database (mode={write_mode}, auth={auth_method}, strategy={strategy})...")
 
         write_result = db_writer.write(
             result,
@@ -1527,6 +1531,7 @@ def publish(
         db_writer = FabricSqlDatabaseWriter(
             connection_string=actual_connection,
             auth_method=auth_method,
+            staging_lakehouse_path=base_path,
         )
 
         click.echo(f"Publishing to SQL Database (auth={auth_method})...")

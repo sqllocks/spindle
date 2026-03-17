@@ -763,7 +763,10 @@ class ManufacturingDomain(Domain):
                     "small": {"work_order": 500},
                     "medium": {"work_order": 5000},
                     "large": {"work_order": 50000},
+                    "xlarge": {"work_order": 500000},
                     "warehouse": {"work_order": 5000000},
+                    "xxl": {"work_order": 20000000},
+                    "xxxl": {"work_order": 100000000},
                 },
                 "derived_counts": {
                     "production_line": {"fixed": 20},

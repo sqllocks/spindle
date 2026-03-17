@@ -144,7 +144,7 @@ class PackRunner:
 
         # Record outputs in manifest
         for table_name, df in gen_result.tables.items():
-            table_paths = [p for p in files_written if table_name in p]
+            table_paths = [p for p in files_written if table_name in str(p)]
             builder.record_output(
                 table_name=table_name,
                 rows=len(df),

@@ -833,6 +833,9 @@ class CapitalMarketsDomain(Domain):
                     "medium": {"company": 500, "daily_price_years": 5},
                     "large": {"company": 1000, "daily_price_years": 10},
                     "xlarge": {"company": 4000, "daily_price_years": 20},
+                    "warehouse": {"company": 8000, "daily_price_years": 25},
+                    "xxl": {"company": 20000, "daily_price_years": 30},
+                    "xxxl": {"company": 50000, "daily_price_years": 40},
                 },
                 "derived_counts": {
                     "exchange": {"fixed": 3},

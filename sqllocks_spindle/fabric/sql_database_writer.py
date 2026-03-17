@@ -13,10 +13,12 @@ from __future__ import annotations
 import logging
 import struct
 import time
+import warnings
 from dataclasses import dataclass, field
 from itertools import chain, repeat
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -92,12 +94,15 @@ class FabricSqlDatabaseWriter:
         client_id: str | None = None,
         client_secret: str | None = None,
         tenant_id: str | None = None,
+        staging_lakehouse_path: str | None = None,
     ):
         self._connection_string = connection_string
         self._auth_method = auth_method
         self._client_id = client_id
         self._client_secret = client_secret
         self._tenant_id = tenant_id
+        self._is_warehouse = ".datawarehouse.fabric.microsoft.com" in connection_string
+        self._staging_lakehouse_path = staging_lakehouse_path
 
         # Validate auth method
         valid_methods = ("cli", "msi", "spn", "sql")
@@ -106,6 +111,23 @@ class FabricSqlDatabaseWriter:
 
         if auth_method == "spn" and not all([client_id, client_secret, tenant_id]):
             raise ValueError("auth_method='spn' requires client_id, client_secret, and tenant_id")
+
+        # Auto-build bulk writer for Warehouse + staging path (COPY INTO is 100x faster)
+        self._bulk_writer = None
+        if self._is_warehouse and staging_lakehouse_path:
+            try:
+                from sqllocks_spindle.fabric.warehouse_bulk_writer import WarehouseBulkWriter
+                self._bulk_writer = WarehouseBulkWriter(
+                    connection_string=connection_string,
+                    staging_lakehouse_path=staging_lakehouse_path,
+                    auth_method=auth_method,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    tenant_id=tenant_id,
+                )
+                logger.info("Warehouse + staging path detected — will use COPY INTO for bulk writes")
+            except Exception as e:
+                logger.warning("Could not initialize bulk writer, falling back to INSERT: %s", e)
 
     def test_connection(self) -> bool:
         """Test the database connection. Returns True if successful."""
@@ -126,7 +148,7 @@ class FabricSqlDatabaseWriter:
         result: Any,
         schema_name: str = "dbo",
         mode: str = "create_insert",
-        batch_size: int = 1000,
+        batch_size: int = 5000,
         table_order: list[str] | None = None,
     ) -> WriteResult:
         """Write all tables from a GenerationResult or dict of DataFrames.
@@ -139,7 +161,7 @@ class FabricSqlDatabaseWriter:
                 - ``"insert_only"``: INSERT into existing tables (no DDL)
                 - ``"truncate_insert"``: TRUNCATE + INSERT (keep schema, reset data)
                 - ``"append"``: INSERT without truncating (for Day 2 loads)
-            batch_size: Rows per INSERT batch.
+            batch_size: Rows per INSERT batch (default 5000).
             table_order: Explicit table write order. If None, uses
                 GenerationResult.generation_order or dict key order.
 
@@ -159,6 +181,14 @@ class FabricSqlDatabaseWriter:
             tables = result.tables
             order = table_order or result.generation_order
             schema_obj = result.schema
+
+        # Delegate to COPY INTO for Warehouse bulk writes
+        if self._bulk_writer is not None:
+            strategy = "COPY INTO (bulk)"
+            logger.info("Write strategy: %s for %d tables", strategy, len(order))
+            return self._write_via_bulk(tables, order, schema_name, mode, schema_obj)
+
+        logger.info("Write strategy: INSERT (fast_executemany) for %d tables", len(order))
 
         start = time.time()
         write_result = WriteResult(tables_written=0, total_rows=0, elapsed_seconds=0)
@@ -192,7 +222,7 @@ class FabricSqlDatabaseWriter:
                     if mode == "truncate_insert":
                         self._truncate_table(cursor, tname, schema_name)
 
-                    rows = self._insert_rows(cursor, tname, df, schema_name, batch_size)
+                    rows = self._insert_rows(cursor, tname, df, schema_name, batch_size, schema_obj)
                     write_result.per_table[tname] = rows
                     write_result.total_rows += rows
                     write_result.tables_written += 1
@@ -224,7 +254,7 @@ class FabricSqlDatabaseWriter:
         df: pd.DataFrame,
         schema_name: str = "dbo",
         mode: str = "create_insert",
-        batch_size: int = 1000,
+        batch_size: int = 5000,
     ) -> int:
         """Write a single DataFrame to the database. Returns rows written."""
         result = self.write(
@@ -360,6 +390,20 @@ class FabricSqlDatabaseWriter:
         for col_name in df.columns:
             col_meta = meta.get(col_name, {})
             sql_type = self._infer_sql_type(col_name, df[col_name].dtype, col_meta)
+            # If the schema declares a narrow VARCHAR (e.g. state VARCHAR(2)) but the
+            # actual data has longer values, widen the column to fit the data so that
+            # SQL Server doesn't reject the INSERT with HY000 right-truncation.
+            if "VARCHAR(" in sql_type and col_name in df.columns:
+                series = df[col_name].dropna()
+                if not series.empty:
+                    try:
+                        actual_max = int(series.astype(str).str.len().max())
+                        import re as _re
+                        m = _re.search(r"VARCHAR\((\d+)\)", sql_type)
+                        if m and actual_max > int(m.group(1)):
+                            sql_type = _re.sub(r"VARCHAR\(\d+\)", f"VARCHAR({actual_max})", sql_type)
+                    except Exception:
+                        pass
             nullable = col_meta.get("nullable", True)
             null_str = "NULL" if nullable else "NOT NULL"
             col_defs.append(f"    [{col_name}] {sql_type} {null_str}")
@@ -375,11 +419,99 @@ class FabricSqlDatabaseWriter:
         qualified = f"[{schema_name}].[{table_name}]"
         cursor.execute(f"TRUNCATE TABLE {qualified}")
 
+    def _write_via_bulk(
+        self,
+        tables: dict[str, pd.DataFrame],
+        order: list[str],
+        schema_name: str,
+        mode: str,
+        schema_obj: Any,
+    ) -> WriteResult:
+        """Write tables via COPY INTO (Warehouse with staging path only)."""
+        start = time.time()
+        write_result = WriteResult(tables_written=0, total_rows=0, elapsed_seconds=0)
+
+        self._bulk_writer._schema_name = schema_name
+
+        for tname in order:
+            if tname not in tables:
+                continue
+            df = tables[tname]
+            try:
+                if mode == "create_insert":
+                    self._bulk_writer.create_table(tname, df)
+                elif mode == "truncate_insert":
+                    conn = self._get_connection()
+                    cursor = conn.cursor()
+                    self._truncate_table(cursor, tname, schema_name)
+                    conn.commit()
+                    conn.close()
+
+                if not df.empty:
+                    self._bulk_writer.stage_chunk(tname, df, 0)
+                    rows = self._bulk_writer.copy_into(tname)
+                    self._bulk_writer.cleanup_staging(tname)
+                else:
+                    rows = 0
+
+                write_result.per_table[tname] = rows
+                write_result.total_rows += rows
+                write_result.tables_written += 1
+                logger.info("Bulk wrote %d rows to %s.%s", rows, schema_name, tname)
+            except Exception as e:
+                write_result.errors.append(f"{tname}: {e}")
+                logger.error("Bulk write error for %s: %s", tname, e)
+
+        write_result.elapsed_seconds = time.time() - start
+        return write_result
+
+    @staticmethod
+    def _coerce_df_for_insert(df: pd.DataFrame) -> pd.DataFrame:
+        """Vectorized type coercion for pyodbc compatibility.
+
+        Converts numpy/pandas types to Python natives at the column level,
+        replacing the per-cell isinstance loop with ~10 vectorized ops
+        regardless of row count.
+        """
+        out = df.copy()
+        for col in out.columns:
+            series = out[col]
+            dtype = series.dtype
+
+            if pd.api.types.is_bool_dtype(dtype):
+                out[col] = series.astype(object).where(series.notna(), None)
+            elif pd.api.types.is_integer_dtype(dtype):
+                out[col] = series.where(series.notna(), None)
+            elif pd.api.types.is_float_dtype(dtype):
+                out[col] = series.where(series.notna(), None)
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    out[col] = series.dt.floor("us").astype(object).where(series.notna(), None)
+            elif isinstance(dtype, pd.StringDtype):
+                # pd.StringDtype (pandas nullable string) — convert to object so that
+                # is_object_dtype() returns True downstream and the fast_executemany
+                # cover-row buffer-sizing logic correctly detects string columns.
+                out[col] = series.astype(object).where(series.notna(), None)
+            elif isinstance(dtype, pd.CategoricalDtype):
+                # pd.CategoricalDtype — convert to object so string categories are
+                # visible to is_object_dtype() and the cover-row algorithm. Without
+                # this, categorical string columns (e.g. state codes that may vary
+                # in length across composite domains) bypass buffer-size correction.
+                out[col] = series.astype(object).where(series.notna(), None)
+            else:
+                out[col] = series.where(series.notna(), None)
+
+        return out
+
     def _insert_rows(
         self, cursor, table_name: str, df: pd.DataFrame,
-        schema_name: str, batch_size: int,
+        schema_name: str, batch_size: int, schema_obj=None,
     ) -> int:
-        """Insert rows using parameterized queries. Returns row count."""
+        """Insert rows using fast parameterized queries. Returns row count."""
+        import math
+        import numpy as np
+
         if df.empty:
             return 0
 
@@ -388,20 +520,113 @@ class FabricSqlDatabaseWriter:
         placeholders = ", ".join(["?"] * len(df.columns))
         insert_sql = f"INSERT INTO {qualified} ({columns}) VALUES ({placeholders})"
 
-        rows_written = 0
-        for batch_start in range(0, len(df), batch_size):
-            batch = df.iloc[batch_start : batch_start + batch_size]
-            params = []
-            for _, row in batch.iterrows():
-                row_vals = []
-                for val in row:
-                    if pd.isna(val):
-                        row_vals.append(None)
-                    else:
-                        row_vals.append(val)
-                params.append(row_vals)
+        cursor.fast_executemany = True
 
-            cursor.executemany(insert_sql, params)
+        coerced = self._coerce_df_for_insert(df)
+
+        # Convert "date"-typed datetime columns from Timestamp → datetime.date.
+        # fast_executemany overflows when a Timestamp (datetime+time) is sent to
+        # a SQL DATE column that has no time component.
+        # Also convert boolean string columns ("true"/"false") → Python bool.
+        # When a schema column is type="boolean" the DB column is BIT, but
+        # Spindle's weighted_enum generator may produce string values "true"/"false".
+        # pyodbc's fast_executemany sizes the BIT parameter buffer from SQLDescribeParam
+        # (ColumnSize=1), which for SQL_C_WCHAR = 2 bytes — too small for "false"
+        # (10 bytes), causing HY000 right-truncation.
+        meta, _ = self._get_table_meta(table_name, schema_obj)
+        date_cols = {col for col, m in meta.items() if m.get("type") == "date"}
+        bool_cols = {col for col, m in meta.items() if m.get("type") == "boolean"}
+        for col in date_cols:
+            if col in coerced.columns and pd.api.types.is_object_dtype(coerced[col]):
+                coerced[col] = coerced[col].apply(
+                    lambda v: v.date() if hasattr(v, "date") and v is not None else v
+                )
+        for col in bool_cols:
+            if col in coerced.columns and pd.api.types.is_object_dtype(coerced[col]):
+                # Convert "true"/"false" strings (and any other truthy/falsy strings)
+                # to Python bool so pyodbc sends SQL_C_BIT to the BIT column.
+                def _to_bool(v):
+                    if v is None:
+                        return None
+                    if isinstance(v, bool):
+                        return v
+                    if isinstance(v, str):
+                        return v.strip().lower() not in ("false", "0", "no", "f", "")
+                    return bool(v)
+                coerced[col] = coerced[col].apply(_to_bool)
+
+        # pyodbc.cursor.setinputsizes() is a DB-API 2.0 no-op — it does nothing.
+        # pyodbc fast_executemany sizes its parameter buffers from the FIRST ROW.
+        # If later rows have longer strings, the driver silently right-truncates.
+        # Fix: identify per-column max string lengths, find (or synthesise) a
+        # "max row" to put first so that buffers are allocated to the right size.
+
+        # Identify string-column positions once (shared across all batches)
+        str_col_idxs = [
+            i for i, col in enumerate(coerced.columns)
+            if pd.api.types.is_object_dtype(coerced[col])
+            and coerced[col].dropna().apply(lambda v: isinstance(v, str)).any()
+        ]
+
+        rows_written = 0
+        for batch_start in range(0, len(coerced), batch_size):
+            batch = coerced.iloc[batch_start : batch_start + batch_size]
+            # pandas .values.tolist() on a mixed-dtype DataFrame returns:
+            #   - float('nan') for None in object columns  → replace with None
+            #   - numpy.int64 for integer columns          → convert to Python int
+            # Both confuse pyodbc's fast_executemany type inference.
+            raw = batch.values.tolist()
+            params = [
+                [
+                    None if (isinstance(v, float) and math.isnan(v))
+                    else int(v) if isinstance(v, np.integer)
+                    else v
+                    for v in row
+                ]
+                for row in raw
+            ]
+
+            # fast_executemany sizes its parameter buffers from the FIRST ROW.
+            # Build a synthetic cover row at params[0] by replacing each string
+            # column's value with the max-length string from anywhere in the batch.
+            # All replacement values are real data — just assembled column-by-column
+            # from different rows — so fast_executemany can stay enabled.
+            if str_col_idxs and len(params) > 1:
+                col_max_lens = {
+                    j: max((len(r[j]) for r in params if isinstance(r[j], str)), default=0)
+                    for j in str_col_idxs
+                }
+                row0 = list(params[0])
+                for j in str_col_idxs:
+                    if not isinstance(row0[j], str) or len(row0[j]) < col_max_lens[j]:
+                        # Pull the max-length string for this column from any row
+                        row0[j] = max(
+                            (r[j] for r in params if isinstance(r[j], str)),
+                            key=len,
+                            default=row0[j],
+                        )
+                params[0] = row0
+
+            try:
+                cursor.executemany(insert_sql, params)
+            except Exception as _exc:
+                if "right truncation" in str(_exc).lower():
+                    col_names = list(coerced.columns)
+                    logger.error(
+                        "TRUNCATION DIAGNOSIS for %s.%s (fast_executemany=%s):",
+                        table_name, schema_name, cursor.fast_executemany,
+                    )
+                    for _j, _col in enumerate(col_names):
+                        _str_vals = [r[_j] for r in params if isinstance(r[_j], str)]
+                        if _str_vals:
+                            _first = params[0][_j]
+                            _first_len = len(_first) if isinstance(_first, str) else f"non-str({type(_first).__name__})"
+                            _max_len = max(len(v) for v in _str_vals)
+                            logger.error(
+                                "  col[%d] %-30s first_len=%-6s max_len=%d",
+                                _j, _col, _first_len, _max_len,
+                            )
+                raise
             rows_written += len(params)
 
         return rows_written
@@ -429,6 +654,15 @@ class FabricSqlDatabaseWriter:
         return meta, tdef.primary_key
 
     def _infer_sql_type(self, col_name: str, dtype, col_meta: dict) -> str:
-        """Infer a T-SQL type from Spindle type or pandas dtype."""
+        """Infer a T-SQL type from Spindle type or pandas dtype.
+
+        Fabric Warehouse does not support NVARCHAR or bare DATETIME2 —
+        uses VARCHAR and DATETIME2(6) instead.
+        """
         from sqllocks_spindle.output.pandas_writer import _sql_type_for_column
-        return _sql_type_for_column(col_name, dtype, "tsql", col_meta if col_meta else None)
+        sql_type = _sql_type_for_column(col_name, dtype, "tsql", col_meta if col_meta else None)
+        if self._is_warehouse:
+            sql_type = sql_type.replace("NVARCHAR", "VARCHAR")
+            if sql_type == "DATETIME2":
+                sql_type = "DATETIME2(6)"
+        return sql_type

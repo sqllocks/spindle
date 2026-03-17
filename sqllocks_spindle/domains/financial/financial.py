@@ -942,6 +942,8 @@ class FinancialDomain(Domain):
                     "large": {"customer": 500000, "transaction": 5000000},
                     "xlarge": {"customer": 5000000, "transaction": 100000000},
                     "warehouse": {"customer": 10000000, "transaction": 2000000000},
+                    "xxl": {"customer": 20000000, "transaction": 10000000000},
+                    "xxxl": {"customer": 100000000, "transaction": 100000000000},
                 },
                 "derived_counts": {
                     "branch": {"fixed": 200},

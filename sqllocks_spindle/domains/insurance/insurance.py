@@ -746,7 +746,10 @@ class InsuranceDomain(Domain):
                     "small": {"policyholder": 1000},
                     "medium": {"policyholder": 10000},
                     "large": {"policyholder": 100000},
+                    "xlarge": {"policyholder": 5000000},
                     "warehouse": {"policyholder": 1000000},
+                    "xxl": {"policyholder": 20000000},
+                    "xxxl": {"policyholder": 100000000},
                 },
                 "derived_counts": {
                     "agent": {"fixed": 100},

@@ -47,17 +47,22 @@ Thumbs.db
 /cdm/
 events.jsonl
 
-# Notebook execution output (demo data generated during D1)
-examples/notebooks/*_demo/
-examples/notebooks/f08_demo/
-examples/notebooks/f10_month_end/
-examples/notebooks/medallion_demo/
-examples/notebooks/*_sql/
-examples/notebooks/*_output/
-examples/notebooks/*.jsonl
-examples/notebooks/*.bim
-examples/notebooks/tutorials/*_demo/
-examples/notebooks/tutorials/*_output/
+# Notebook execution output (demo data generated during runs)
+examples/notebooks/**/*_demo/
+examples/notebooks/**/*_enterprise/
+examples/notebooks/**/*_month_end/
+examples/notebooks/**/*_local/
+examples/notebooks/**/medallion_demo/
+examples/notebooks/**/*_sql/
+examples/notebooks/**/*_output/
+examples/notebooks/**/*.jsonl
+examples/notebooks/**/*.bim
+examples/notebooks/**/Files/
+
+# Logs and sweep results
+*.log
+sweep_results/
+site/
 
 # Source planning docs (not code artifacts)
 Spindle.zip

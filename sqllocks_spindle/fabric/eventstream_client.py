@@ -165,14 +165,14 @@ class EventstreamClient(StreamWriter):
         kwargs: dict[str, Any] = {"conn_str": self._connection_string}
         if self._eventhub_name:
             kwargs["eventhub_name"] = self._eventhub_name
-        return EventHubProducerClient(**kwargs)
+        return EventHubProducerClient.from_connection_string(**kwargs)
 
     def _ensure_async_client(self) -> AsyncEventHubProducerClient:
         if self._async_client is None:
             kwargs: dict[str, Any] = {"conn_str": self._connection_string}
             if self._eventhub_name:
                 kwargs["eventhub_name"] = self._eventhub_name
-            self._async_client = AsyncEventHubProducerClient(**kwargs)
+            self._async_client = AsyncEventHubProducerClient.from_connection_string(**kwargs)
         return self._async_client
 
     def _send_chunk_with_retry(self, events: list[dict[str, Any]]) -> None:

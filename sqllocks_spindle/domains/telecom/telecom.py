@@ -756,7 +756,10 @@ class TelecomDomain(Domain):
                     "small": {"subscriber": 2000},
                     "medium": {"subscriber": 20000},
                     "large": {"subscriber": 200000},
+                    "xlarge": {"subscriber": 5000000},
                     "warehouse": {"subscriber": 2000000},
+                    "xxl": {"subscriber": 20000000},
+                    "xxxl": {"subscriber": 100000000},
                 },
                 "derived_counts": {
                     "plan": {"fixed": 20},

@@ -336,8 +336,8 @@ class FidelityComparator:
         real_counts = real.dropna().value_counts()
         synth_counts = synth.dropna().value_counts()
 
-        # Align categories
-        all_cats = sorted(set(real_counts.index) | set(synth_counts.index))
+        # Align categories (cast to str to handle mixed types like str/bool)
+        all_cats = sorted(set(real_counts.index) | set(synth_counts.index), key=str)
         if len(all_cats) < 2:
             return None, None
 

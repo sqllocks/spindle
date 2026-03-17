@@ -897,6 +897,8 @@ class SupplyChainDomain(Domain):
                     "large": {"purchase_order": 200000},
                     "xlarge": {"purchase_order": 2000000},
                     "warehouse": {"purchase_order": 20000000},
+                    "xxl": {"purchase_order": 200000000},
+                    "xxxl": {"purchase_order": 1000000000},
                 },
                 "derived_counts": {
                     "warehouse": {"fixed": 50},

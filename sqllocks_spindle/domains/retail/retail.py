@@ -758,6 +758,8 @@ class RetailDomain(Domain):
                     "large": {"customer": 500000, "product": 25000, "order": 5000000},
                     "xlarge": {"customer": 5000000, "product": 100000, "order": 100000000},
                     "warehouse": {"customer": 1000000, "product": 50000, "order": 10000000},
+                    "xxl": {"customer": 20000000, "product": 200000, "order": 1000000000},
+                    "xxxl": {"customer": 100000000, "product": 500000, "order": 10000000000},
                 },
                 "derived_counts": {
                     "address": {"per_parent": "customer", "ratio": self._ratio("address_per_customer", 1.5)},

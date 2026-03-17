@@ -200,7 +200,7 @@ class EventhouseWriter:
         from azure.kusto.ingest import ManagedStreamingIngestClient
 
         kcsb = self._build_connection_string(KustoConnectionStringBuilder)
-        return ManagedStreamingIngestClient.from_dm_kcsb_and_engine_kcsb(kcsb, kcsb)
+        return ManagedStreamingIngestClient(engine_kcsb=kcsb)
 
     def _build_connection_string(self, kcsb_cls):
         """Build a KustoConnectionStringBuilder with the configured auth."""

@@ -734,6 +734,8 @@ class HrDomain(Domain):
                     "large": {"employee": 50000},
                     "xlarge": {"employee": 500000},
                     "warehouse": {"employee": 5000000},
+                    "xxl": {"employee": 20000000},
+                    "xxxl": {"employee": 100000000},
                 },
                 "derived_counts": {
                     "department": {"fixed": 30},

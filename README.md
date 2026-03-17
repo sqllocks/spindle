@@ -292,6 +292,8 @@ spindle publish retail --target sql-database --connection-string "env://SPINDLE_
 spindle publish retail --target eventhouse --connection-string "https://..." --database mydb
 ```
 
+**Performance** (v2.2.0): `FabricSqlDatabaseWriter` uses `fast_executemany` with vectorized coercion (~24s for 100K rows). `WarehouseBulkWriter` uses parallel multi-file COPY INTO staging per MS Learn guidelines — stage all Parquet chunks first, then one wildcard COPY INTO per table with concurrent table loading via ThreadPoolExecutor. Scale tiers up to `xxxl` (~1T rows).
+
 ### Discovery & Profiles
 
 ```bash
@@ -343,4 +345,4 @@ MIT — see `LICENSE`
 - **Tier 2** ✅ SQL/DDL pipeline, FabricSqlDatabaseWriter, Capital Markets domain, star/CDM maps for all 13 domains, 12 notebooks
 - **Tier 3** ✅ Inference engine (`spindle learn/compare/mask`), incremental engine (`spindle continue`), SCD2, time-travel snapshots, composite presets, 11 notebooks
 - **Blueprint** ✅ Credential resolver, `spindle publish` CLI, Eventhouse writer, observability, 6 simulation pattern modules (clickstream, IoT telemetry, financial streams, operational logs, workflow state machines, SCD2 file drops), acceptance tests, provisioning guide
-- **Launch** 🚧 PyPI final publish, beta outreach, content pieces
+- **Launch** ✅ v2.2.0 — boolean fix, COPY INTO perf, xxl/xxxl scale tiers, 22/23 integration sweep PASS

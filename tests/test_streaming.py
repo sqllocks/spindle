@@ -292,25 +292,39 @@ class TestFileSink:
 
 class TestSinkImportErrors:
     def test_eventhub_sink_raises_import_error(self):
+        from unittest.mock import patch
         from sqllocks_spindle.streaming.sinks.eventhub_sink import EventHubSink
         import sys
-        # Remove azure.eventhub from sys.modules to force ImportError path
+        # Remove cached azure.eventhub modules AND block re-import via builtins
         azure_modules = [k for k in sys.modules if k.startswith("azure.eventhub")]
         saved = {k: sys.modules.pop(k) for k in azure_modules}
+        original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+        def _block_azure_eventhub(name, *args, **kwargs):
+            if name == "azure.eventhub" or name.startswith("azure.eventhub."):
+                raise ImportError("No module named 'azure.eventhub'")
+            return original_import(name, *args, **kwargs)
         try:
-            with pytest.raises(ImportError, match="azure-eventhub"):
-                EventHubSink("Endpoint=sb://fake.servicebus.windows.net/;SharedAccessKeyName=x;SharedAccessKey=y")
+            with patch("builtins.__import__", side_effect=_block_azure_eventhub):
+                with pytest.raises(ImportError, match="azure-eventhub"):
+                    EventHubSink("Endpoint=sb://fake.servicebus.windows.net/;SharedAccessKeyName=x;SharedAccessKey=y")
         finally:
             sys.modules.update(saved)
 
     def test_kafka_sink_raises_import_error(self):
+        from unittest.mock import patch
         from sqllocks_spindle.streaming.sinks.kafka_sink import KafkaSink
         import sys
         kafka_modules = [k for k in sys.modules if k.startswith("kafka")]
         saved = {k: sys.modules.pop(k) for k in kafka_modules}
+        original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+        def _block_kafka(name, *args, **kwargs):
+            if name == "kafka" or name.startswith("kafka."):
+                raise ImportError("No module named 'kafka'")
+            return original_import(name, *args, **kwargs)
         try:
-            with pytest.raises(ImportError, match="kafka-python"):
-                KafkaSink("localhost:9092", "test-topic")
+            with patch("builtins.__import__", side_effect=_block_kafka):
+                with pytest.raises(ImportError, match="kafka-python"):
+                    KafkaSink("localhost:9092", "test-topic")
         finally:
             sys.modules.update(saved)
 
