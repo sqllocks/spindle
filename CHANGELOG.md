@@ -5,6 +5,17 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.3] - 2026-03-17
+
+### Fixed
+- `packs/runner.py`: WindowsPath objects passed where strings expected, causing
+  PackLoader/PackRunner failures on Windows — all path operations now use `str()`
+- 12 YAML scenario pack files: unquoted colons causing parse errors on strict YAML parsers
+- Removed hardcoded Event Hub shared access key from config/sweep scripts
+
+### Changed
+- `.gitignore`: updated patterns to catch generated notebook output in subdirectories
+
 ## [2.2.2] - 2026-03-17
 
 ### Fixed
