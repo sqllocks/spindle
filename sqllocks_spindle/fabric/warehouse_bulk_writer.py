@@ -325,14 +325,17 @@ class WarehouseBulkWriter:
         else:
             adls_path = f"{self._adls_base_path}/staging/{self._run_id}"
 
-        # Inside Fabric Notebook
+        # Inside Fabric Notebook — clean via local mount (matches stage_chunk)
         try:
             import notebookutils  # type: ignore[import-not-found]
-            staging_abfss = f"{self._staging_lakehouse_path}/staging/{self._run_id}"
+            import shutil as _shutil
+
+            staging_dir = f"/lakehouse/default/Files/staging/{self._run_id}"
             if table_name:
-                staging_abfss += f"/{table_name}"
-            notebookutils.fs.rm(staging_abfss, recurse=True)
-            logger.info("Cleaned OneLake staging (notebookutils): %s", staging_abfss)
+                staging_dir += f"/{table_name}"
+            if Path(staging_dir).exists():
+                _shutil.rmtree(staging_dir)
+            logger.info("Cleaned staging via lakehouse mount: %s", staging_dir)
             return
         except ImportError:
             pass

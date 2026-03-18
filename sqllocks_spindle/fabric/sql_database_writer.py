@@ -356,6 +356,15 @@ class FabricSqlDatabaseWriter:
         if self._auth_method == "cli":
             credential = AzureCliCredential()
         elif self._auth_method == "msi":
+            # In Fabric Spark notebooks, prefer mssparkutils over IMDS
+            try:
+                import mssparkutils as _msu  # type: ignore[import-not-found]
+                _token_str = _msu.credentials.getToken("https://database.windows.net")
+                token_bytes = bytes(_token_str, "UTF-8")
+                encoded = bytes(chain.from_iterable(zip(token_bytes, repeat(0))))
+                return struct.pack("<i", len(encoded)) + encoded
+            except ImportError:
+                pass
             credential = ManagedIdentityCredential()
         elif self._auth_method == "spn":
             credential = ClientSecretCredential(
