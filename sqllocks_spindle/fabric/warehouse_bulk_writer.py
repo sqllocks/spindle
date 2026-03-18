@@ -240,13 +240,19 @@ class WarehouseBulkWriter:
             if pd.api.types.is_datetime64_ns_dtype(chunk_df[col]):
                 chunk_df[col] = chunk_df[col].astype("datetime64[us]")
 
-        # Inside Fabric Notebook — write via notebookutils
+        # Inside Fabric Notebook — write Parquet to the mounted lakehouse Files path.
+        # notebookutils.fs.put() only accepts strings (not bytes), so we write
+        # directly to the /lakehouse/default/Files/ mount provided by Fabric.
         try:
             import notebookutils  # type: ignore[import-not-found]
-            parquet_bytes = chunk_df.to_parquet(index=False, engine="pyarrow")
-            notebookutils.fs.put(remote_path, parquet_bytes, overwrite=True)
+            import os as _os
+
+            staging_dir = f"/lakehouse/default/Files/staging/{self._run_id}/{table_name}"
+            _os.makedirs(staging_dir, exist_ok=True)
+            local_path = f"{staging_dir}/{filename}"
+            chunk_df.to_parquet(local_path, index=False, engine="pyarrow")
             logger.info(
-                "Staged chunk %d for %s on OneLake via notebookutils (%d rows)",
+                "Staged chunk %d for %s on OneLake via lakehouse mount (%d rows)",
                 chunk_idx, table_name, len(chunk_df),
             )
             return remote_path
