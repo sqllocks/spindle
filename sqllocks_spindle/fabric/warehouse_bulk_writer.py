@@ -240,20 +240,11 @@ class WarehouseBulkWriter:
             if pd.api.types.is_datetime64_ns_dtype(chunk_df[col]):
                 chunk_df[col] = chunk_df[col].astype("datetime64[us]")
 
-        # Inside Fabric Notebook — write to local temp then copy to OneLake.
-        # notebookutils.fs.put() is UTF-8 text only (per Microsoft Learn docs);
-        # binary Parquet data must go through fs.cp() from a local file.
+        # Inside Fabric Notebook — write via notebookutils
         try:
             import notebookutils  # type: ignore[import-not-found]
-            import os as _os
-
-            local_tmp = tempfile.mktemp(suffix=".parquet")
-            try:
-                chunk_df.to_parquet(local_tmp, index=False, engine="pyarrow")
-                notebookutils.fs.cp(f"file://{local_tmp}", remote_path, recurse=False)
-            finally:
-                if _os.path.exists(local_tmp):
-                    _os.unlink(local_tmp)
+            parquet_bytes = chunk_df.to_parquet(index=False, engine="pyarrow")
+            notebookutils.fs.put(remote_path, parquet_bytes, overwrite=True)
             logger.info(
                 "Staged chunk %d for %s on OneLake via notebookutils (%d rows)",
                 chunk_idx, table_name, len(chunk_df),
