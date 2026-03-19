@@ -316,8 +316,11 @@ class FabricSqlDatabaseWriter:
 
     # ----- internal: connection -----
 
-    def _get_connection(self):
-        """Build a pyodbc connection with appropriate auth."""
+    def _get_connection(self, _retries: int = 3, _delay: float = 2.0):
+        """Build a pyodbc connection with appropriate auth.
+
+        Retries on transient failures (e.g. IMDS cold-start in Fabric Spark).
+        """
         try:
             import pyodbc
         except ImportError:
@@ -329,13 +332,27 @@ class FabricSqlDatabaseWriter:
         if self._auth_method == "sql":
             return pyodbc.connect(self._connection_string, autocommit=False)
 
-        # Entra ID token-based auth
-        token_bytes = self._get_access_token()
-        return pyodbc.connect(
-            self._connection_string,
-            attrs_before={self._SQL_COPT_SS_ACCESS_TOKEN: token_bytes},
-            autocommit=False,
-        )
+        # Entra ID token-based auth with retry
+        last_err = None
+        for attempt in range(1, _retries + 1):
+            try:
+                token_bytes = self._get_access_token()
+                conn = pyodbc.connect(
+                    self._connection_string,
+                    attrs_before={self._SQL_COPT_SS_ACCESS_TOKEN: token_bytes},
+                    autocommit=False,
+                )
+                if attempt > 1:
+                    logger.info("Connection succeeded on attempt %d", attempt)
+                return conn
+            except Exception as exc:
+                last_err = exc
+                logger.warning(
+                    "Connection attempt %d/%d failed: %s", attempt, _retries, exc
+                )
+                if attempt < _retries:
+                    time.sleep(_delay * attempt)
+        raise last_err
 
     def _get_access_token(self) -> bytes:
         """Acquire an Entra ID access token for the database resource."""
