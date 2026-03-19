@@ -376,7 +376,10 @@ class FabricSqlDatabaseWriter:
             # In Fabric Spark notebooks, prefer mssparkutils over IMDS
             # (ManagedIdentityCredential uses IMDS which is flaky in streaming)
             try:
-                import mssparkutils as _msu  # type: ignore[import-not-found]
+                try:
+                    from notebookutils import mssparkutils as _msu  # type: ignore[import-not-found]
+                except ImportError:
+                    import mssparkutils as _msu  # type: ignore[import-not-found]
                 _token_str = _msu.credentials.getToken("https://database.windows.net/")
                 if not _token_str or len(_token_str) < 50:
                     raise ValueError(
