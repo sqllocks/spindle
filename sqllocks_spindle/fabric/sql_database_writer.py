@@ -15,7 +15,7 @@ import struct
 import time
 import warnings
 from dataclasses import dataclass, field
-from itertools import chain, repeat
+
 from typing import Any
 
 import numpy as np
@@ -357,14 +357,21 @@ class FabricSqlDatabaseWriter:
             credential = AzureCliCredential()
         elif self._auth_method == "msi":
             # In Fabric Spark notebooks, prefer mssparkutils over IMDS
+            # (ManagedIdentityCredential uses IMDS which is flaky in streaming)
             try:
                 import mssparkutils as _msu  # type: ignore[import-not-found]
-                _token_str = _msu.credentials.getToken("https://database.windows.net")
-                token_bytes = bytes(_token_str, "UTF-8")
-                encoded = bytes(chain.from_iterable(zip(token_bytes, repeat(0))))
-                return struct.pack("<i", len(encoded)) + encoded
+                _token_str = _msu.credentials.getToken("https://database.windows.net/")
+                if not _token_str or len(_token_str) < 50:
+                    raise ValueError(
+                        f"mssparkutils returned unusable token (len={len(_token_str) if _token_str else 0})"
+                    )
+                logger.info("Acquired SQL token via mssparkutils (len=%d)", len(_token_str))
+                token_bytes = _token_str.encode("utf-16-le")
+                return struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
             except ImportError:
-                pass
+                logger.debug("mssparkutils not available, falling back to ManagedIdentityCredential")
+            except Exception as exc:
+                logger.warning("mssparkutils token failed (%s), falling back to ManagedIdentityCredential", exc)
             credential = ManagedIdentityCredential()
         elif self._auth_method == "spn":
             credential = ClientSecretCredential(
@@ -376,10 +383,9 @@ class FabricSqlDatabaseWriter:
             raise ValueError(f"Cannot acquire token for auth_method='{self._auth_method}'")
 
         token = credential.get_token(resource)
-        token_bytes = bytes(token.token, "UTF-8")
-        # Encode as UTF-16-LE with length prefix for pyodbc
-        encoded = bytes(chain.from_iterable(zip(token_bytes, repeat(0))))
-        return struct.pack("<i", len(encoded)) + encoded
+        # Encode as UTF-16-LE with DWORD length prefix for pyodbc ACCESSTOKEN struct
+        token_bytes = token.token.encode("utf-16-le")
+        return struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
 
     # ----- internal: DDL operations -----
 
