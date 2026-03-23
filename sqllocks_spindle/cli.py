@@ -67,7 +67,7 @@ def main():
 @click.option("--sql-go/--no-sql-go", default=True, help="Include GO batch separators (T-SQL)")
 @click.option("--sql-dialect", default="tsql", type=click.Choice(["tsql", "tsql-fabric-warehouse", "postgres", "mysql"]), help="SQL dialect for DDL output")
 @click.option("--connection-string", default=None, envvar="SPINDLE_SQL_CONNECTION", help="SQL connection string (for sql-database format)")
-@click.option("--auth", "auth_method", default="cli", type=click.Choice(["cli", "msi", "spn", "sql"]), help="Auth method for sql-database")
+@click.option("--auth", "auth_method", default="cli", type=click.Choice(["cli", "msi", "spn", "sql", "device-code"]), help="Auth method for sql-database")
 @click.option("--write-mode", default="create_insert", type=click.Choice(["create_insert", "insert_only", "truncate_insert", "append"]), help="SQL write mode")
 @click.option("--batch-size", default=5000, type=int, help="Rows per INSERT batch")
 @click.option("--staging-path", default=None, envvar="SPINDLE_STAGING_PATH", help="OneLake staging path for Warehouse COPY INTO (abfss://...)")
@@ -1339,7 +1339,7 @@ def _schema_to_dict(schema) -> dict:
               help="SQL or Eventhouse connection string")
 @click.option("--database", default=None, help="KQL database name (eventhouse target)")
 @click.option("--auth", "auth_method", default="cli",
-              type=click.Choice(["cli", "msi", "spn", "sql"]),
+              type=click.Choice(["cli", "msi", "spn", "sql", "device-code"]),
               help="Authentication method")
 @click.option("--format", "fmt", default="parquet",
               type=click.Choice(["parquet", "csv", "jsonl", "delta"]),
@@ -1535,7 +1535,12 @@ def publish(
         )
 
         click.echo(f"Publishing to SQL Database (auth={auth_method})...")
-        write_result = db_writer.write(result, schema_name="dbo", mode="create_insert")
+        write_result = db_writer.write(
+            result,
+            schema_name="dbo",
+            mode="create_insert",
+            on_table_complete=lambda t, r: click.echo(f"  {t}: {r:,} rows"),
+        )
         click.echo(write_result.summary())
         if write_result.errors:
             sys.exit(1)

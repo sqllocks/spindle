@@ -1,6 +1,6 @@
 """Spindle by SQLLocks — Multi-domain synthetic data generator for Microsoft Fabric."""
 
-__version__ = "2.2.10"
+__version__ = "2.2.11"
 
 from sqllocks_spindle.engine.generator import Spindle
 from sqllocks_spindle.domains.retail import RetailDomain

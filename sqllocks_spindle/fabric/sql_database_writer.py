@@ -105,7 +105,7 @@ class FabricSqlDatabaseWriter:
         self._staging_lakehouse_path = staging_lakehouse_path
 
         # Validate auth method
-        valid_methods = ("cli", "msi", "spn", "sql")
+        valid_methods = ("cli", "msi", "spn", "sql", "device-code")
         if auth_method not in valid_methods:
             raise ValueError(f"auth_method must be one of {valid_methods}, got '{auth_method}'")
 
@@ -150,6 +150,7 @@ class FabricSqlDatabaseWriter:
         mode: str = "create_insert",
         batch_size: int = 5000,
         table_order: list[str] | None = None,
+        on_table_complete: Any | None = None,
     ) -> WriteResult:
         """Write all tables from a GenerationResult or dict of DataFrames.
 
@@ -164,6 +165,8 @@ class FabricSqlDatabaseWriter:
             batch_size: Rows per INSERT batch (default 5000).
             table_order: Explicit table write order. If None, uses
                 GenerationResult.generation_order or dict key order.
+            on_table_complete: Optional callback ``(table_name, row_count) -> None``
+                invoked after each table is written. Use for progress reporting.
 
         Returns:
             WriteResult with per-table row counts and any errors.
@@ -203,13 +206,22 @@ class FabricSqlDatabaseWriter:
         try:
             cursor = conn.cursor()
 
+            # Ensure target schema exists (Fabric Warehouse needs explicit CREATE SCHEMA)
+            self._ensure_schema(cursor, schema_name)
+            conn.commit()
+
             # DROP phase (reverse order for FK constraints)
+            # Commit after each DDL — Fabric Warehouse can hang if DDL is batched
+            # in a single uncommitted transaction.
             if mode == "create_insert":
                 for tname in reversed(order):
                     if tname in tables:
                         self._drop_table(cursor, tname, schema_name)
+                        conn.commit()
 
             # CREATE + INSERT per table (dependency order)
+            # Commit after each table to avoid large uncommitted transactions
+            # which are slow on Fabric Warehouse (distributed Delta storage).
             for tname in order:
                 if tname not in tables:
                     continue
@@ -218,20 +230,27 @@ class FabricSqlDatabaseWriter:
                 try:
                     if mode == "create_insert":
                         self._create_table(cursor, tname, df, schema_name, schema_obj)
+                        conn.commit()
 
                     if mode == "truncate_insert":
                         self._truncate_table(cursor, tname, schema_name)
+                        conn.commit()
 
                     rows = self._insert_rows(cursor, tname, df, schema_name, batch_size, schema_obj)
+                    conn.commit()
                     write_result.per_table[tname] = rows
                     write_result.total_rows += rows
                     write_result.tables_written += 1
                     logger.info("Wrote %d rows to %s.%s", rows, schema_name, tname)
+                    if on_table_complete:
+                        on_table_complete(tname, rows)
                 except Exception as e:
                     write_result.errors.append(f"{tname}: {e}")
                     logger.error("Error writing %s: %s", tname, e)
-
-            conn.commit()
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
 
         except Exception as e:
             write_result.errors.append(f"Transaction error: {e}")
@@ -330,7 +349,7 @@ class FabricSqlDatabaseWriter:
             )
 
         if self._auth_method == "sql":
-            return pyodbc.connect(self._connection_string, autocommit=False)
+            return pyodbc.connect(self._connection_string, autocommit=False, timeout=120)
 
         # Entra ID token-based auth with retry
         last_err = None
@@ -341,6 +360,7 @@ class FabricSqlDatabaseWriter:
                     self._connection_string,
                     attrs_before={self._SQL_COPT_SS_ACCESS_TOKEN: token_bytes},
                     autocommit=False,
+                    timeout=120,
                 )
                 if attempt > 1:
                     logger.info("Connection succeeded on attempt %d", attempt)
@@ -370,7 +390,15 @@ class FabricSqlDatabaseWriter:
 
         resource = "https://database.windows.net/.default"
 
-        if self._auth_method == "cli":
+        if self._auth_method == "device-code":
+            from azure.identity import DeviceCodeCredential
+            credential = DeviceCodeCredential(
+                tenant_id=self._tenant_id or None,
+                prompt_callback=lambda uri, code, exp: print(
+                    f"\n  Auth required: go to {uri} and enter code {code}\n", flush=True
+                ),
+            )
+        elif self._auth_method == "cli":
             credential = AzureCliCredential()
         elif self._auth_method == "msi":
             # In Fabric Spark notebooks, prefer mssparkutils over IMDS
@@ -409,12 +437,31 @@ class FabricSqlDatabaseWriter:
 
     # ----- internal: DDL operations -----
 
+    def _ensure_schema(self, cursor, schema_name: str):
+        """Create the target schema if it doesn't exist.
+
+        Uses dynamic SQL because ``CREATE SCHEMA`` must be the only statement
+        in a batch on SQL Server / Fabric Warehouse.
+        """
+        if schema_name.lower() == "dbo":
+            return  # dbo always exists
+        try:
+            cursor.execute(
+                f"IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = ?) "
+                f"EXEC('CREATE SCHEMA [{schema_name}]')",
+                schema_name,
+            )
+        except Exception as e:
+            logger.warning("Could not ensure schema '%s': %s", schema_name, e)
+
     def _drop_table(self, cursor, table_name: str, schema_name: str):
-        """Drop a table if it exists."""
+        """Drop a table if it exists.
+
+        Uses ``DROP TABLE IF EXISTS`` instead of ``IF OBJECT_ID(...)`` because
+        Fabric Warehouse does not support ``OBJECT_ID()`` — it hangs indefinitely.
+        """
         qualified = f"[{schema_name}].[{table_name}]"
-        cursor.execute(
-            f"IF OBJECT_ID('{qualified}', 'U') IS NOT NULL DROP TABLE {qualified}"
-        )
+        cursor.execute(f"DROP TABLE IF EXISTS {qualified}")
 
     def _create_table(self, cursor, table_name: str, df: pd.DataFrame, schema_name: str, schema_obj):
         """Create a table based on DataFrame columns and optional schema metadata."""
