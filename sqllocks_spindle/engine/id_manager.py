@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -67,18 +68,23 @@ class IDManager:
         # table_name -> full DataFrame (for constrained/filtered lookups)
         self._table_data: dict[str, pd.DataFrame] = {}
         self._groupby_cache: dict[tuple[str, str], dict] = {}
+        # (table_name, pk_column, lookup_column) -> indexed Series for fast reindex
+        self._lookup_cache: dict[tuple[str, str, str], pd.Series] = {}
+        # Lock for concurrent registration from parallel table generators
+        self._lock = threading.Lock()
 
     def register_table(self, table_name: str, df: pd.DataFrame, pk_columns: list[str]) -> None:
-        """Register a generated table's PKs for FK resolution."""
+        """Register a generated table's PKs for FK resolution (thread-safe)."""
         if len(pk_columns) == 1:
-            self._pk_pools[table_name] = df[pk_columns[0]].values
+            pool = df[pk_columns[0]].values
         else:
-            # Composite PK — store as array of tuples
-            self._pk_pools[table_name] = np.array(
-                list(df[pk_columns].itertuples(index=False, name=None))
-            )
-        self._table_data[table_name] = df
-        self._groupby_cache.clear()
+            # Composite PK — vectorized via to_numpy() instead of itertuples
+            pool = df[pk_columns].to_numpy()
+        with self._lock:
+            self._pk_pools[table_name] = pool
+            self._table_data[table_name] = df
+            self._groupby_cache.clear()
+            self._lookup_cache = {k: v for k, v in self._lookup_cache.items() if k[0] != table_name}
 
     def register_range(self, table_name: str, start: int, count: int) -> None:
         """Register a contiguous integer PK range without storing all values.
@@ -88,18 +94,20 @@ class IDManager:
         self._pk_pools[table_name] = RangePKPool(start, count)
 
     def append_pks(self, table_name: str, new_pks: np.ndarray) -> None:
-        """Grow a table's PK pool incrementally with new values.
+        """Grow a table's PK pool incrementally with new values (thread-safe).
 
         For RangePKPool, extends the range. For ndarray pools, concatenates.
         """
-        pool = self._pk_pools.get(table_name)
-        if pool is None:
-            self._pk_pools[table_name] = new_pks
-        elif isinstance(pool, RangePKPool):
-            pool.extend(len(new_pks))
-        else:
-            self._pk_pools[table_name] = np.concatenate([pool, new_pks])
-        self._groupby_cache.clear()
+        with self._lock:
+            pool = self._pk_pools.get(table_name)
+            if pool is None:
+                self._pk_pools[table_name] = new_pks
+            elif isinstance(pool, RangePKPool):
+                pool.extend(len(new_pks))
+            else:
+                self._pk_pools[table_name] = np.concatenate([pool, new_pks])
+            self._groupby_cache.clear()
+            self._lookup_cache = {k: v for k, v in self._lookup_cache.items() if k[0] != table_name}
 
     def get_random_fks(
         self,
@@ -183,7 +191,7 @@ class IDManager:
         # Vectorized: group constraint_values and batch-process each group
         cv_series = pd.Series(constraint_values)
         for val, positions in cv_series.groupby(cv_series).groups.items():
-            pos_array = np.array(list(positions))
+            pos_array = positions.to_numpy()
             if val is not None and val in grouped:
                 candidates = grouped[val]
                 chosen_idx = self._rng.choice(candidates, size=len(pos_array))
@@ -263,9 +271,10 @@ class IDManager:
         if df is None:
             raise KeyError(f"No table data registered for '{table_name}'")
 
-        # Build a lookup index
-        lookup = df.set_index(pk_column)[lookup_column]
-        return lookup.reindex(fk_values).values
+        cache_key = (table_name, pk_column, lookup_column)
+        if cache_key not in self._lookup_cache:
+            self._lookup_cache[cache_key] = df.set_index(pk_column)[lookup_column]
+        return self._lookup_cache[cache_key].reindex(fk_values).values
 
     def _enforce_max_per_parent(
         self,

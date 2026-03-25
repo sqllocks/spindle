@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -50,24 +51,33 @@ class DeltaWriter:
         self._output_dir = self._resolve_output_dir(output_dir)
         self._partition_by = partition_by or {}
         self._mode = mode
+        self._write_deltalake = None  # lazy-imported on first write
 
     def write_all(
         self,
         tables: dict[str, pd.DataFrame],
+        max_workers: int = 4,
     ) -> list[Path]:
-        """Write all tables as Delta Lake tables.
+        """Write all tables as Delta Lake tables in parallel.
+
+        delta-rs releases the GIL during Parquet/Delta writes, so
+        ThreadPoolExecutor gives genuine parallelism here.
 
         Args:
             tables: Mapping of table name to DataFrame (the standard Spindle
                 output format from ``GenerationResult.tables``).
+            max_workers: Maximum parallel write threads (default 4).
 
         Returns:
             List of paths to the written Delta table directories.
         """
-        paths: list[Path] = []
-        for table_name, df in tables.items():
-            paths.append(self.write(table_name, df))
-        return paths
+        # Warm the import cache before spawning threads
+        if self._write_deltalake is None:
+            self._write_deltalake = self._import_deltalake()
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(self.write, name, df): name for name, df in tables.items()}
+            return [f.result() for f in futures]
 
     def write(
         self,
@@ -83,7 +93,8 @@ class DeltaWriter:
         Returns:
             Path to the written Delta table directory.
         """
-        write_deltalake = self._import_deltalake()
+        if self._write_deltalake is None:
+            self._write_deltalake = self._import_deltalake()
 
         table_path = self._output_dir / table_name
         table_path.mkdir(parents=True, exist_ok=True)
@@ -98,7 +109,7 @@ class DeltaWriter:
         if partition_cols:
             kwargs["partition_by"] = partition_cols
 
-        write_deltalake(str(table_path), write_df, **kwargs)
+        self._write_deltalake(str(table_path), write_df, **kwargs)
         return table_path
 
     @staticmethod

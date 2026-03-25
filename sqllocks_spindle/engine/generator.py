@@ -109,32 +109,40 @@ class GenerationResult:
         return "\n".join(lines)
 
     def verify_integrity(self) -> list[str]:
-        """Verify referential integrity across all tables."""
-        errors = []
+        """Verify referential integrity across all tables in parallel."""
+        # Pre-build parent key sets once (shared across threads, read-only)
+        parent_key_cache: dict[tuple[str, str], set] = {}
+        checks: list[tuple] = []
         for rel in self.schema.relationships:
             if rel.parent not in self.tables or rel.child not in self.tables:
                 continue
             if rel.type == "self_referencing":
                 continue
-
             parent_df = self.tables[rel.parent]
-            child_df = self.tables[rel.child]
-
             for p_col, c_col in zip(rel.parent_columns, rel.child_columns):
-                if c_col not in child_df.columns or p_col not in parent_df.columns:
-                    continue
+                cache_key = (rel.parent, p_col)
+                if cache_key not in parent_key_cache:
+                    parent_key_cache[cache_key] = set(parent_df[p_col])
+                checks.append((rel.child, rel.parent, c_col, p_col, cache_key))
 
-                child_vals = child_df[c_col].dropna()
-                parent_vals = set(parent_df[p_col])
-                orphans = child_vals[~child_vals.isin(parent_vals)]
+        def _check(args: tuple) -> str | None:
+            child_name, parent_name, c_col, p_col, cache_key = args
+            child_df = self.tables[child_name]
+            if c_col not in child_df.columns:
+                return None
+            child_vals = child_df[c_col].dropna()
+            orphans = child_vals[~child_vals.isin(parent_key_cache[cache_key])]
+            if len(orphans) > 0:
+                return (
+                    f"{child_name}.{c_col} has {len(orphans)} orphan FK values "
+                    f"not found in {parent_name}.{p_col}"
+                )
+            return None
 
-                if len(orphans) > 0:
-                    errors.append(
-                        f"{rel.child}.{c_col} has {len(orphans)} orphan FK values "
-                        f"not found in {rel.parent}.{p_col}"
-                    )
+        with ThreadPoolExecutor(max_workers=min(8, len(checks) or 1)) as pool:
+            results = list(pool.map(_check, checks))
 
-        return errors
+        return [r for r in results if r is not None]
 
     # --- Convenience properties ---
 
@@ -153,28 +161,36 @@ class GenerationResult:
 
     # --- Export methods ---
 
-    def to_csv(self, output_dir: str | Path, **kwargs: Any) -> list[Path]:
-        """Write all tables to CSV files. Returns list of file paths."""
-        from sqllocks_spindle.output.pandas_writer import PandasWriter
+    def to_csv(self, output_dir: str | Path, max_workers: int = 4, **kwargs: Any) -> list[Path]:
+        """Write all tables to CSV files in parallel. Returns list of file paths."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        paths = []
-        for name, df in self.tables.items():
+
+        def _write_one(item: tuple[str, pd.DataFrame]) -> Path:
+            name, df = item
             path = output_dir / f"{name}.csv"
             df.to_csv(path, index=False, **kwargs)
-            paths.append(path)
-        return paths
+            return path
 
-    def to_parquet(self, output_dir: str | Path, **kwargs: Any) -> list[Path]:
-        """Write all tables to Parquet files. Requires pyarrow."""
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_write_one, item) for item in self.tables.items()]
+            return [f.result() for f in futures]
+
+    def to_parquet(self, output_dir: str | Path, max_workers: int = 4, **kwargs: Any) -> list[Path]:
+        """Write all tables to Parquet files in parallel. Requires pyarrow."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        paths = []
-        for name, df in self.tables.items():
+        kwargs.setdefault("compression", "zstd")
+
+        def _write_one(item: tuple[str, pd.DataFrame]) -> Path:
+            name, df = item
             path = output_dir / f"{name}.parquet"
             df.to_parquet(path, index=False, **kwargs)
-            paths.append(path)
-        return paths
+            return path
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_write_one, item) for item in self.tables.items()]
+            return [f.result() for f in futures]
 
     def to_jsonl(self, output_dir: str | Path) -> list[Path]:
         """Write all tables to JSON Lines files."""
@@ -358,16 +374,19 @@ class Spindle:
             if not level_tables:
                 continue
 
-            # Generate tables in this level sequentially (shared id_manager
-            # and RNG are not thread-safe; dependency-level grouping is kept
-            # for future parallelization when per-table id_managers are added).
+            # Generate with per-table child RNGs (deterministic, seed-derived).
+            # Sequential within each dep level preserves reproducibility — FK
+            # resolution via IDManager._rng must follow a consistent call order.
             for table_name in level_tables:
                 count = row_counts.get(table_name, 100)
                 logger.info("Generating %s (%s rows)", table_name, f"{count:,}")
+                child_rng = np.random.default_rng(
+                    parsed.model.seed ^ (hash(table_name) & 0xFFFF_FFFF)
+                )
                 df = table_gen.generate(
                     table=parsed.tables[table_name],
                     row_count=count,
-                    rng=rng,
+                    rng=child_rng,
                     model_config=model_config,
                     schema=parsed,
                 )
@@ -406,6 +425,80 @@ class Spindle:
             row_counts={name: len(df) for name, df in tables.items()},
             lineage=lineage,
         )
+
+    def generate_stream(
+        self,
+        domain=None,
+        schema: str | Path | dict | SpindleSchema | None = None,
+        scale: str | None = None,
+        scale_overrides: dict[str, int] | None = None,
+        seed: int | None = None,
+        on_progress: Callable[[str, int, int], None] | None = None,
+    ):
+        """Generate synthetic data and yield each table as it completes.
+
+        Same signature as ``generate()``. Yields ``(table_name, DataFrame)``
+        tuples in dependency order, allowing callers to write table N to a
+        store while table N+1 is still being generated.
+
+        Example::
+
+            for table_name, df in spindle.generate_stream(domain=RetailDomain(), scale="medium"):
+                writer.write(table_name, df)
+        """
+        from typing import Generator
+
+        # Resolve and configure schema
+        parsed = self._resolve_schema(domain, schema)
+        if scale:
+            parsed.generation.scale = scale
+        if seed is not None:
+            parsed.model.seed = seed
+
+        self._validator.validate_or_raise(parsed)
+
+        gen_order = self._resolver.resolve(parsed)
+        row_counts = self._calculate_row_counts(parsed, scale_overrides)
+
+        rng = np.random.default_rng(parsed.model.seed)
+        id_manager = IDManager(rng)
+        table_gen = TableGenerator(self._registry, id_manager)
+
+        model_config = {
+            "locale": parsed.model.locale,
+            "date_range": parsed.model.date_range,
+            "seed": parsed.model.seed,
+        }
+        if domain and hasattr(domain, "domain_path"):
+            if hasattr(domain, "child_domains"):
+                model_config["_domain_path"] = [d.domain_path for d in domain.child_domains]
+            else:
+                model_config["_domain_path"] = domain.domain_path
+
+        dep_levels = self._group_by_dep_level(gen_order, parsed)
+        tables_done = 0
+        tables_total = sum(1 for t in gen_order if t in parsed.tables)
+
+        for level_tables in dep_levels:
+            level_tables = [t for t in level_tables if t in parsed.tables]
+            if not level_tables:
+                continue
+            for table_name in level_tables:
+                count = row_counts.get(table_name, 100)
+                child_rng = np.random.default_rng(
+                    parsed.model.seed ^ (hash(table_name) & 0xFFFF_FFFF)
+                )
+                df = table_gen.generate(
+                    table=parsed.tables[table_name],
+                    row_count=count,
+                    rng=child_rng,
+                    model_config=model_config,
+                    schema=parsed,
+                )
+                tables_done += 1
+                if on_progress:
+                    on_progress(table_name, tables_done, tables_total)
+                yield table_name, df
 
     def describe(self, domain=None, schema=None) -> SpindleSchema:
         """Parse and return schema without generating data."""

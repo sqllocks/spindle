@@ -127,10 +127,17 @@ class IoTTelemetrySimulator:
 
     def __init__(
         self,
-        readings_df: pd.DataFrame,
-        devices_df: pd.DataFrame,
+        readings_df: pd.DataFrame | None = None,
+        devices_df: pd.DataFrame | None = None,
         config: IoTTelemetryConfig | None = None,
+        *,
+        tables: dict | None = None,
     ) -> None:
+        if tables is not None:
+            readings_df = tables["reading"]
+            devices_df = tables["device"]
+        if readings_df is None or devices_df is None:
+            raise ValueError("Provide either tables= or both readings_df and devices_df")
         self._config = config or IoTTelemetryConfig()
         self._rng = np.random.default_rng(self._config.seed)
 

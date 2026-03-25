@@ -157,10 +157,17 @@ class FinancialStreamSimulator:
 
     def __init__(
         self,
-        transactions_df: pd.DataFrame,
-        accounts_df: pd.DataFrame,
+        transactions_df: pd.DataFrame | None = None,
+        accounts_df: pd.DataFrame | None = None,
         config: FinancialStreamConfig | None = None,
+        *,
+        tables: dict | None = None,
     ) -> None:
+        if tables is not None:
+            transactions_df = tables["transaction"]
+            accounts_df = tables["account"]
+        if transactions_df is None or accounts_df is None:
+            raise ValueError("Provide either tables= or both transactions_df and accounts_df")
         self._transactions = transactions_df.copy()
         self._accounts = accounts_df.copy()
         self._config = config or FinancialStreamConfig()

@@ -228,14 +228,12 @@ class DataProfiler:
                 fk_ref_table=fk_ref,
             )
 
-        fk_map_final = self._detect_foreign_keys(table_name, df, all_tables)
-
         return TableProfile(
             name=table_name,
             row_count=row_count,
             columns=columns,
             primary_key=pk_cols,
-            detected_fks=fk_map_final,
+            detected_fks=fk_map,
         )
 
     # ----- type inference -----
@@ -310,6 +308,8 @@ class DataProfiler:
             return None, None
 
         values = series.dropna().values.astype(float)
+        if len(values) > 2000:
+            values = np.random.default_rng(42).choice(values, size=2000, replace=False)
         if len(values) < 20:
             return None, None
 
@@ -358,23 +358,19 @@ class DataProfiler:
         threshold = 0.9  # at least 90% must match
 
         # Email
-        matches = sample.apply(lambda v: bool(_EMAIL_RE.match(v))).sum()
-        if matches / total >= threshold:
+        if sample.str.match(_EMAIL_RE.pattern, na=False).sum() / total >= threshold:
             return "email"
 
         # UUID
-        matches = sample.apply(lambda v: bool(_UUID_RE.match(v))).sum()
-        if matches / total >= threshold:
+        if sample.str.match(_UUID_RE.pattern, na=False).sum() / total >= threshold:
             return "uuid"
 
         # Phone
-        matches = sample.apply(lambda v: bool(_PHONE_RE.match(v))).sum()
-        if matches / total >= threshold:
+        if sample.str.match(_PHONE_RE.pattern, na=False).sum() / total >= threshold:
             return "phone"
 
         # Date string
-        matches = sample.apply(lambda v: bool(_DATE_RE.match(v))).sum()
-        if matches / total >= threshold:
+        if sample.str.match(_DATE_RE.pattern, na=False).sum() / total >= threshold:
             return "date"
 
         return None
@@ -420,6 +416,11 @@ class DataProfiler:
         if not all_tables:
             return {}
 
+        # Pre-build PK index once per parent table (avoid O(n_fk_cols) re-detection)
+        pk_cache: dict[str, list[str]] = {}
+        for tname, tdf in all_tables.items():
+            pk_cache[tname] = self._detect_primary_key(tdf)
+
         fk_map: dict[str, str] = {}
 
         for col in df.columns:
@@ -443,7 +444,7 @@ class DataProfiler:
 
             # Check value overlap with parent's PK
             parent_df = all_tables[parent_table]
-            parent_pk = self._detect_primary_key(parent_df)
+            parent_pk = pk_cache[parent_table]
             if not parent_pk:
                 continue
 

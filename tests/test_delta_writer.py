@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+from unittest.mock import patch
 
 try:
     import deltalake  # noqa: F401
@@ -163,6 +164,11 @@ class TestDeltaWriterModes:
 class TestDeltaWriterErrors:
     def test_no_output_dir_no_fabric_raises(self):
         from sqllocks_spindle.output import DeltaWriter
+        from sqllocks_spindle.output.fabric_utils import FabricEnvironment
 
-        with pytest.raises(ValueError, match="No output_dir specified"):
-            DeltaWriter()
+        with patch(
+            "sqllocks_spindle.output.delta_writer.detect_fabric_environment",
+            return_value=FabricEnvironment(is_fabric=False),
+        ):
+            with pytest.raises(ValueError, match="No output_dir specified"):
+                DeltaWriter()

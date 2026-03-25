@@ -314,12 +314,18 @@ class BusinessRulesEngine:
         if op == ">=":
             mask = left_df[left_col] < right_vals
             if mask.any():
-                left_df.loc[mask, left_col] = right_vals[mask] + offset
+                result = right_vals[mask] + offset
+                if is_temporal:
+                    result = result.dt.as_unit("us")
+                left_df.loc[mask, left_col] = result
 
         elif op == ">":
             mask = left_df[left_col] <= right_vals
             if mask.any():
-                left_df.loc[mask, left_col] = right_vals[mask] + offset
+                result = right_vals[mask] + offset
+                if is_temporal:
+                    result = result.dt.as_unit("us")
+                left_df.loc[mask, left_col] = result
 
         elif op == "<=":
             mask = left_df[left_col] > right_vals

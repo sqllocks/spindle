@@ -59,63 +59,82 @@ class TemporalStrategy(Strategy):
         profiles: dict[str, Any],
         ctx: GenerationContext,
     ) -> np.ndarray:
-        # Generate base uniform dates, then apply seasonal weighting via rejection sampling
         month_weights = profiles.get("month", {})
         dow_weights = profiles.get("day_of_week", {})
         hour_profile = profiles.get("hour_of_day", {})
 
-        # Generate more than needed, then filter with acceptance probability
-        oversample = 3
-        candidates = self._uniform(start, end, type("Ctx", (), {
-            "rng": ctx.rng,
-            "row_count": ctx.row_count * oversample,
-        })())
-        candidate_ts = pd.DatetimeIndex(candidates)
+        # Fast path: no seasonal weighting — just uniform
+        if not month_weights and not dow_weights:
+            result = self._uniform(start, end, ctx)
+            if hour_profile:
+                result = self._apply_hour_profile(result, hour_profile, ctx)
+            return result
 
-        # Calculate acceptance probabilities
-        acceptance = np.ones(len(candidates))
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-        if month_weights:
-            month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            base_weight = 1.0 / 12.0
-            month_probs = np.array([
-                month_weights.get(m, base_weight) for m in month_names
-            ])
-            month_probs = month_probs / month_probs.sum()
-            # Relative to uniform: how much more/less likely
-            month_factor = month_probs * 12  # normalize so uniform = 1.0
-            acceptance *= month_factor[candidate_ts.month - 1]
+        # Build month probability array (12 values)
+        base_month = 1.0 / 12.0
+        month_probs = np.array([month_weights.get(m, base_month) for m in month_names])
+        month_probs = month_probs / month_probs.sum()
 
-        if dow_weights:
-            dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            base_weight = 1.0 / 7.0
-            dow_probs = np.array([
-                dow_weights.get(d, base_weight) for d in dow_names
-            ])
-            dow_probs = dow_probs / dow_probs.sum()
-            dow_factor = dow_probs * 7
-            acceptance *= dow_factor[candidate_ts.dayofweek]
+        # Build DOW probability array (7 values)
+        base_dow = 1.0 / 7.0
+        dow_probs = np.array([dow_weights.get(d, base_dow) for d in dow_names])
+        dow_probs = dow_probs / dow_probs.sum()
 
-        # Normalize acceptance to [0, 1]
-        acceptance = acceptance / acceptance.max()
+        # Allocate row counts per (month, dow) bucket via multinomial.
+        # Combined prob matrix: 12 x 7, flattened to 84 buckets.
+        combined_probs = (month_probs[:, None] * dow_probs[None, :]).ravel()
+        combined_probs = combined_probs / combined_probs.sum()
+        bucket_counts = ctx.rng.multinomial(ctx.row_count, combined_probs)
 
-        # Rejection sampling
-        keep = ctx.rng.random(len(candidates)) < acceptance
-        kept = candidates[keep]
+        # Generate uniform dates within each (year-month, dow) bucket
+        # and collect into a result array.
+        result_parts: list[np.ndarray] = []
+        total_days = int((end - start).days) + 1
 
-        if len(kept) >= ctx.row_count:
-            result = kept[:ctx.row_count]
+        # Pre-compute all valid days in the range as a DatetimeIndex for fast lookup
+        all_days = pd.date_range(start, end, freq="D")
+        all_months = all_days.month - 1   # 0-indexed
+        all_dows = all_days.dayofweek     # 0=Mon
+
+        for bucket_idx, count in enumerate(bucket_counts):
+            if count == 0:
+                continue
+            m_idx = bucket_idx // 7
+            d_idx = bucket_idx % 7
+            valid_mask = (all_months == m_idx) & (all_dows == d_idx)
+            valid_days = all_days[valid_mask]
+            if len(valid_days) == 0:
+                # This (month, dow) combo doesn't exist in range — redistribute uniformly
+                result_parts.append(self._uniform(start, end, type("_Ctx", (), {
+                    "rng": ctx.rng, "row_count": int(count),
+                })()))
+                continue
+            # Sample with replacement from valid days, then randomise time-of-day
+            chosen = valid_days[ctx.rng.integers(0, len(valid_days), size=int(count))]
+            # Add random microsecond offset within each day (unit-matches pandas DatetimeIndex)
+            us_offsets = pd.to_timedelta(
+                ctx.rng.integers(0, 86_400_000_000, size=int(count)), unit="us"
+            )
+            result_parts.append((chosen + us_offsets).values)
+
+        if not result_parts:
+            result = self._uniform(start, end, ctx)
         else:
-            # Fallback: pad with uniform if rejection removed too many
-            shortfall = ctx.row_count - len(kept)
-            extra = self._uniform(start, end, type("Ctx", (), {
-                "rng": ctx.rng,
-                "row_count": shortfall,
-            })())
-            result = np.concatenate([kept, extra])
+            combined = np.concatenate(result_parts)
+            # Shuffle so buckets don't appear in sorted order
+            ctx.rng.shuffle(combined)
+            result = combined[:ctx.row_count]
+            if len(result) < ctx.row_count:
+                shortfall = ctx.row_count - len(result)
+                extra = self._uniform(start, end, type("_Ctx", (), {
+                    "rng": ctx.rng, "row_count": shortfall,
+                })())
+                result = np.concatenate([result, extra])
 
-        # Apply hour-of-day profile if specified
         if hour_profile:
             result = self._apply_hour_profile(result, hour_profile, ctx)
 
