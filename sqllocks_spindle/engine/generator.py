@@ -23,6 +23,7 @@ from sqllocks_spindle.engine.strategies.derived import DerivedStrategy
 from sqllocks_spindle.engine.strategies.distribution import DistributionStrategy
 from sqllocks_spindle.engine.strategies.enum import WeightedEnumStrategy
 from sqllocks_spindle.engine.strategies.faker_strategy import FakerStrategy
+from sqllocks_spindle.engine.strategies.native import NativeStrategy
 from sqllocks_spindle.engine.strategies.first_per_parent import FirstPerParentStrategy
 from sqllocks_spindle.engine.strategies.foreign_key import ForeignKeyStrategy
 from sqllocks_spindle.engine.strategies.formula import FormulaStrategy
@@ -222,6 +223,7 @@ class Spindle:
         registry = StrategyRegistry()
         registry.register("sequence", SequenceStrategy())
         registry.register("uuid", UUIDStrategy())
+        registry.register("native", NativeStrategy())
         registry.register("faker", FakerStrategy())
         registry.register("weighted_enum", WeightedEnumStrategy())
         registry.register("distribution", DistributionStrategy())

@@ -21,10 +21,11 @@ from sqllocks_spindle.engine.strategies.self_referencing import SelfReferencingS
 from sqllocks_spindle.engine.strategies.first_per_parent import FirstPerParentStrategy
 from sqllocks_spindle.engine.strategies.record_sample import RecordSampleStrategy
 from sqllocks_spindle.engine.strategies.record_field import RecordFieldStrategy
+from sqllocks_spindle.engine.strategies.native import NativeStrategy
 
 __all__ = [
     "Strategy", "StrategyRegistry",
-    "SequenceStrategy", "UUIDStrategy", "FakerStrategy",
+    "SequenceStrategy", "UUIDStrategy", "FakerStrategy", "NativeStrategy",
     "WeightedEnumStrategy", "DistributionStrategy", "TemporalStrategy",
     "FormulaStrategy", "DerivedStrategy", "CorrelatedStrategy",
     "ForeignKeyStrategy", "LookupStrategy", "ReferenceDataStrategy",

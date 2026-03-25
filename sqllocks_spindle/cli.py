@@ -1578,6 +1578,283 @@ def publish(
     click.echo("Publish complete.")
 
 
+@main.command()
+@click.argument("domain_name")
+@click.option("--scale", "-s", default="small", help="Scale preset")
+@click.option("--seed", default=42, type=int, help="Random seed")
+@click.option("--output", "-o", default=None, help="Output .ipynb file path")
+@click.option("--target", default="lakehouse",
+              type=click.Choice(["lakehouse", "display", "csv"]),
+              help="Notebook output target")
+def notebook(domain_name: str, scale: str, seed: int, output: str | None, target: str):
+    """Generate a ready-to-run Fabric notebook for a domain.
+
+    Creates a .ipynb notebook that installs Spindle, generates data,
+    and writes to a Lakehouse (or other target).
+
+    Example: spindle notebook retail --scale medium -o ./notebooks/retail_demo.ipynb
+    """
+    from sqllocks_spindle.fabric.notebook_template import generate_notebook, save_notebook
+
+    # Verify domain exists
+    registry = _get_domain_registry()
+    if domain_name not in registry:
+        click.echo(f"Unknown domain: '{domain_name}'", err=True)
+        click.echo(f"Available domains: {', '.join(registry.keys())}", err=True)
+        sys.exit(1)
+
+    nb = generate_notebook(domain=domain_name, scale=scale, seed=seed, output_target=target)
+
+    if output:
+        path = save_notebook(nb, output)
+        click.echo(f"Spindle v{__version__} — Notebook Generated")
+        click.echo(f"  Domain: {domain_name}")
+        click.echo(f"  Scale:  {scale}")
+        click.echo(f"  Target: {target}")
+        click.echo(f"  Cells:  {len(nb['cells'])}")
+        click.echo(f"  Output: {path}")
+    else:
+        import json
+        click.echo(json.dumps(nb, indent=1))
+
+
+@main.command(name="deploy-notebook")
+@click.argument("domain_name")
+@click.option("--workspace", required=True, help="Fabric workspace name or ID")
+@click.option("--scale", "-s", default="small", help="Scale preset")
+@click.option("--seed", default=42, type=int, help="Random seed")
+@click.option("--auth", "auth_method", default="cli",
+              type=click.Choice(["cli", "device-code"]),
+              help="Authentication method")
+@click.option("--notebook-name", default=None, help="Name for the notebook in Fabric")
+def deploy_notebook(
+    domain_name: str, workspace: str, scale: str, seed: int,
+    auth_method: str, notebook_name: str | None,
+):
+    """Generate and deploy a notebook to a Fabric workspace.
+
+    Creates a Spindle notebook and uploads it to the specified Fabric workspace
+    using the Fabric REST API.
+
+    Example: spindle deploy-notebook retail --workspace "Demo" --auth cli
+    """
+    from sqllocks_spindle.fabric.notebook_template import generate_notebook
+
+    registry = _get_domain_registry()
+    if domain_name not in registry:
+        click.echo(f"Unknown domain: '{domain_name}'", err=True)
+        sys.exit(1)
+
+    nb = generate_notebook(domain=domain_name, scale=scale, seed=seed, output_target="lakehouse")
+    name = notebook_name or f"Spindle_{domain_name}_{scale}"
+
+    click.echo(f"Spindle v{__version__} — Deploy Notebook")
+    click.echo(f"  Domain:    {domain_name}")
+    click.echo(f"  Workspace: {workspace}")
+    click.echo(f"  Name:      {name}")
+    click.echo()
+
+    # Deploy via Fabric REST API
+    try:
+        import base64
+        import json
+        import requests
+        from azure.identity import (
+            AzureCliCredential,
+            DeviceCodeCredential,
+        )
+
+        if auth_method == "cli":
+            credential = AzureCliCredential()
+        else:
+            credential = DeviceCodeCredential(
+                client_id="ea0616ba-638b-4df5-95b9-636659ae5121",
+            )
+
+        token = credential.get_token("https://api.fabric.microsoft.com/.default").token
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+        # Resolve workspace ID
+        if len(workspace) == 36 and "-" in workspace:
+            ws_id = workspace
+        else:
+            resp = requests.get(
+                "https://api.fabric.microsoft.com/v1/workspaces",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            ws_list = resp.json().get("value", [])
+            ws_match = [w for w in ws_list if w["displayName"] == workspace]
+            if not ws_match:
+                click.echo(f"Workspace '{workspace}' not found", err=True)
+                sys.exit(1)
+            ws_id = ws_match[0]["id"]
+
+        # Create notebook item
+        nb_content = base64.b64encode(json.dumps(nb).encode()).decode()
+        payload = {
+            "displayName": name,
+            "type": "Notebook",
+            "definition": {
+                "format": "ipynb",
+                "parts": [
+                    {
+                        "path": "notebook-content.py",
+                        "payload": nb_content,
+                        "payloadType": "InlineBase64",
+                    }
+                ],
+            },
+        }
+
+        resp = requests.post(
+            f"https://api.fabric.microsoft.com/v1/workspaces/{ws_id}/items",
+            headers=headers,
+            json=payload,
+        )
+        resp.raise_for_status()
+        item = resp.json()
+
+        click.echo(f"  Notebook created: {item.get('displayName', name)}")
+        click.echo(f"  Item ID: {item.get('id', 'unknown')}")
+        click.echo()
+        click.echo("Open the notebook in Fabric and click Run All to generate data.")
+
+    except ImportError as e:
+        click.echo(f"Missing dependency: {e}", err=True)
+        click.echo("Install with: pip install azure-identity requests", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Deploy failed: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command(name="setup-fabric")
+@click.option("--workspace", required=True, help="Fabric workspace name or ID")
+@click.option("--auth", "auth_method", default="cli",
+              type=click.Choice(["cli", "device-code"]),
+              help="Authentication method")
+@click.option("--create-lakehouse", is_flag=True, default=False,
+              help="Also create a Lakehouse for output")
+@click.option("--env-name", default="spindle-env",
+              help="Name for the Fabric Environment item")
+@click.option("--snippet", is_flag=True, default=False,
+              help="Just print the copy-paste setup snippet instead of deploying")
+def setup_fabric(
+    workspace: str, auth_method: str, create_lakehouse: bool,
+    env_name: str, snippet: bool,
+):
+    """Set up a Fabric environment with Spindle pre-installed.
+
+    Creates a Fabric Environment item with sqllocks-spindle and dependencies,
+    and optionally creates a Lakehouse for output.
+
+    Example: spindle setup-fabric --workspace "Demo" --auth cli --create-lakehouse
+    """
+    from sqllocks_spindle.fabric.setup_environment import (
+        get_environment_library_spec,
+        print_setup_snippet,
+    )
+
+    if snippet:
+        print_setup_snippet()
+        return
+
+    click.echo(f"Spindle v{__version__} — Fabric Environment Setup")
+    click.echo(f"  Workspace:   {workspace}")
+    click.echo(f"  Environment: {env_name}")
+    click.echo(f"  Lakehouse:   {'yes' if create_lakehouse else 'no'}")
+    click.echo()
+
+    try:
+        import requests
+        from azure.identity import (
+            AzureCliCredential,
+            DeviceCodeCredential,
+        )
+
+        if auth_method == "cli":
+            credential = AzureCliCredential()
+        else:
+            credential = DeviceCodeCredential(
+                client_id="ea0616ba-638b-4df5-95b9-636659ae5121",
+            )
+
+        token = credential.get_token("https://api.fabric.microsoft.com/.default").token
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+        # Resolve workspace
+        if len(workspace) == 36 and "-" in workspace:
+            ws_id = workspace
+        else:
+            resp = requests.get(
+                "https://api.fabric.microsoft.com/v1/workspaces",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            ws_list = resp.json().get("value", [])
+            ws_match = [w for w in ws_list if w["displayName"] == workspace]
+            if not ws_match:
+                click.echo(f"Workspace '{workspace}' not found", err=True)
+                sys.exit(1)
+            ws_id = ws_match[0]["id"]
+
+        created_items = []
+
+        # Create Environment
+        lib_spec = get_environment_library_spec()
+        env_payload = {
+            "displayName": env_name,
+            "type": "Environment",
+        }
+        resp = requests.post(
+            f"https://api.fabric.microsoft.com/v1/workspaces/{ws_id}/items",
+            headers=headers,
+            json=env_payload,
+        )
+        resp.raise_for_status()
+        env_item = resp.json()
+        created_items.append(f"Environment: {env_item.get('displayName', env_name)}")
+        click.echo(f"  Created Environment: {env_item.get('displayName')}")
+
+        # Create Lakehouse if requested
+        if create_lakehouse:
+            lh_payload = {
+                "displayName": "spindle-lakehouse",
+                "type": "Lakehouse",
+            }
+            resp = requests.post(
+                f"https://api.fabric.microsoft.com/v1/workspaces/{ws_id}/items",
+                headers=headers,
+                json=lh_payload,
+            )
+            resp.raise_for_status()
+            lh_item = resp.json()
+            created_items.append(f"Lakehouse: {lh_item.get('displayName')}")
+            click.echo(f"  Created Lakehouse:   {lh_item.get('displayName')}")
+
+        click.echo()
+        click.echo("Setup complete:")
+        for item in created_items:
+            click.echo(f"  {item}")
+        click.echo()
+        click.echo("Next steps:")
+        click.echo("  1. Open the Environment in Fabric")
+        click.echo("  2. Add these PyPI libraries:")
+        for lib in lib_spec["customLibraries"]["pypi"]:
+            click.echo(f"     - {lib['name']} {lib['version']}")
+        click.echo("  3. Publish the environment")
+        click.echo("  4. Attach to notebooks and run 'spindle notebook' to generate data")
+
+    except ImportError as e:
+        click.echo(f"Missing dependency: {e}", err=True)
+        click.echo("Install with: pip install azure-identity requests", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Setup failed: {e}", err=True)
+        sys.exit(1)
+
+
 def _resolve_domain(domain_name: str, mode: str):
     """Resolve a domain name to a Domain instance."""
     registry = _get_domain_registry()

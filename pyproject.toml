@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sqllocks-spindle"
-version = "2.3.0"
+version = "2.4.0"
 description = "Multi-domain, schema-aware synthetic data generator for Microsoft Fabric"
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,13 +27,15 @@ classifiers = [
     "Topic :: Database",
 ]
 dependencies = [
-    "faker>=20.0",
     "numpy>=1.24",
     "pandas>=2.0",
     "click>=8.0",
 ]
 
 [project.optional-dependencies]
+faker = [
+    "faker>=20.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -72,6 +74,7 @@ docs = [
     "mkdocs-section-index>=0.3",
 ]
 all = [
+    "faker>=20.0",
     "pyarrow>=14.0",
     "openpyxl>=3.1",
     "deltalake>=0.17.0",
