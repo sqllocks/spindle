@@ -373,7 +373,7 @@ class PandasWriter:
                     f.write(f"INSERT INTO {qualified} ({columns})\nVALUES\n")
 
                     rows = []
-                    for _, row in batch.iterrows():
+                    for row in batch.values.tolist():
                         vals = [_format_sql_value(val, effective_dialect) for val in row]
                         rows.append(f"  ({', '.join(vals)})")
 

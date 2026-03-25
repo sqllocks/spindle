@@ -46,4 +46,4 @@ class LifecycleStrategy(Strategy):
         weights /= weights.sum()
 
         indices = ctx.rng.choice(len(labels), size=ctx.row_count, p=weights)
-        return np.array([labels[i] for i in indices], dtype=object)
+        return np.array(labels, dtype=object)[indices]

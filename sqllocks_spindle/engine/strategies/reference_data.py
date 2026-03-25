@@ -71,16 +71,17 @@ class ReferenceDataStrategy(Strategy):
 
         # If data is a list of strings, pick randomly
         if isinstance(data, list) and all(isinstance(x, str) for x in data):
+            data_arr = np.array(data, dtype=object)
             indices = ctx.rng.integers(0, len(data), size=ctx.row_count)
-            return np.array([data[i] for i in indices], dtype=object)
+            return data_arr[indices]
 
         # If data is a list of dicts with "name" and "weight"
         if isinstance(data, list) and all(isinstance(x, dict) for x in data):
-            names = [d.get("name", d.get("value", "")) for d in data]
+            names = np.array([d.get("name", d.get("value", "")) for d in data], dtype=object)
             weights = np.array([d.get("weight", 1.0) for d in data])
             weights = weights / weights.sum()
             indices = ctx.rng.choice(len(names), size=ctx.row_count, p=weights)
-            return np.array([names[i] for i in indices], dtype=object)
+            return names[indices]
 
         raise ValueError(
             f"Unsupported reference data format for dataset '{dataset_name}'"

@@ -397,23 +397,17 @@ class ContinueEngine:
         transitions: dict[str, dict[str, float]],
         rng: np.random.Generator,
     ) -> None:
-        """Apply Markov state transitions in-place."""
-        for i in range(len(df)):
-            current = df.at[i, column]
-            if pd.isna(current):
+        """Apply Markov state transitions in-place (vectorized per state)."""
+        for current_val, next_states in transitions.items():
+            mask = df[column].astype(str) == current_val
+            if not mask.any():
                 continue
-            current_str = str(current)
-            if current_str not in transitions:
-                continue
-            next_states = transitions[current_str]
             states = list(next_states.keys())
-            probs = list(next_states.values())
-            # Normalise probabilities
-            total = sum(probs)
-            if total <= 0:
-                continue
-            probs = [p / total for p in probs]
-            df.at[i, column] = rng.choice(states, p=probs)
+            probs = np.array(list(next_states.values()), dtype=float)
+            probs /= probs.sum()
+            count = mask.sum()
+            chosen = rng.choice(states, size=count, p=probs)
+            df.loc[mask, column] = chosen
 
     @staticmethod
     def _perturb_columns(

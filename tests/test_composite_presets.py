@@ -47,11 +47,12 @@ class TestBuiltinPresets:
         assert "manufacturing" in preset.domains
 
     def test_all_presets_have_valid_domains(self):
-        from sqllocks_spindle.cli import _DOMAIN_REGISTRY
+        from sqllocks_spindle.cli import _get_domain_registry
 
+        registry = _get_domain_registry()
         for preset in list_presets():
             for domain_name in preset.domains:
-                assert domain_name in _DOMAIN_REGISTRY, (
+                assert domain_name in registry, (
                     f"Preset '{preset.name}' references unknown domain '{domain_name}'"
                 )
 

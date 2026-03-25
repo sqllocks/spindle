@@ -21,7 +21,7 @@ class ChaosMutator(ABC):
     """Base class for all chaos-category mutators.
 
     Subclasses implement :meth:`mutate` which receives the data to corrupt,
-    the current simulation day, a seeded numpy ``RandomState``, and the
+    the current simulation day, a seeded numpy ``Generator``, and the
     intensity multiplier from the active preset.
     """
 
@@ -36,7 +36,7 @@ class ChaosMutator(ABC):
         self,
         data: Any,
         day: int,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity_multiplier: float,
     ) -> Any:
         """Apply chaos to *data* and return the mutated result.
@@ -61,7 +61,7 @@ class ChaosMutator(ABC):
 
     @staticmethod
     def _sample_indices(
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         n_rows: int,
         fraction: float,
     ) -> np.ndarray:
@@ -99,7 +99,7 @@ class SchemaChaosMutator(ChaosMutator):
         self,
         data: pd.DataFrame,
         day: int,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity_multiplier: float,
     ) -> pd.DataFrame:
         if data.empty or len(data.columns) == 0:
@@ -138,21 +138,21 @@ class SchemaChaosMutator(ChaosMutator):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _add_column(df: pd.DataFrame, rng: np.random.RandomState) -> pd.DataFrame:
-        name = f"_chaos_extra_{rng.randint(1000, 9999)}"
+    def _add_column(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+        name = f"_chaos_extra_{rng.integers(1000, 9999)}"
         df[name] = rng.choice(["A", "B", None], size=len(df))
         return df
 
     @staticmethod
     def _reorder_columns(
-        df: pd.DataFrame, rng: np.random.RandomState
+        df: pd.DataFrame, rng: np.random.Generator
     ) -> pd.DataFrame:
         cols = list(df.columns)
         rng.shuffle(cols)
         return df[cols]
 
     @staticmethod
-    def _drop_column(df: pd.DataFrame, rng: np.random.RandomState) -> pd.DataFrame:
+    def _drop_column(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
         if len(df.columns) <= 1:
             return df
         col = rng.choice(df.columns)
@@ -160,7 +160,7 @@ class SchemaChaosMutator(ChaosMutator):
 
     @staticmethod
     def _rename_column(
-        df: pd.DataFrame, rng: np.random.RandomState
+        df: pd.DataFrame, rng: np.random.Generator
     ) -> pd.DataFrame:
         if len(df.columns) == 0:
             return df
@@ -171,7 +171,7 @@ class SchemaChaosMutator(ChaosMutator):
 
     @staticmethod
     def _retype_column(
-        df: pd.DataFrame, rng: np.random.RandomState
+        df: pd.DataFrame, rng: np.random.Generator
     ) -> pd.DataFrame:
         numeric_cols = df.select_dtypes(include="number").columns.tolist()
         if not numeric_cols:
@@ -199,7 +199,7 @@ class ValueChaosMutator(ChaosMutator):
         self,
         data: pd.DataFrame,
         day: int,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity_multiplier: float,
     ) -> pd.DataFrame:
         if data.empty:
@@ -216,7 +216,7 @@ class ValueChaosMutator(ChaosMutator):
             self._future_dates,
             self._negative_amounts,
         ]
-        n = min(rng.randint(1, 4), len(mutations))
+        n = min(rng.integers(1, 4), len(mutations))
         chosen = rng.choice(len(mutations), size=n, replace=False)
 
         for i in chosen:
@@ -231,7 +231,7 @@ class ValueChaosMutator(ChaosMutator):
     def _inject_nulls(
         self,
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         frac = self._pick_fraction(0.05, intensity)
@@ -246,7 +246,7 @@ class ValueChaosMutator(ChaosMutator):
     def _out_of_range(
         self,
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         numeric = df.select_dtypes(include="number").columns.tolist()
@@ -266,7 +266,7 @@ class ValueChaosMutator(ChaosMutator):
     def _wrong_types(
         self,
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         numeric = df.select_dtypes(include="number").columns.tolist()
@@ -284,7 +284,7 @@ class ValueChaosMutator(ChaosMutator):
     def _encoding_issues(
         self,
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         str_cols = df.select_dtypes(include="object").columns.tolist()
@@ -299,7 +299,7 @@ class ValueChaosMutator(ChaosMutator):
             val = df.iat[i, df.columns.get_loc(col)]
             if val is None or (isinstance(val, float) and math.isnan(val)):
                 continue
-            choice = rng.randint(0, 2)
+            choice = rng.integers(0, 2)
             if choice == 0:
                 df.iat[i, df.columns.get_loc(col)] = bom + str(val)
             else:
@@ -310,7 +310,7 @@ class ValueChaosMutator(ChaosMutator):
     def _future_dates(
         self,
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         dt_cols = df.select_dtypes(include="datetime").columns.tolist()
@@ -319,7 +319,7 @@ class ValueChaosMutator(ChaosMutator):
         col = rng.choice(dt_cols)
         frac = self._pick_fraction(0.03, intensity)
         idx = self._sample_indices(rng, len(df), frac)
-        future_offsets = rng.randint(365, 3650, size=len(idx))
+        future_offsets = rng.integers(365, 3650, size=len(idx))
         future_dates = [
             pd.Timestamp("2030-01-01") + pd.Timedelta(days=int(d))
             for d in future_offsets
@@ -330,7 +330,7 @@ class ValueChaosMutator(ChaosMutator):
     def _negative_amounts(
         self,
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         numeric = df.select_dtypes(include="number").columns.tolist()
@@ -370,7 +370,7 @@ class FileChaosMutator(ChaosMutator):
         self,
         data: bytes,
         day: int,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity_multiplier: float,
     ) -> bytes:
         if not data:
@@ -386,7 +386,7 @@ class FileChaosMutator(ChaosMutator):
             self._invalid_json_poison,
             self._bom_injection,
         ]
-        choice = rng.randint(0, len(mutations))
+        choice = rng.integers(0, len(mutations))
         return mutations[choice](data, rng, intensity_multiplier)
 
     # ------------------------------------------------------------------
@@ -396,7 +396,7 @@ class FileChaosMutator(ChaosMutator):
     @staticmethod
     def _truncate(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
         cut_point = max(1, int(len(data) * rng.uniform(0.1, 0.6)))
@@ -405,20 +405,20 @@ class FileChaosMutator(ChaosMutator):
     @staticmethod
     def _corrupt_encoding(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
         arr = bytearray(data)
         n_corruptions = max(1, int(len(arr) * 0.01 * intensity))
         for _ in range(n_corruptions):
-            pos = rng.randint(0, len(arr))
-            arr[pos] = rng.randint(0, 256)
+            pos = rng.integers(0, len(arr))
+            arr[pos] = rng.integers(0, 256)
         return bytes(arr)
 
     @staticmethod
     def _partial_write(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
         # Simulate a partial write followed by null bytes
@@ -429,7 +429,7 @@ class FileChaosMutator(ChaosMutator):
     @staticmethod
     def _zero_byte(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
         return b""
@@ -437,17 +437,17 @@ class FileChaosMutator(ChaosMutator):
     @staticmethod
     def _garbage_header(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
-        garbage_len = rng.randint(8, 64)
-        garbage = bytes(rng.randint(0, 256, size=garbage_len).tolist())
+        garbage_len = rng.integers(8, 64)
+        garbage = bytes(rng.integers(0, 256, size=garbage_len).tolist())
         return garbage + data
 
     @staticmethod
     def _wrong_delimiter(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
         """Replace commas with pipes or tabs to break CSV parsing."""
@@ -462,7 +462,7 @@ class FileChaosMutator(ChaosMutator):
     @staticmethod
     def _invalid_json_poison(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
         """Inject invalid JSON fragments to break JSONL parsers."""
@@ -473,29 +473,29 @@ class FileChaosMutator(ChaosMutator):
             b'\n{"nested": {"too": {"deep": {"for": {"parsers": "maybe"}}}}}\n',
             b"\n[]\n",  # array instead of object
         ]
-        payload = poison_payloads[rng.randint(0, len(poison_payloads))]
+        payload = poison_payloads[rng.integers(0, len(poison_payloads))]
         # Insert at a random position
         if len(data) > 1:
-            pos = rng.randint(0, len(data))
+            pos = rng.integers(0, len(data))
             return data[:pos] + payload + data[pos:]
         return data + payload
 
     @staticmethod
     def _bom_injection(
         data: bytes,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> bytes:
         """Prepend a UTF-8 BOM or inject mid-stream BOMs."""
         bom = b"\xef\xbb\xbf"
-        choice = rng.randint(0, 2)
+        choice = rng.integers(0, 2)
         if choice == 0:
             # Prepend BOM
             return bom + data
         else:
             # Inject BOM at random position
             if len(data) > 1:
-                pos = rng.randint(1, len(data))
+                pos = rng.integers(1, len(data))
                 return data[:pos] + bom + data[pos:]
             return bom + data
 
@@ -521,7 +521,7 @@ class ReferentialChaosMutator(ChaosMutator):
         self,
         data: dict[str, pd.DataFrame],
         day: int,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity_multiplier: float,
     ) -> dict[str, pd.DataFrame]:
         if not data:
@@ -530,7 +530,7 @@ class ReferentialChaosMutator(ChaosMutator):
         result = {k: v.copy() for k, v in data.items()}
 
         actions = [self._orphan_fks, self._duplicate_pks]
-        choice = rng.randint(0, len(actions))
+        choice = rng.integers(0, len(actions))
         return actions[choice](result, rng, intensity_multiplier)
 
     # ------------------------------------------------------------------
@@ -538,7 +538,7 @@ class ReferentialChaosMutator(ChaosMutator):
     def _orphan_fks(
         self,
         tables: dict[str, pd.DataFrame],
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> dict[str, pd.DataFrame]:
         """Replace some FK values with IDs that don't exist in the parent."""
@@ -559,7 +559,7 @@ class ReferentialChaosMutator(ChaosMutator):
 
         # Generate orphan IDs that are extremely unlikely to exist
         orphan_base = 9_000_000
-        orphan_ids = [orphan_base + int(rng.randint(0, 999_999)) for _ in idx]
+        orphan_ids = [orphan_base + int(rng.integers(0, 999_999)) for _ in idx]
         df[col] = df[col].astype(object)
         df.iloc[idx, df.columns.get_loc(col)] = orphan_ids
         tables[target_name] = df
@@ -568,7 +568,7 @@ class ReferentialChaosMutator(ChaosMutator):
     def _duplicate_pks(
         self,
         tables: dict[str, pd.DataFrame],
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> dict[str, pd.DataFrame]:
         """Introduce duplicate primary key values."""
@@ -612,7 +612,7 @@ class TemporalChaosMutator(ChaosMutator):
         self,
         data: pd.DataFrame,
         day: int,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity_multiplier: float,
         date_columns: list[str] | None = None,
     ) -> pd.DataFrame:
@@ -633,7 +633,7 @@ class TemporalChaosMutator(ChaosMutator):
             self._timezone_mismatch,
             self._dst_boundary,
         ]
-        n = min(rng.randint(1, 3), len(mutations))
+        n = min(rng.integers(1, 3), len(mutations))
         chosen = rng.choice(len(mutations), size=n, replace=False)
 
         for i in chosen:
@@ -647,7 +647,7 @@ class TemporalChaosMutator(ChaosMutator):
         self,
         df: pd.DataFrame,
         date_columns: list[str],
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         """Push some timestamps 1-30 days into the past (late-arriving data)."""
@@ -656,7 +656,7 @@ class TemporalChaosMutator(ChaosMutator):
             return df
         frac = self._pick_fraction(0.05, intensity)
         idx = self._sample_indices(rng, len(df), frac)
-        delays = rng.randint(1, 31, size=len(idx))
+        delays = rng.integers(1, 31, size=len(idx))
         for i, d in zip(idx, delays):
             val = df.iat[i, df.columns.get_loc(col)]
             if pd.notna(val):
@@ -667,7 +667,7 @@ class TemporalChaosMutator(ChaosMutator):
         self,
         df: pd.DataFrame,
         date_columns: list[str],
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         """Swap timestamp values between random row pairs."""
@@ -689,7 +689,7 @@ class TemporalChaosMutator(ChaosMutator):
     def _timezone_mismatch(
         df: pd.DataFrame,
         date_columns: list[str],
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         """Shift some timestamps by common timezone offsets (as if
@@ -715,7 +715,7 @@ class TemporalChaosMutator(ChaosMutator):
     def _dst_boundary(
         df: pd.DataFrame,
         date_columns: list[str],
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         """Set some timestamps exactly on a DST boundary (2 AM spring-forward)."""
@@ -752,7 +752,7 @@ class VolumeChaosMutator(ChaosMutator):
         self,
         data: pd.DataFrame,
         day: int,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity_multiplier: float,
     ) -> pd.DataFrame:
         if data.empty:
@@ -772,7 +772,7 @@ class VolumeChaosMutator(ChaosMutator):
     @staticmethod
     def _spike(
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
         intensity: float,
     ) -> pd.DataFrame:
         """Duplicate rows to simulate a 10x volume spike."""
@@ -790,8 +790,8 @@ class VolumeChaosMutator(ChaosMutator):
     @staticmethod
     def _single_row(
         df: pd.DataFrame,
-        rng: np.random.RandomState,
+        rng: np.random.Generator,
     ) -> pd.DataFrame:
         """Return a single random row."""
-        idx = rng.randint(0, len(df))
+        idx = rng.integers(0, len(df))
         return df.iloc[[idx]].copy().reset_index(drop=True)

@@ -43,7 +43,14 @@ def _discover_domains() -> dict[str, tuple[str, str, str]]:
     return registry
 
 
-_DOMAIN_REGISTRY: dict[str, tuple[str, str, str]] = _discover_domains()
+_DOMAIN_REGISTRY: dict[str, tuple[str, str, str]] | None = None
+
+
+def _get_domain_registry() -> dict[str, tuple[str, str, str]]:
+    global _DOMAIN_REGISTRY
+    if _DOMAIN_REGISTRY is None:
+        _DOMAIN_REGISTRY = _discover_domains()
+    return _DOMAIN_REGISTRY
 
 
 @click.group()
@@ -302,7 +309,7 @@ def list_cmd():
     click.echo(f"Spindle v{__version__} — Available Domains")
     click.echo()
 
-    for name, (_, __, desc) in _DOMAIN_REGISTRY.items():
+    for name, (_, __, desc) in _get_domain_registry().items():
         try:
             domain = _resolve_domain(name, "3nf")
             profiles = domain.available_profiles
@@ -1573,12 +1580,13 @@ def publish(
 
 def _resolve_domain(domain_name: str, mode: str):
     """Resolve a domain name to a Domain instance."""
-    if domain_name not in _DOMAIN_REGISTRY:
+    registry = _get_domain_registry()
+    if domain_name not in registry:
         click.echo(f"Unknown domain: '{domain_name}'", err=True)
-        click.echo(f"Available domains: {', '.join(_DOMAIN_REGISTRY.keys())}", err=True)
+        click.echo(f"Available domains: {', '.join(registry.keys())}", err=True)
         sys.exit(1)
 
-    module_path, class_name, _ = _DOMAIN_REGISTRY[domain_name]
+    module_path, class_name, _ = registry[domain_name]
     import importlib
     module = importlib.import_module(module_path)
     domain_class = getattr(module, class_name)

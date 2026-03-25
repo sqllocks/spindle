@@ -32,11 +32,12 @@ class WeightedEnumStrategy(Strategy):
             weights = weights / weight_sum
 
         indices = ctx.rng.choice(len(labels), size=ctx.row_count, p=weights)
-        chosen = [labels[i] for i in indices]
+        labels_arr = np.array(labels, dtype=object)
+        chosen = labels_arr[indices]
 
         # If all values are numeric strings, return a float array for formula compatibility
         try:
-            numeric = [float(v) for v in labels]
-            return np.array([numeric[i] for i in indices], dtype=float)
+            numeric = np.array([float(v) for v in labels], dtype=float)
+            return numeric[indices]
         except (TypeError, ValueError):
-            return np.array(chosen, dtype=object)
+            return chosen

@@ -216,18 +216,21 @@ class SpindleStreamer:
                     ts_col = col
                     break
 
-        records: list[dict[str, Any]] = df.reset_index(drop=True).to_dict("records")
+        # Pre-coerce at column level (W4: avoid per-cell _clean_value)
+        clean_df = df.reset_index(drop=True).copy()
+        for col in clean_df.columns:
+            if pd.api.types.is_datetime64_any_dtype(clean_df[col]):
+                clean_df[col] = clean_df[col].astype(object).where(clean_df[col].notna(), None)
+            elif pd.api.types.is_numeric_dtype(clean_df[col]):
+                clean_df[col] = clean_df[col].where(clean_df[col].notna(), None)
+
+        records: list[dict[str, Any]] = clean_df.to_dict("records")
 
         for seq, event in enumerate(records):
-            # Clean numpy / pandas types
-            cleaned: dict[str, Any] = {}
-            for k, v in event.items():
-                cleaned[k] = _clean_value(v)
-            cleaned["_spindle_table"] = table_name
-            cleaned["_spindle_seq"] = seq
-            if ts_col and ts_col in cleaned:
-                cleaned["_spindle_event_time"] = str(cleaned[ts_col]) if cleaned[ts_col] is not None else None
-            records[seq] = cleaned
+            event["_spindle_table"] = table_name
+            event["_spindle_seq"] = seq
+            if ts_col and ts_col in event:
+                event["_spindle_event_time"] = str(event[ts_col]) if event[ts_col] is not None else None
 
         # Sort by event time if we have a timestamp column
         if ts_col:

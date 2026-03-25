@@ -46,7 +46,7 @@ class ChaosEngine:
     def __init__(self, config: ChaosConfig | None = None, seed: int | None = None) -> None:
         self._config = config or ChaosConfig()
         effective_seed = seed if seed is not None else self._config.seed
-        self._rng = np.random.RandomState(effective_seed)
+        self._rng = np.random.default_rng(effective_seed)
 
         # Instantiate mutators
         self._mutators: dict[str, ChaosMutator] = {
@@ -69,7 +69,7 @@ class ChaosEngine:
         return self._config
 
     @property
-    def rng(self) -> np.random.RandomState:
+    def rng(self) -> np.random.Generator:
         return self._rng
 
     # ------------------------------------------------------------------
@@ -101,7 +101,7 @@ class ChaosEngine:
         escalation = self._escalation_factor(day)
 
         probability = min(base_weight * intensity * escalation, 1.0)
-        return float(self._rng.uniform()) < probability
+        return float(self._rng.random()) < probability
 
     def _escalation_factor(self, day: int) -> float:
         """Return a 0-1 escalation multiplier for the given day.
@@ -118,7 +118,7 @@ class ChaosEngine:
         if mode == "gradual":
             return min(chaos_day / 30.0, 1.0)
         elif mode == "random":
-            return float(self._rng.uniform())
+            return float(self._rng.random())
         elif mode == "front-loaded":
             # Exponential decay: starts at 1.0, halves every 15 days
             return max(0.95 ** chaos_day, 0.1)

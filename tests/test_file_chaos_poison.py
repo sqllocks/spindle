@@ -19,7 +19,7 @@ def mutator():
 
 @pytest.fixture
 def rng():
-    return np.random.RandomState(42)
+    return np.random.default_rng(42)
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ class TestMutateIntegration:
         """Ensure the new mutations are reachable across different seeds."""
         results = set()
         for seed in range(100):
-            rng = np.random.RandomState(seed)
+            rng = np.random.default_rng(seed)
             result = mutator.mutate(csv_data, day=5, rng=rng, intensity_multiplier=1.0)
             results.add(len(result))
         # Should see variety in output lengths (different mutations produce different lengths)

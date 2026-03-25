@@ -643,12 +643,18 @@ class FabricSqlDatabaseWriter:
         # Fix: identify per-column max string lengths, find (or synthesise) a
         # "max row" to put first so that buffers are allocated to the right size.
 
-        # Identify string-column positions once (shared across all batches)
+        # Identify string-column positions and pre-compute max lengths once (W5)
         str_col_idxs = [
             i for i, col in enumerate(coerced.columns)
             if pd.api.types.is_object_dtype(coerced[col])
             and coerced[col].dropna().apply(lambda v: isinstance(v, str)).any()
         ]
+        # Pre-compute global max string length per string column
+        global_max_lens: dict[int, int] = {}
+        for j in str_col_idxs:
+            col = coerced.iloc[:, j]
+            str_vals = col[col.apply(lambda v: isinstance(v, str))]
+            global_max_lens[j] = int(str_vals.str.len().max()) if len(str_vals) > 0 else 0
 
         rows_written = 0
         for batch_start in range(0, len(coerced), batch_size):
@@ -674,14 +680,12 @@ class FabricSqlDatabaseWriter:
             # All replacement values are real data — just assembled column-by-column
             # from different rows — so fast_executemany can stay enabled.
             if str_col_idxs and len(params) > 1:
-                col_max_lens = {
-                    j: max((len(r[j]) for r in params if isinstance(r[j], str)), default=0)
-                    for j in str_col_idxs
-                }
                 row0 = list(params[0])
                 for j in str_col_idxs:
-                    if not isinstance(row0[j], str) or len(row0[j]) < col_max_lens[j]:
-                        # Pull the max-length string for this column from any row
+                    needed = global_max_lens.get(j, 0)
+                    current_len = len(row0[j]) if isinstance(row0[j], str) else 0
+                    if current_len < needed:
+                        # Pull the max-length string for this column from any row in batch
                         row0[j] = max(
                             (r[j] for r in params if isinstance(r[j], str)),
                             key=len,

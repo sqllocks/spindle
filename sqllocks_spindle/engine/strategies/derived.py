@@ -117,13 +117,9 @@ class DerivedStrategy(Strategy):
 
         if rule == "add_days":
             days = _sample_days(ctx.rng, params, len(source_values))
-            result = np.empty(len(source_values), dtype="datetime64[ns]")
-            for i, (base, d) in enumerate(zip(source_values, days)):
-                if base is None or (isinstance(base, float) and np.isnan(base)):
-                    result[i] = np.datetime64("NaT")
-                else:
-                    ts = pd.Timestamp(base) + pd.Timedelta(days=int(d))
-                    result[i] = np.datetime64(ts)
+            ts_series = pd.to_datetime(pd.Series(source_values), errors='coerce')
+            offsets = pd.to_timedelta(days, unit='D')
+            result = (ts_series + offsets).values
             return result
 
         raise ValueError(

@@ -66,6 +66,7 @@ class IDManager:
         self._pk_pools: dict[str, np.ndarray] = {}
         # table_name -> full DataFrame (for constrained/filtered lookups)
         self._table_data: dict[str, pd.DataFrame] = {}
+        self._groupby_cache: dict[tuple[str, str], dict] = {}
 
     def register_table(self, table_name: str, df: pd.DataFrame, pk_columns: list[str]) -> None:
         """Register a generated table's PKs for FK resolution."""
@@ -77,6 +78,7 @@ class IDManager:
                 list(df[pk_columns].itertuples(index=False, name=None))
             )
         self._table_data[table_name] = df
+        self._groupby_cache.clear()
 
     def register_range(self, table_name: str, start: int, count: int) -> None:
         """Register a contiguous integer PK range without storing all values.
@@ -97,6 +99,7 @@ class IDManager:
             pool.extend(len(new_pks))
         else:
             self._pk_pools[table_name] = np.concatenate([pool, new_pks])
+        self._groupby_cache.clear()
 
     def get_random_fks(
         self,
@@ -169,27 +172,28 @@ class IDManager:
         if constraint_column not in df.columns:
             return self.get_random_fks(table_name, len(constraint_values))
 
-        grouped = df.groupby(constraint_column).indices
+        cache_key = (table_name, constraint_column)
+        if cache_key not in self._groupby_cache:
+            self._groupby_cache[cache_key] = df.groupby(constraint_column).indices
+        grouped = self._groupby_cache[cache_key]
 
-        if nullable:
-            result = np.empty(len(constraint_values), dtype=object)
-            for i, val in enumerate(constraint_values):
-                if val is not None and val in grouped:
-                    candidates = grouped[val]
-                    idx = self._rng.choice(candidates)
-                    result[i] = pk_col[idx] if idx < len(pk_col) else pk_col[0]
-                else:
-                    result[i] = None  # no match → null (handled by column's null logic)
-        else:
-            result = np.empty(len(constraint_values), dtype=pk_col.dtype)
-            for i, val in enumerate(constraint_values):
-                if val is not None and val in grouped:
-                    candidates = grouped[val]
-                    idx = self._rng.choice(candidates)
-                    result[i] = pk_col[idx] if idx < len(pk_col) else pk_col[0]
-                else:
-                    # Fallback: random from pool (preserves non-null guarantee)
-                    result[i] = self._rng.choice(pk_col)
+        result_dtype = object if nullable else (pk_col.dtype if hasattr(pk_col, 'dtype') else object)
+        result = np.empty(len(constraint_values), dtype=result_dtype)
+
+        # Vectorized: group constraint_values and batch-process each group
+        cv_series = pd.Series(constraint_values)
+        for val, positions in cv_series.groupby(cv_series).groups.items():
+            pos_array = np.array(list(positions))
+            if val is not None and val in grouped:
+                candidates = grouped[val]
+                chosen_idx = self._rng.choice(candidates, size=len(pos_array))
+                # Safe indexing — cap to pool bounds
+                safe_idx = np.clip(chosen_idx, 0, len(pk_col) - 1)
+                result[pos_array] = pk_col[safe_idx]
+            elif nullable:
+                result[pos_array] = None
+            else:
+                result[pos_array] = self._rng.choice(pk_col, size=len(pos_array))
 
         return result
 

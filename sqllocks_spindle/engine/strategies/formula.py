@@ -41,12 +41,20 @@ class FormulaStrategy(Strategy):
         for col_name, col_values in ctx.current_table.items():
             namespace[col_name] = col_values
 
-        # Add safe numpy operations
-        namespace["np"] = np
+        # Add safe numpy operations (sandboxed — no raw np access)
+        safe_ns = {
+            "__builtins__": self.SAFE_BUILTINS,
+            "np_round": np.round, "np_clip": np.clip,
+            "np_where": np.where, "np_maximum": np.maximum,
+            "np_minimum": np.minimum, "np_abs": np.abs,
+            "np_sqrt": np.sqrt, "np_log": np.log,
+            "np_exp": np.exp, "np_floor": np.floor,
+            "np_ceil": np.ceil, "np_nan": np.nan,
+        }
 
         # Evaluate expression element-wise using numpy
         try:
-            result = eval(expression, {"__builtins__": self.SAFE_BUILTINS, "np": np}, namespace)
+            result = eval(expression, safe_ns, namespace)
         except Exception as e:
             raise ValueError(
                 f"Failed to evaluate formula '{expression}' for column '{column.name}': {e}"

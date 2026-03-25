@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -245,6 +246,43 @@ class Spindle:
         registry.load_entrypoint_plugins()
         return registry
 
+    def estimate_memory(
+        self,
+        domain=None,
+        schema: str | Path | dict | SpindleSchema | None = None,
+        scale: str | None = None,
+        scale_overrides: dict[str, int] | None = None,
+    ) -> dict:
+        """Estimate RAM usage in bytes per table and total."""
+        parsed = self._resolve_schema(domain, schema)
+        if scale:
+            parsed.generation.scale = scale
+        row_counts = self._calculate_row_counts(parsed, scale_overrides)
+
+        estimates: dict[str, int] = {}
+        for table_name, table_def in parsed.tables.items():
+            count = row_counts.get(table_name, 100)
+            bytes_per_row = 0
+            for col in table_def.columns.values():
+                ctype = (col.type or "").lower()
+                if "int" in ctype:
+                    bytes_per_row += 8
+                elif "float" in ctype or "decimal" in ctype or "numeric" in ctype:
+                    bytes_per_row += 8
+                elif "date" in ctype or "time" in ctype:
+                    bytes_per_row += 8
+                elif "bool" in ctype or "bit" in ctype:
+                    bytes_per_row += 1
+                else:
+                    bytes_per_row += max(col.max_length or 50, 50)
+            estimates[table_name] = count * bytes_per_row
+
+        return {
+            "per_table": estimates,
+            "total_bytes": sum(estimates.values()),
+            "total_mb": round(sum(estimates.values()) / (1024 * 1024), 1),
+        }
+
     def generate(
         self,
         domain=None,
@@ -252,6 +290,7 @@ class Spindle:
         scale: str | None = None,
         scale_overrides: dict[str, int] | None = None,
         seed: int | None = None,
+        on_progress: Callable[[str, int, int], None] | None = None,
     ) -> GenerationResult:
         """Generate synthetic data.
 
@@ -261,6 +300,7 @@ class Spindle:
             scale: Scale preset name (small, medium, large, xlarge).
             scale_overrides: Override row counts for specific tables.
             seed: Random seed for reproducibility.
+            on_progress: Optional callback(table_name, tables_done, tables_total).
         """
         # Resolve schema
         parsed = self._resolve_schema(domain, schema)
@@ -301,35 +341,50 @@ class Spindle:
             else:
                 model_config["_domain_path"] = domain.domain_path
 
-        # Generate tables in dependency order
+        # Generate tables in dependency order (parallelize independent tables)
         start_time = time.time()
         tables: dict[str, pd.DataFrame] = {}
         lineage: list[ColumnLineage] = []
 
-        for table_name in gen_order:
-            if table_name not in parsed.tables:
+        # Group tables by dependency level for parallel generation
+        dep_levels = self._group_by_dep_level(gen_order, parsed)
+        tables_done = 0
+        tables_total = sum(1 for t in gen_order if t in parsed.tables)
+
+        for level_tables in dep_levels:
+            level_tables = [t for t in level_tables if t in parsed.tables]
+            if not level_tables:
                 continue
 
-            count = row_counts.get(table_name, 100)
-            logger.info("Generating %s (%s rows)", table_name, f"{count:,}")
+            # Generate tables in this level sequentially (shared id_manager
+            # and RNG are not thread-safe; dependency-level grouping is kept
+            # for future parallelization when per-table id_managers are added).
+            for table_name in level_tables:
+                count = row_counts.get(table_name, 100)
+                logger.info("Generating %s (%s rows)", table_name, f"{count:,}")
+                df = table_gen.generate(
+                    table=parsed.tables[table_name],
+                    row_count=count,
+                    rng=rng,
+                    model_config=model_config,
+                    schema=parsed,
+                )
+                tables[table_name] = df
+                tables_done += 1
+                if on_progress:
+                    on_progress(table_name, tables_done, tables_total)
 
-            df = table_gen.generate(
-                table=parsed.tables[table_name],
-                row_count=count,
-                rng=rng,
-                model_config=model_config,
-                schema=parsed,
-            )
-            tables[table_name] = df
-
-            # Record lineage
-            for col_name, col in parsed.tables[table_name].columns.items():
-                lineage.append(ColumnLineage(
-                    table=table_name,
-                    column=col_name,
-                    strategy=col.generator.get("strategy", ""),
-                    config=dict(col.generator),
-                ))
+            # Record lineage for this level
+            for table_name in level_tables:
+                if table_name not in parsed.tables:
+                    continue
+                for col_name, col in parsed.tables[table_name].columns.items():
+                    lineage.append(ColumnLineage(
+                        table=table_name,
+                        column=col_name,
+                        strategy=col.generator.get("strategy", ""),
+                        config=dict(col.generator),
+                    ))
 
         # Compute phase: back-fill computed columns
         self._compute_phase(tables, parsed)
@@ -405,6 +460,33 @@ class Spindle:
                 counts[table_name] = 100
 
         return counts
+
+    @staticmethod
+    def _group_by_dep_level(
+        gen_order: list[str],
+        schema: SpindleSchema,
+    ) -> list[list[str]]:
+        """Group tables into dependency levels for parallel generation."""
+        # Build a set of tables each table depends on
+        deps: dict[str, set[str]] = {}
+        for tname, tdef in schema.tables.items():
+            deps[tname] = set(tdef.fk_dependencies) & set(schema.tables.keys())
+
+        assigned: set[str] = set()
+        levels: list[list[str]] = []
+
+        remaining = [t for t in gen_order if t in schema.tables]
+        while remaining:
+            # Tables whose deps are all assigned
+            level = [t for t in remaining if deps.get(t, set()).issubset(assigned)]
+            if not level:
+                # Cycle — fall back to one-at-a-time
+                level = [remaining[0]]
+            levels.append(level)
+            assigned.update(level)
+            remaining = [t for t in remaining if t not in assigned]
+
+        return levels
 
     def _compute_phase(
         self,

@@ -66,10 +66,8 @@ class SCD2Strategy(Strategy):
 
     def _group_indices(self, bk_values: np.ndarray) -> dict[Any, list[int]]:
         """Group row indices by business key value."""
-        groups: dict[Any, list[int]] = {}
-        for i, key in enumerate(bk_values):
-            groups.setdefault(key, []).append(i)
-        return groups
+        s = pd.Series(bk_values)
+        return {k: list(v) for k, v in s.groupby(s).groups.items()}
 
     def _gen_effective_dates(
         self,

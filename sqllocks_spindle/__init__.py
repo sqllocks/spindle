@@ -1,23 +1,39 @@
 """Spindle by SQLLocks — Multi-domain synthetic data generator for Microsoft Fabric."""
 
-__version__ = "2.2.11"
+import importlib as _importlib
+
+__version__ = "2.3.0"
 
 from sqllocks_spindle.engine.generator import Spindle
-from sqllocks_spindle.domains.retail import RetailDomain
-from sqllocks_spindle.domains.healthcare import HealthcareDomain
-from sqllocks_spindle.domains.financial import FinancialDomain
-from sqllocks_spindle.domains.supply_chain import SupplyChainDomain
-from sqllocks_spindle.domains.iot import IoTDomain
-from sqllocks_spindle.domains.hr import HrDomain
 
-# Convenience alias — both HrDomain and HRDomain work
-HRDomain = HrDomain
-from sqllocks_spindle.domains.insurance import InsuranceDomain
-from sqllocks_spindle.domains.marketing import MarketingDomain
-from sqllocks_spindle.domains.education import EducationDomain
-from sqllocks_spindle.domains.real_estate import RealEstateDomain
-from sqllocks_spindle.domains.manufacturing import ManufacturingDomain
-from sqllocks_spindle.domains.telecom import TelecomDomain
+# Lazy domain imports — domains are loaded on first access
+_LAZY_IMPORTS = {
+    "RetailDomain": "sqllocks_spindle.domains.retail",
+    "HealthcareDomain": "sqllocks_spindle.domains.healthcare",
+    "FinancialDomain": "sqllocks_spindle.domains.financial",
+    "SupplyChainDomain": "sqllocks_spindle.domains.supply_chain",
+    "IoTDomain": "sqllocks_spindle.domains.iot",
+    "HrDomain": "sqllocks_spindle.domains.hr",
+    "HRDomain": "sqllocks_spindle.domains.hr",  # alias → HrDomain
+    "InsuranceDomain": "sqllocks_spindle.domains.insurance",
+    "MarketingDomain": "sqllocks_spindle.domains.marketing",
+    "EducationDomain": "sqllocks_spindle.domains.education",
+    "RealEstateDomain": "sqllocks_spindle.domains.real_estate",
+    "ManufacturingDomain": "sqllocks_spindle.domains.manufacturing",
+    "TelecomDomain": "sqllocks_spindle.domains.telecom",
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_IMPORTS:
+        module = _importlib.import_module(_LAZY_IMPORTS[name])
+        # HRDomain is an alias for HrDomain
+        attr = "HrDomain" if name == "HRDomain" else name
+        cls = getattr(module, attr)
+        globals()[name] = cls
+        return cls
+    raise AttributeError(f"module 'sqllocks_spindle' has no attribute {name}")
+
 
 from sqllocks_spindle.transform import (
     CdmEntityMap,

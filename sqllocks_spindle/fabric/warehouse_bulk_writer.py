@@ -113,6 +113,7 @@ class WarehouseBulkWriter:
         self._client_secret = client_secret
         self._tenant_id = tenant_id
         self._run_id = uuid.uuid4().hex[:12]
+        self._conn_cache = None  # W1: connection pooling
         # Parse abfss URI components for ADLS Gen2 upload
         self._adls_account_url, self._adls_container, self._adls_base_path = (
             self._parse_abfss_uri(self._staging_lakehouse_path)
@@ -131,6 +132,45 @@ class WarehouseBulkWriter:
         path = m.group(3).lstrip("/")
         account_url = f"https://{account_host}"
         return account_url, container, path
+
+    def _get_or_create_connection(self):
+        """Return a cached connection or create a new one (W1: connection pooling)."""
+        if self._conn_cache is not None:
+            try:
+                # Quick liveness check
+                cursor = self._conn_cache.cursor()
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                cursor.close()
+                return self._conn_cache
+            except Exception:
+                try:
+                    self._conn_cache.close()
+                except Exception:
+                    pass
+                self._conn_cache = None
+
+        from sqllocks_spindle.fabric.sql_database_writer import FabricSqlDatabaseWriter
+        writer = FabricSqlDatabaseWriter(
+            connection_string=self._connection_string,
+            auth_method=self._auth_method,
+            client_id=self._client_id,
+            client_secret=self._client_secret,
+            tenant_id=self._tenant_id,
+        )
+        self._conn_cache = writer._get_connection()
+        return self._conn_cache
+
+    @staticmethod
+    def _optimal_chunk_size(df_sample: pd.DataFrame, target_bytes: int = 256_000_000) -> int:
+        """Estimate rows per chunk from sample row byte width (W2)."""
+        if len(df_sample) == 0:
+            return 1_000_000
+        sample = df_sample.head(min(100, len(df_sample)))
+        bytes_per_row = sample.memory_usage(deep=True).sum() / max(len(sample), 1)
+        if bytes_per_row <= 0:
+            return 1_000_000
+        return max(10_000, int(target_bytes / bytes_per_row))
 
     @staticmethod
     def _abfss_to_https(abfss_path: str) -> str:
@@ -232,12 +272,11 @@ class WarehouseBulkWriter:
         remote_path = f"{self._staging_lakehouse_path}/staging/{self._run_id}/{table_name}/{filename}"
 
         # Fabric Warehouse COPY INTO only supports TIMESTAMP(us) — not TIMESTAMP(ns).
-        # pandas defaults to datetime64[ns], which pyarrow writes as TIMESTAMP(ns)
-        # (Parquet INT64 without a supported logical type for Fabric).
-        # Downcast all datetime64[ns] columns to datetime64[us] before writing.
-        chunk_df = chunk_df.copy()
-        for col in chunk_df.columns:
-            if pd.api.types.is_datetime64_ns_dtype(chunk_df[col]):
+        # Only copy the DataFrame if datetime columns need downcasting (W7).
+        dt_cols = [c for c in chunk_df.columns if pd.api.types.is_datetime64_ns_dtype(chunk_df[c])]
+        if dt_cols:
+            chunk_df = chunk_df.copy()
+            for col in dt_cols:
                 chunk_df[col] = chunk_df[col].astype("datetime64[us]")
 
         # Inside Fabric Notebook — write Parquet to the mounted lakehouse Files path.
@@ -364,27 +403,45 @@ class WarehouseBulkWriter:
         start = time.time()
         result = BulkWriteResult()
 
-        # Write parent tables
-        for table_name, df in chunked_result.parent_tables.items():
+        # Write parent tables in parallel (W3)
+        def _write_parent(table_name, df):
             table_start = time.time()
-            try:
-                self.create_table(table_name, df)
-                if len(df) > 0:
-                    self.stage_chunk(table_name, df, 0)
-                    rows = self.copy_into(table_name)
-                else:
-                    rows = 0
-                self.cleanup_staging(table_name)
-                result.per_table[table_name] = {
-                    "rows": rows,
-                    "chunks": 1,
-                    "elapsed": time.time() - table_start,
+            self.create_table(table_name, df)
+            if len(df) > 0:
+                self.stage_chunk(table_name, df, 0)
+                rows = self.copy_into(table_name)
+            else:
+                rows = 0
+            self.cleanup_staging(table_name)
+            return table_name, rows, time.time() - table_start
+
+        parent_items = list(chunked_result.parent_tables.items())
+        if len(parent_items) > 1:
+            with ThreadPoolExecutor(max_workers=min(4, len(parent_items))) as pool:
+                futures = {
+                    pool.submit(_write_parent, tname, df): tname
+                    for tname, df in parent_items
                 }
-                result.total_rows += rows
-                result.tables_written += 1
-            except Exception as e:
-                result.errors.append(f"{table_name}: {e}")
-                logger.error("Error writing %s: %s", table_name, e)
+                for future in as_completed(futures):
+                    tname = futures[future]
+                    try:
+                        _, rows, elapsed = future.result()
+                        result.per_table[tname] = {"rows": rows, "chunks": 1, "elapsed": elapsed}
+                        result.total_rows += rows
+                        result.tables_written += 1
+                    except Exception as e:
+                        result.errors.append(f"{tname}: {e}")
+                        logger.error("Error writing %s: %s", tname, e)
+        else:
+            for table_name, df in parent_items:
+                try:
+                    _, rows, elapsed = _write_parent(table_name, df)
+                    result.per_table[table_name] = {"rows": rows, "chunks": 1, "elapsed": elapsed}
+                    result.total_rows += rows
+                    result.tables_written += 1
+                except Exception as e:
+                    result.errors.append(f"{table_name}: {e}")
+                    logger.error("Error writing %s: %s", table_name, e)
 
         # Write child tables
         for table_name in chunked_result.child_table_names:
@@ -414,6 +471,14 @@ class WarehouseBulkWriter:
             except Exception as e:
                 result.errors.append(f"{table_name}: {e}")
                 logger.error("Error writing %s: %s", table_name, e)
+
+        # Close cached connection (W1)
+        if self._conn_cache is not None:
+            try:
+                self._conn_cache.close()
+            except Exception:
+                pass
+            self._conn_cache = None
 
         result.elapsed_seconds = time.time() - start
         return result

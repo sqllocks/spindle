@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from sqllocks_spindle.engine.strategies.base import GenerationContext, Strategy
 from sqllocks_spindle.schema.parser import ColumnDef
@@ -48,13 +49,8 @@ class FirstPerParentStrategy(Strategy):
 
         default = config.get("default", True)
         parent_values = ctx.current_table[parent_column]
+        is_first = ~pd.Series(parent_values).duplicated(keep='first').values
         result = np.full(ctx.row_count, not default, dtype=bool)
-
-        # Track which parent values we've seen
-        seen = set()
-        for i, val in enumerate(parent_values):
-            if val not in seen:
-                seen.add(val)
-                result[i] = default
+        result[is_first] = default
 
         return result

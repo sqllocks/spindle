@@ -42,11 +42,14 @@ class FakerStrategy(Strategy):
         else:
             raise ValueError(f"Unknown Faker provider: '{provider}'")
 
-        # Generate values
-        values = np.array(
-            [method(**provider_args) for _ in range(ctx.row_count)],
-            dtype=object,
-        )
+        # Pool-and-sample: generate min(row_count, pool_size) unique values, then sample
+        pool_size = min(ctx.row_count, 50_000)
+        pool = np.array([method(**provider_args) for _ in range(pool_size)], dtype=object)
+        if ctx.row_count <= pool_size:
+            values = pool[:ctx.row_count]
+        else:
+            indices = ctx.rng.integers(0, pool_size, size=ctx.row_count)
+            values = pool[indices]
 
         # Apply max_length truncation
         if column.max_length:

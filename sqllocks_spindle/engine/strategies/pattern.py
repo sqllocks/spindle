@@ -21,6 +21,7 @@ class PatternStrategy(Strategy):
     """
 
     TOKEN_RE = re.compile(r"\{(\w+)(?::(\d+))?\}")
+    _CHARS = np.array(list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
 
     def generate(
         self,
@@ -34,12 +35,67 @@ class PatternStrategy(Strategy):
                 f"pattern strategy requires 'format' for column '{column.name}'"
             )
 
-        results = []
-        for i in range(ctx.row_count):
-            value = self._render(fmt, i, ctx)
-            results.append(value)
+        # Pre-scan for token types to batch-generate where possible
+        tokens = list(self.TOKEN_RE.finditer(fmt))
+        has_column_ref = any(
+            t.group(1) not in ("seq", "random") for t in tokens
+        )
 
-        return np.array(results, dtype=object)
+        # If column references exist, fall back to per-row rendering
+        if has_column_ref:
+            results = []
+            for i in range(ctx.row_count):
+                value = self._render(fmt, i, ctx)
+                results.append(value)
+            return np.array(results, dtype=object)
+
+        # Batch path: pre-generate all random/seq tokens, then assemble
+        # Split the format string into literal parts and token specs
+        parts = []
+        last_end = 0
+        for m in tokens:
+            if m.start() > last_end:
+                parts.append(("literal", fmt[last_end:m.start()]))
+            token = m.group(1)
+            width = int(m.group(2)) if m.group(2) else 0
+            parts.append(("token", token, width))
+            last_end = m.end()
+        if last_end < len(fmt):
+            parts.append(("literal", fmt[last_end:]))
+
+        # Pre-generate batch arrays for each token type
+        token_arrays: dict[int, np.ndarray] = {}
+        for idx, part in enumerate(parts):
+            if part[0] != "token":
+                continue
+            token, width = part[1], part[2]
+            if token == "seq":
+                seqs = np.arange(1, ctx.row_count + 1)
+                if width:
+                    token_arrays[idx] = np.array(
+                        [str(s).zfill(width) for s in seqs], dtype=object
+                    )
+                else:
+                    token_arrays[idx] = seqs.astype(str).astype(object)
+            elif token == "random":
+                length = width or 4
+                rand_indices = ctx.rng.integers(
+                    0, len(self._CHARS), size=(ctx.row_count, length)
+                )
+                token_arrays[idx] = np.array(
+                    ["".join(self._CHARS[row]) for row in rand_indices],
+                    dtype=object,
+                )
+
+        # Assemble results
+        result = np.full(ctx.row_count, "", dtype=object)
+        for idx, part in enumerate(parts):
+            if part[0] == "literal":
+                result = np.char.add(result.astype(str), part[1])
+            else:
+                result = np.char.add(result.astype(str), token_arrays[idx].astype(str))
+
+        return result
 
     def _render(self, fmt: str, row_index: int, ctx: GenerationContext) -> str:
         def replace_token(match: re.Match) -> str:
@@ -51,11 +107,9 @@ class PatternStrategy(Strategy):
                 return val.zfill(width) if width else val
 
             if token == "random":
-                chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
                 length = width or 4
-                return "".join(
-                    ctx.rng.choice(list(chars)) for _ in range(length)
-                )
+                indices = ctx.rng.integers(0, len(self._CHARS), size=length)
+                return "".join(self._CHARS[indices])
 
             # Try to look up from current table columns
             if token in ctx.current_table:

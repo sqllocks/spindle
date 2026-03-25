@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from sqllocks_spindle.engine.strategies.base import GenerationContext, Strategy
 from sqllocks_spindle.schema.parser import ColumnDef
@@ -85,14 +86,14 @@ class ConditionalStrategy(Strategy):
             if col_name not in ctx.current_table:
                 return np.ones(ctx.row_count, dtype=bool)
             vals = ctx.current_table[col_name]
-            return np.array([not _is_null(v) for v in vals])
+            return ~pd.isna(pd.Series(vals, dtype=object)).values
 
         if "IS NULL" in condition.upper():
             col_name = self._find_column(condition.upper().replace("IS NULL", "").strip(), ctx)
             if col_name not in ctx.current_table:
                 return np.zeros(ctx.row_count, dtype=bool)
             vals = ctx.current_table[col_name]
-            return np.array([_is_null(v) for v in vals])
+            return pd.isna(pd.Series(vals, dtype=object)).values
 
         for op in ("!=", "=="):
             if op in condition:
