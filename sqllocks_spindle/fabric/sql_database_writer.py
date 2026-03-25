@@ -96,7 +96,7 @@ class FabricSqlDatabaseWriter:
         tenant_id: str | None = None,
         staging_lakehouse_path: str | None = None,
     ):
-        self._connection_string = connection_string
+        self._connection_string = self._normalize_connection_string(connection_string)
         self._auth_method = auth_method
         self._client_id = client_id
         self._client_secret = client_secret
@@ -334,6 +334,48 @@ class FabricSqlDatabaseWriter:
         return "\n\n".join(parts)
 
     # ----- internal: connection -----
+
+    @staticmethod
+    def _normalize_connection_string(cs: str) -> str:
+        """Convert ADO.NET connection string format to pyodbc ODBC format if needed.
+
+        Fabric portal exports ADO.NET format (``Data Source=...;Initial Catalog=...``).
+        pyodbc requires ODBC format (``Driver=...;Server=...;Database=...``).
+        """
+        if "Driver=" in cs or "driver=" in cs:
+            return cs  # already ODBC
+
+        parts: dict[str, str] = {}
+        for segment in cs.split(";"):
+            if "=" in segment:
+                k, _, v = segment.partition("=")
+                parts[k.strip()] = v.strip()
+
+        odbc: list[str] = ["Driver={ODBC Driver 18 for SQL Server}"]
+
+        if "Data Source" in parts:
+            odbc.append(f"Server={parts['Data Source']}")
+        if "Initial Catalog" in parts:
+            odbc.append(f"Database={parts['Initial Catalog']}")
+
+        encrypt = parts.get("Encrypt", "").lower()
+        if encrypt in ("true", "yes", "1"):
+            odbc.append("Encrypt=yes")
+        elif encrypt in ("false", "no", "0"):
+            odbc.append("Encrypt=no")
+
+        trust = parts.get("Trust Server Certificate", "").lower()
+        if trust in ("true", "yes", "1"):
+            odbc.append("TrustServerCertificate=yes")
+        elif trust in ("false", "no", "0"):
+            odbc.append("TrustServerCertificate=no")
+
+        if "Connect Timeout" in parts:
+            odbc.append(f"Connection Timeout={parts['Connect Timeout']}")
+
+        # Authentication is handled externally via token injection — omit it
+
+        return ";".join(odbc) + ";"
 
     def _get_connection(self, _retries: int = 3, _delay: float = 2.0):
         """Build a pyodbc connection with appropriate auth.

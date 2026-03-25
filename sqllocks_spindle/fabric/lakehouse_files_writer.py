@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import pandas as pd
 
@@ -83,15 +85,18 @@ class LakehouseFilesWriter:
             ValueError: If format is unsupported.
         """
         fmt = self._validate_format(format or self._default_format)
+        ext = "jsonl" if fmt == "jsonl" else fmt
+        filename = (
+            file_naming_template.format(format=ext)
+            if file_naming_template is not None
+            else f"part-0001.{ext}"
+        )
+
+        if str(path).startswith("abfss://") or str(path).startswith("wasbs://"):
+            return self._write_partition_remote(df, str(path), fmt, filename)
+
         dest_dir = Path(path)
         dest_dir.mkdir(parents=True, exist_ok=True)
-
-        ext = "jsonl" if fmt == "jsonl" else fmt
-        if file_naming_template is not None:
-            filename = file_naming_template.format(format=ext)
-        else:
-            filename = f"part-0001.{ext}"
-
         file_path = dest_dir / filename
 
         if fmt == "parquet":
@@ -102,6 +107,61 @@ class LakehouseFilesWriter:
             self._write_jsonl(df, file_path)
 
         return file_path
+
+    def _write_partition_remote(
+        self,
+        df: pd.DataFrame,
+        dir_uri: str,
+        fmt: str,
+        filename: str,
+    ) -> str:
+        """Write to an abfss:// URI via azure-storage-file-datalake."""
+        try:
+            from azure.storage.filedatalake import DataLakeServiceClient
+            from azure.identity import DefaultAzureCredential, AzureCliCredential
+        except ImportError:
+            raise ImportError(
+                "azure-storage-file-datalake and azure-identity are required for "
+                "abfss:// paths. Install with: pip install azure-storage-file-datalake azure-identity"
+            )
+
+        parsed = urlparse(dir_uri)
+        # abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Files/...
+        filesystem = parsed.username  # workspace ID
+        host = parsed.hostname        # onelake.dfs.fabric.microsoft.com
+        blob_dir = parsed.path.lstrip("/")
+
+        # DefaultAzureCredential can break on machines with Azure Arc agent
+        # (ManagedIdentityCredential raises Access Denied, halting the chain).
+        # Try AzureCliCredential first; fall back to DefaultAzureCredential
+        # with managed identity excluded.
+        try:
+            credential = AzureCliCredential()
+            credential.get_token("https://storage.azure.com/.default")
+        except Exception:
+            credential = DefaultAzureCredential(
+                exclude_managed_identity_credential=True,
+            )
+
+        service = DataLakeServiceClient(
+            account_url=f"https://{host}",
+            credential=credential,
+        )
+        fs = service.get_file_system_client(filesystem)
+        file_client = fs.get_file_client(f"{blob_dir}/{filename}")
+
+        buf = io.BytesIO()
+        if fmt == "parquet":
+            df.to_parquet(buf, index=False, engine="pyarrow")
+        elif fmt == "csv":
+            buf.write(df.to_csv(index=False, encoding="utf-8").encode("utf-8"))
+        elif fmt == "jsonl":
+            for record in df.to_dict("records"):
+                buf.write((json.dumps(record, default=str) + "\n").encode("utf-8"))
+
+        data = buf.getvalue()
+        file_client.upload_data(data, overwrite=True, length=len(data))
+        return f"{dir_uri}/{filename}"
 
     def write_manifest(
         self,

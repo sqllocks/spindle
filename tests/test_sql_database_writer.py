@@ -32,8 +32,10 @@ class TestFabricSqlDatabaseWriterInit:
         assert writer is not None
 
     def test_stores_connection_string(self):
-        writer = FabricSqlDatabaseWriter(connection_string="test://conn")
-        assert writer._connection_string == "test://conn"
+        # ODBC-format strings pass through unchanged; non-ODBC get normalized
+        odbc_cs = "Driver={ODBC Driver 18 for SQL Server};Server=test;Database=db;"
+        writer = FabricSqlDatabaseWriter(connection_string=odbc_cs)
+        assert writer._connection_string == odbc_cs
 
 
 class TestFabricSqlDatabaseWriterDDL:
