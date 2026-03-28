@@ -6,10 +6,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Check for unauthorized authors
         run: |
-          UNAUTHORIZED=$(git log HEAD~1..HEAD --format='%an' | grep -i 'claude' || true)
+          UNAUTHORIZED=$(git log --all --format='%an' | grep -i 'claude' || true)
           if [ -n "$UNAUTHORIZED" ]; then
             echo "ERROR: Found commits authored by 'claude'."
             echo "All commits must be authored by repository maintainers."
@@ -17,7 +17,7 @@ jobs:
           fi
       - name: Check for unauthorized co-authors
         run: |
-          COAUTHOR=$(git log HEAD~1..HEAD --format='%B' | grep -i 'co-authored-by.*claude' || true)
+          COAUTHOR=$(git log --all --format='%B' | grep -i 'co-authored-by.*claude' || true)
           if [ -n "$COAUTHOR" ]; then
             echo "ERROR: Found Co-authored-by trailers referencing 'claude'."
             exit 1
