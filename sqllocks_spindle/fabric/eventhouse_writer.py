@@ -164,26 +164,54 @@ class EventhouseWriter:
             write_result.elapsed_seconds = time.time() - start
             return write_result
 
+        # Phase 1: Create all tables first
+        table_map = {}  # kql_name -> (tname, df)
         for tname in order:
             if tname not in tables:
                 continue
-
             df = tables[tname]
             kql_table_name = f"{table_prefix}{tname}"
-
             try:
                 self._ensure_table(client, kql_table_name, df)
-                rows = self._ingest_table(ingest_client, kql_table_name, df, batch_size)
-                write_result.per_table[kql_table_name] = rows
-                write_result.rows_written += rows
-                write_result.tables_written += 1
-                logger.info("Wrote %d rows to %s.%s", rows, self._database, kql_table_name)
+                table_map[kql_table_name] = (tname, df)
             except Exception as e:
                 write_result.errors.append(f"{kql_table_name}: {e}")
-                logger.error("Error writing %s: %s", kql_table_name, e)
+                logger.error("Error creating table %s: %s", kql_table_name, e)
+
+        # Brief pause for table metadata propagation
+        if table_map:
+            time.sleep(2)
+
+        # Phase 2: Ingest all tables (retry once on EntityNotFound)
+        for kql_table_name, (tname, df) in table_map.items():
+            for attempt in range(2):
+                try:
+                    rows = self._ingest_table(ingest_client, kql_table_name, df, batch_size)
+                    write_result.per_table[kql_table_name] = rows
+                    write_result.rows_written += rows
+                    write_result.tables_written += 1
+                    logger.info("Wrote %d rows to %s.%s", rows, self._database, kql_table_name)
+                    break
+                except Exception as e:
+                    if attempt == 0 and "EntityNotFound" in str(e):
+                        logger.warning("Table %s not yet visible, retrying in 3s...", kql_table_name)
+                        time.sleep(3)
+                        continue
+                    write_result.errors.append(f"{kql_table_name}: {e}")
+                    logger.error("Error ingesting %s: %s", kql_table_name, e)
+                    break
 
         write_result.elapsed_seconds = time.time() - start
         return write_result
+
+
+    def write_all(self, tables: dict[str, Any], **kwargs: Any) -> EventhouseWriteResult:
+        """Write all tables — protocol-compatible alias for write().
+
+        Conforms to the SpindleWriter protocol so EventhouseWriter can be
+        used with MultiStoreWriter.
+        """
+        return self.write(result=tables, **kwargs)
 
     # ----- internal: clients -----
 
@@ -235,7 +263,7 @@ class EventhouseWriter:
             kql_type = self._pandas_dtype_to_kql(df[col_name].dtype)
             col_defs.append(f"['{col_name}']:{kql_type}")
 
-        command = f".create-merge table {table_name} ({', '.join(col_defs)})"
+        command = f".create-merge table ['{table_name}'] ({', '.join(col_defs)})"
         logger.debug("Executing KQL command: %s", command)
 
         client.execute_mgmt(self._database, command)

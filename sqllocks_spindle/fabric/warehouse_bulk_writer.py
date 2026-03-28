@@ -524,6 +524,14 @@ class WarehouseBulkWriter:
         result.elapsed_seconds = time.time() - start
         return result
 
+    def write_all(self, tables: dict[str, "pd.DataFrame"], **kwargs) -> "BulkWriteResult":
+        """Write all tables — protocol-compatible alias for write_tables().
+
+        Conforms to the SpindleWriter protocol so WarehouseBulkWriter
+        can be used with MultiStoreWriter.
+        """
+        return self.write_tables(tables=tables, **kwargs)
+
     def write_tables(
         self,
         tables: dict[str, pd.DataFrame],

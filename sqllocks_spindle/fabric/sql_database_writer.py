@@ -267,6 +267,15 @@ class FabricSqlDatabaseWriter:
         write_result.elapsed_seconds = time.time() - start
         return write_result
 
+
+    def write_all(self, tables: dict[str, Any], **kwargs: Any) -> "WriteResult":
+        """Write all tables — protocol-compatible alias for write().
+
+        Conforms to the SpindleWriter protocol so FabricSqlDatabaseWriter
+        can be used with MultiStoreWriter.
+        """
+        return self.write(result=tables, **kwargs)
+
     def write_table(
         self,
         table_name: str,

@@ -97,6 +97,13 @@ class MultiStoreWriter:
                 try:
                     name, output = future.result()
                     result.results[name] = output
+                    # If the writer result has a success property and it's False,
+                    # treat it as an error so MultiStoreResult.success reflects reality
+                    if hasattr(output, 'success') and not output.success:
+                        errors_desc = getattr(output, 'errors', ['unknown error'])
+                        result.errors[name] = RuntimeError(
+                            f"{name} reported {len(errors_desc)} error(s)"
+                        )
                 except Exception as exc:
                     writer = futures[future]
                     result.errors[type(writer).__name__] = exc
