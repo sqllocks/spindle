@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -20,9 +21,12 @@ from sqllocks_spindle.output.fabric_utils import (
 
 
 class TestDetectFabricEnvironment:
-    def test_not_in_fabric(self):
+    @patch("sqllocks_spindle.output.fabric_utils.Path")
+    def test_not_in_fabric(self, mock_path_cls):
+        # Ensure /lakehouse/default is not detected even if it exists locally
+        mock_path_cls.return_value.exists.return_value = False
+        mock_path_cls.return_value.is_dir.return_value = False
         env = detect_fabric_environment()
-        # Running locally — should not detect Fabric
         assert isinstance(env, FabricEnvironment)
         assert env.is_fabric is False
         assert env.lakehouse_path is None
