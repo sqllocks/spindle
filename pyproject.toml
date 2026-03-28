@@ -39,6 +39,12 @@ faker = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "faker>=20.0",
+    "pyyaml>=6.0",
+    "pyarrow>=14.0",
+    "deltalake>=0.17.0",
+    "openpyxl>=3.1",
+    "scipy>=1.11",
 ]
 parquet = [
     "pyarrow>=14.0",
