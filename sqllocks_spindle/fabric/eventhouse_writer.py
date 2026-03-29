@@ -180,7 +180,7 @@ class EventhouseWriter:
 
         # Brief pause for table metadata propagation
         if table_map:
-            time.sleep(2)
+            time.sleep(5)
 
         # Phase 2: Ingest all tables (retry once on EntityNotFound)
         for kql_table_name, (tname, df) in table_map.items():
@@ -194,8 +194,8 @@ class EventhouseWriter:
                     break
                 except Exception as e:
                     if attempt == 0 and "EntityNotFound" in str(e):
-                        logger.warning("Table %s not yet visible, retrying in 3s...", kql_table_name)
-                        time.sleep(3)
+                        logger.warning("Table %s not yet visible, retrying in 5s...", kql_table_name)
+                        time.sleep(5)
                         continue
                     write_result.errors.append(f"{kql_table_name}: {e}")
                     logger.error("Error ingesting %s: %s", kql_table_name, e)

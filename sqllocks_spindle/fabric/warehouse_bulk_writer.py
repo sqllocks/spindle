@@ -296,8 +296,11 @@ class WarehouseBulkWriter:
             )
             # Build abfss path from the attached Lakehouse (not the constructor staging path)
             try:
-                lh_abfss = notebookutils.runtime.context.get("currentLakehouseArtifactAbfssPath", "")
-                if lh_abfss:
+                ctx = notebookutils.runtime.context
+                ws_id = ctx.get("currentWorkspaceId") or ctx.get("defaultLakehouseWorkspaceId")
+                lh_id = ctx.get("defaultLakehouseId")
+                if ws_id and lh_id:
+                    lh_abfss = f"abfss://{ws_id}@onelake.dfs.fabric.microsoft.com/{lh_id}"
                     return f"{lh_abfss}/Files/staging/{self._run_id}/{table_name}/{filename}"
             except Exception:
                 pass
