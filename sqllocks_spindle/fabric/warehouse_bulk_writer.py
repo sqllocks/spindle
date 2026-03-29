@@ -280,8 +280,8 @@ class WarehouseBulkWriter:
                 chunk_df[col] = chunk_df[col].astype("datetime64[us]")
 
         # Inside Fabric Notebook — write Parquet to the mounted lakehouse Files path.
-        # notebookutils.fs.put() only accepts strings (not bytes), so we write
-        # directly to the /lakehouse/default/Files/ mount provided by Fabric.
+        # Then construct the abfss:// path from the attached Lakehouse so COPY INTO
+        # can read it (must match the Lakehouse the files are physically on).
         try:
             import notebookutils  # type: ignore[import-not-found]
             import os as _os
@@ -294,6 +294,13 @@ class WarehouseBulkWriter:
                 "Staged chunk %d for %s on OneLake via lakehouse mount (%d rows)",
                 chunk_idx, table_name, len(chunk_df),
             )
+            # Build abfss path from the attached Lakehouse (not the constructor staging path)
+            try:
+                lh_abfss = notebookutils.runtime.context.get("currentLakehouseArtifactAbfssPath", "")
+                if lh_abfss:
+                    return f"{lh_abfss}/Files/staging/{self._run_id}/{table_name}/{filename}"
+            except Exception:
+                pass
             return remote_path
         except ImportError:
             pass

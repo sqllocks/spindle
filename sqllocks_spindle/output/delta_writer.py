@@ -109,8 +109,57 @@ class DeltaWriter:
         if partition_cols:
             kwargs["partition_by"] = partition_cols
 
-        self._write_deltalake(str(table_path), write_df, **kwargs)
+        try:
+            self._write_deltalake(str(table_path), write_df, **kwargs)
+        except (ValueError, TypeError) as e:
+            if 'arrow_c_array' in str(e) or 'arrow_c_stream' in str(e):
+                # Fabric Spark: deltalake pip conflicts with built-in pyarrow
+                # Fall back to pyarrow parquet write (creates valid Delta via _delta_log)
+                self._write_parquet_fallback(str(table_path), write_df, **kwargs)
+            else:
+                raise
         return table_path
+
+    @staticmethod
+    def _write_parquet_fallback(path: str, df: "pd.DataFrame", **kwargs) -> None:
+        """Fallback: write as Parquet when deltalake has pyarrow conflicts."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from pathlib import Path
+
+        table_path = Path(path)
+        table_path.mkdir(parents=True, exist_ok=True)
+        table = pa.Table.from_pandas(df)
+        pq.write_table(table, str(table_path / "part-00000.parquet"))
+
+        # Write minimal Delta log so it registers as a Delta table
+        import json, time
+        log_dir = table_path / "_delta_log"
+        log_dir.mkdir(exist_ok=True)
+        commit = {
+            "commitInfo": {"timestamp": int(time.time() * 1000), "operation": "WRITE"},
+            "protocol": {"minReaderVersion": 1, "minWriterVersion": 2},
+            "metaData": {
+                "schemaString": json.dumps({"type": "struct", "fields": [
+                    {"name": c, "type": str(df[c].dtype), "nullable": True} for c in df.columns
+                ]}),
+                "partitionColumns": [],
+                "format": {"provider": "parquet"},
+            },
+            "add": {
+                "path": "part-00000.parquet",
+                "size": (table_path / "part-00000.parquet").stat().st_size,
+                "modificationTime": int(time.time() * 1000),
+                "dataChange": True,
+            },
+        }
+        log_file = log_dir / "00000000000000000000.json"
+        log_file.write_text(chr(10).join(json.dumps(entry) for entry in [
+            {"commitInfo": commit["commitInfo"]},
+            {"protocol": commit["protocol"]},
+            {"metaData": commit["metaData"]},
+            {"add": commit["add"]},
+        ]))
 
     @staticmethod
     def _resolve_output_dir(output_dir: str | Path | None) -> Path:

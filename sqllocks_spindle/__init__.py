@@ -2,7 +2,7 @@
 
 import importlib as _importlib
 
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 
 from sqllocks_spindle.engine.generator import Spindle
 

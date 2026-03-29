@@ -105,7 +105,7 @@ class FabricSqlDatabaseWriter:
         self._staging_lakehouse_path = staging_lakehouse_path
 
         # Validate auth method
-        valid_methods = ("cli", "msi", "spn", "sql", "device-code")
+        valid_methods = ("cli", "msi", "spn", "sql", "device-code", "fabric")
         if auth_method not in valid_methods:
             raise ValueError(f"auth_method must be one of {valid_methods}, got '{auth_method}'")
 
@@ -451,6 +451,18 @@ class FabricSqlDatabaseWriter:
             )
         elif self._auth_method == "cli":
             credential = AzureCliCredential()
+        elif self._auth_method == "fabric":
+            # Fabric Notebook: force mssparkutils, no fallback
+            try:
+                try:
+                    from notebookutils import mssparkutils as _msu
+                except ImportError:
+                    import mssparkutils as _msu
+                _token_str = _msu.credentials.getToken("https://database.windows.net/")
+                token_bytes = _token_str.encode("utf-16-le")
+                return struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+            except ImportError:
+                raise RuntimeError("auth_method='fabric' requires mssparkutils (Fabric Notebooks only)")
         elif self._auth_method == "msi":
             # In Fabric Spark notebooks, prefer mssparkutils over IMDS
             # (ManagedIdentityCredential uses IMDS which is flaky in streaming)

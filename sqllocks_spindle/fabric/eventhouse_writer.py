@@ -93,7 +93,7 @@ class EventhouseWriter:
         self._tenant_id = tenant_id
 
         # Validate auth method
-        valid_methods = ("cli", "msi", "spn")
+        valid_methods = ("cli", "msi", "spn", "fabric")
         if auth_method not in valid_methods:
             raise ValueError(f"auth_method must be one of {valid_methods}, got '{auth_method}'")
 
@@ -244,6 +244,19 @@ class EventhouseWriter:
                 aad_app_id=self._client_id,
                 app_key=self._client_secret,
                 authority_id=self._tenant_id,
+            )
+        elif self._auth_method == "fabric":
+            # Fabric Notebook: use mssparkutils to get token
+            try:
+                from notebookutils import mssparkutils
+                token = mssparkutils.credentials.getToken("https://kusto.kusto.windows.net")
+            except ImportError:
+                raise RuntimeError(
+                    "auth_method='fabric' requires mssparkutils (only available in Fabric Notebooks)"
+                )
+            kcsb = kcsb_cls.with_aad_application_token_authentication(
+                connection_string=self._cluster_uri,
+                application_token=token,
             )
         else:
             raise ValueError(f"Unsupported auth_method: '{self._auth_method}'")

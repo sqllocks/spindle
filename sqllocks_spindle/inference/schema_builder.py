@@ -68,11 +68,17 @@ class SchemaBuilder:
         domain_name: str = "inferred",
     ) -> SpindleSchema:
         """Build a complete SpindleSchema from a dataset profile."""
+        # Build parent PK lookup for FK references
+        parent_pk_map: dict[str, str] = {}
+        for tname, tprofile in profile.tables.items():
+            if tprofile.primary_key:
+                parent_pk_map[tname] = tprofile.primary_key[0]
+
         tables: dict[str, TableDef] = {}
         for tname, tprofile in profile.tables.items():
             columns: dict[str, ColumnDef] = {}
             for cname, cprofile in tprofile.columns.items():
-                gen = self._column_to_generator(cprofile)
+                gen = self._column_to_generator(cprofile, parent_pk_map)
                 spindle_type = _spindle_to_column_type(cprofile.dtype)
 
                 columns[cname] = ColumnDef(
@@ -112,7 +118,7 @@ class SchemaBuilder:
     # Generator mapping
     # -----------------------------------------------------------------
 
-    def _column_to_generator(self, col: ColumnProfile) -> dict:
+    def _column_to_generator(self, col: ColumnProfile, parent_pk_map: dict[str, str] | None = None) -> dict:
         """Map a ColumnProfile to a Spindle generator dict."""
 
         # Primary key — sequence or uuid
@@ -126,9 +132,11 @@ class SchemaBuilder:
 
         # Foreign key
         if col.is_foreign_key and col.fk_ref_table:
+            # Use actual parent PK column name from profile
+            parent_pk = (parent_pk_map or {}).get(col.fk_ref_table, f"{col.fk_ref_table}_id")
             return {
                 "strategy": "foreign_key",
-                "ref": f"{col.fk_ref_table}.{col.fk_ref_table}_id",
+                "ref": f"{col.fk_ref_table}.{parent_pk}",
             }
 
         # Enum / categorical
