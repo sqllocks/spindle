@@ -1,7 +1,8 @@
 """Spindle Fabric integration — OneLake, Eventstream, Lakehouse, SQL Database, Semantic Model."""
 
 from sqllocks_spindle.fabric.onelake_paths import OneLakePaths
-from sqllocks_spindle.fabric.lakehouse_files_writer import LakehouseFilesWriter
+from sqllocks_spindle.fabric.lakehouse_files_writer import LakehouseFilesWriter, LakehouseWriteResult
+from sqllocks_spindle.fabric.multi_writer import MultiWriter, MultiWriteResult
 
 __all__ = [
     "BulkWriteResult",
@@ -13,6 +14,9 @@ __all__ = [
     "FabricSqlDatabaseWriter",
     "FabricStreamWriter",
     "LakehouseFilesWriter",
+    "LakehouseWriteResult",
+    "MultiWriter",
+    "MultiWriteResult",
     "OneLakePaths",
     "SemanticModelExporter",
     "WarehouseBulkWriter",

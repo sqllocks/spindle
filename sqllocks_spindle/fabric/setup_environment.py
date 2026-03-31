@@ -77,3 +77,85 @@ def get_spark_pool_config() -> dict:
 def print_setup_snippet() -> None:
     """Print the copy-paste setup snippet for Fabric notebooks."""
     print(SETUP_SNIPPET)
+
+
+def create_spindle_environment(
+    workspace_id: str,
+    environment_name: str = "Spindle-v2",
+) -> dict:
+    """Create a Fabric Environment with Spindle pre-installed.
+
+    Uses the Fabric REST API to create an Environment item and configure
+    it with sqllocks-spindle and dependencies. Requires an authenticated
+    session (az login or mssparkutils token).
+
+    Args:
+        workspace_id: Fabric workspace GUID.
+        environment_name: Name for the Environment item.
+
+    Returns:
+        Dict with environment_id and status.
+    """
+    import json
+    import requests
+
+    try:
+        from azure.identity import AzureCliCredential
+        credential = AzureCliCredential()
+        token = credential.get_token("https://api.fabric.microsoft.com/.default").token
+    except Exception:
+        try:
+            from notebookutils import mssparkutils
+            token = mssparkutils.credentials.getToken("https://api.fabric.microsoft.com")
+        except Exception:
+            raise RuntimeError(
+                "No authentication available. Run 'az login' or use from a Fabric notebook."
+            )
+
+    base_url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    # Create the Environment item
+    create_payload = {
+        "displayName": environment_name,
+        "type": "Environment",
+        "description": f"Spindle v{__version__} runtime environment",
+    }
+    resp = requests.post(f"{base_url}/items", headers=headers, json=create_payload)
+
+    if resp.status_code in (200, 201):
+        env_id = resp.json().get("id")
+    elif resp.status_code == 409:
+        # Already exists — find it
+        items_resp = requests.get(f"{base_url}/items?type=Environment", headers=headers)
+        env_id = None
+        for item in items_resp.json().get("value", []):
+            if item["displayName"] == environment_name:
+                env_id = item["id"]
+                break
+        if not env_id:
+            raise RuntimeError(f"Environment '{environment_name}' conflict but not found")
+    else:
+        raise RuntimeError(f"Create environment failed: {resp.status_code} {resp.text[:200]}")
+
+    # Configure libraries
+    lib_spec = get_environment_library_spec()
+    lib_resp = requests.post(
+        f"{base_url}/environments/{env_id}/staging/libraries",
+        headers=headers,
+        json=lib_spec,
+    )
+
+    # Publish the environment
+    pub_resp = requests.post(
+        f"{base_url}/environments/{env_id}/staging/publish",
+        headers=headers,
+    )
+
+    return {
+        "environment_id": env_id,
+        "environment_name": environment_name,
+        "version": __version__,
+        "library_status": lib_resp.status_code if lib_resp else None,
+        "publish_status": pub_resp.status_code if pub_resp else None,
+    }

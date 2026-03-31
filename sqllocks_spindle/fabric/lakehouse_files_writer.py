@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -11,6 +13,42 @@ from urllib.parse import urlparse
 import pandas as pd
 
 from sqllocks_spindle.fabric.onelake_paths import OneLakePaths
+
+
+@dataclass
+class LakehouseWriteResult:
+    """Result of a Lakehouse write_all() operation."""
+
+    tables_written: int = 0
+    rows_written: int = 0
+    elapsed_seconds: float = 0.0
+    per_table: dict[str, int] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def success(self) -> bool:
+        return len(self.errors) == 0
+
+    def summary(self) -> str:
+        lines = [
+            "Lakehouse Files Write Result",
+            "=" * 40,
+            f"Tables written: {self.tables_written}",
+            f"Total rows:     {self.rows_written:,}",
+            f"Elapsed:        {self.elapsed_seconds:.1f}s",
+        ]
+        if self.per_table:
+            lines.append("")
+            lines.append(f"{'Table':<30} {'Rows':>10}")
+            lines.append("-" * 40)
+            for tname, count in self.per_table.items():
+                lines.append(f"{tname:<30} {count:>10,}")
+        if self.errors:
+            lines.append("")
+            lines.append(f"Errors ({len(self.errors)}):")
+            for err in self.errors:
+                lines.append(f"  - {err}")
+        return "\n".join(lines)
 
 
 class LakehouseFilesWriter:
@@ -60,6 +98,47 @@ class LakehouseFilesWriter:
     def paths(self) -> OneLakePaths:
         """Return the underlying :class:`OneLakePaths` instance."""
         return self._paths
+
+    def write_all(
+        self,
+        tables: dict[str, pd.DataFrame],
+        format: str | None = None,
+        **kwargs: Any,
+    ) -> LakehouseWriteResult:
+        """Write each table as a bulk file (Parquet/CSV/JSONL).
+
+        Conforms to the SpindleWriter protocol so LakehouseFilesWriter
+        can be used with MultiWriter.
+
+        Args:
+            tables: Mapping of table_name -> DataFrame.
+            format: Output format (defaults to writer's default_format).
+            **kwargs: Extra args passed to write_partition.
+
+        Returns:
+            LakehouseWriteResult with per-table row counts and any errors.
+        """
+        start = time.time()
+        result = LakehouseWriteResult()
+
+        if not tables:
+            result.elapsed_seconds = time.time() - start
+            return result
+
+        fmt = format or self._default_format
+
+        for table_name, df in tables.items():
+            try:
+                dest_dir = Path(self._paths.base) / table_name
+                self.write_partition(df, dest_dir, format=fmt, **kwargs)
+                result.per_table[table_name] = len(df)
+                result.rows_written += len(df)
+                result.tables_written += 1
+            except Exception as exc:
+                result.errors.append(f"{table_name}: {exc}")
+
+        result.elapsed_seconds = time.time() - start
+        return result
 
     def write_partition(
         self,

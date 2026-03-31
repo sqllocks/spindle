@@ -124,6 +124,16 @@ class DatabaseProfiler:
             credential = ClientSecretCredential(
                 tenant_id=self._tenant_id, client_id=self._client_id,
                 client_secret=self._client_secret)
+        elif self._auth_method == "fabric":
+            try:
+                try:
+                    from notebookutils import mssparkutils as _msu
+                except ImportError:
+                    import mssparkutils as _msu
+                token_str = _msu.credentials.getToken("https://database.windows.net/")
+                return token_str.encode("utf-16-le")
+            except ImportError:
+                raise RuntimeError("auth_method='fabric' requires mssparkutils (Fabric Notebooks only)")
         else:
             raise ValueError(f"Unsupported auth_method: {self._auth_method}")
         token = credential.get_token(scope)

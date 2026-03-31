@@ -142,6 +142,8 @@ class ChunkedSpindle:
         scale_overrides: dict[str, int] | None = None,
         seed: int | None = None,
         chunk_size: int = 1_000_000,
+        target_table: str | None = None,
+        target_count: int | None = None,
     ) -> ChunkedGenerationResult:
         """Generate data with chunked child tables.
 
@@ -152,6 +154,10 @@ class ChunkedSpindle:
             scale_overrides: Override row counts for specific tables.
             seed: Random seed for reproducibility.
             chunk_size: Rows per chunk for child tables.
+            target_table: Anchor table name — derive all other table counts
+                proportionally from this table's target_count.
+            target_count: Number of rows for the anchor table. Required when
+                target_table is provided.
 
         Returns:
             ChunkedGenerationResult with parent tables materialized and
@@ -167,12 +173,18 @@ class ChunkedSpindle:
 
         # Resolve generation order and row counts
         gen_order = self._spindle._resolver.resolve(parsed)
-        row_counts = self._spindle._calculate_row_counts(parsed, scale_overrides)
 
-        # Classify tables: parents (no FK deps or small) vs children (large, have FK deps)
-        parent_names, child_names = self._classify_tables(
-            parsed, gen_order, row_counts, chunk_size,
-        )
+        # Anchor API: derive all table counts from a single target table
+        if target_table is not None:
+            if target_count is None:
+                raise ValueError(
+                    "target_count is required when target_table is provided"
+                )
+            row_counts = self._derive_table_counts(
+                parsed, target_table, target_count, scale_overrides,
+            )
+        else:
+            row_counts = self._spindle._calculate_row_counts(parsed, scale_overrides)
 
         # Initialize RNG and ID manager
         rng = np.random.default_rng(parsed.model.seed)
@@ -186,6 +198,18 @@ class ChunkedSpindle:
         }
         if domain and hasattr(domain, "domain_path"):
             model_config["_domain_path"] = domain.domain_path
+
+        # Anchor mode: all tables generated in chunks via RangePKPool
+        if target_table is not None:
+            return self._generate_anchor_mode(
+                parsed, gen_order, row_counts, rng, id_manager,
+                table_gen, model_config, chunk_size,
+            )
+
+        # Standard mode: classify tables into parent/child
+        parent_names, child_names = self._classify_tables(
+            parsed, gen_order, row_counts, chunk_size,
+        )
 
         # Pass 1: Generate all parent tables fully
         parent_tables: dict[str, pd.DataFrame] = {}
@@ -227,6 +251,7 @@ class ChunkedSpindle:
         self._chunk_size = chunk_size
         self._child_names_set = set(child_names)
         self._parent_tables = parent_tables
+        self._anchor_mode = False
 
         # Build ordered child list (preserving gen_order)
         ordered_children = [t for t in gen_order if t in self._child_names_set]
@@ -239,6 +264,154 @@ class ChunkedSpindle:
             row_counts=row_counts,
             _chunked_spindle=self,
         )
+
+    def _generate_anchor_mode(
+        self,
+        parsed: SpindleSchema,
+        gen_order: list[str],
+        row_counts: dict[str, int],
+        rng: np.random.Generator,
+        id_manager: IDManager,
+        table_gen: TableGenerator,
+        model_config: dict,
+        chunk_size: int,
+    ) -> ChunkedGenerationResult:
+        """Anchor mode: all tables chunked, parents use RangePKPool.
+
+        Instead of materializing parent DataFrames in memory, registers
+        contiguous PK ranges so FK sampling works at O(1) memory. All
+        tables (including parents) are generated in chunks.
+        """
+        # Pre-register all tables as RangePKPool
+        for table_name in gen_order:
+            if table_name not in parsed.tables:
+                continue
+            table_def = parsed.tables[table_name]
+            if table_def.primary_key:
+                count = row_counts.get(table_name, 100)
+                id_manager.register_range(table_name, start=1, count=count)
+                logger.info(
+                    "Anchor mode: registered %s as RangePKPool(1, %s)",
+                    table_name, f"{count:,}",
+                )
+
+        # In anchor mode, ALL tables are chunked (no parent materialization)
+        child_names = [
+            t for t in gen_order
+            if t in parsed.tables
+        ]
+
+        # Store state for lazy child generation
+        self._parsed = parsed
+        self._gen_order = gen_order
+        self._row_counts = row_counts
+        self._rng = rng
+        self._id_manager = id_manager
+        self._table_gen = table_gen
+        self._model_config = model_config
+        self._chunk_size = chunk_size
+        self._child_names_set = set(child_names)
+        self._parent_tables = {}  # No materialized parents in anchor mode
+        self._anchor_mode = True
+
+        return ChunkedGenerationResult(
+            parent_tables={},
+            child_table_names=child_names,
+            schema=parsed,
+            generation_order=gen_order,
+            row_counts=row_counts,
+            _chunked_spindle=self,
+        )
+
+    def _derive_table_counts(
+        self,
+        schema: SpindleSchema,
+        target_table: str,
+        target_count: int,
+        overrides: dict[str, int] | None = None,
+    ) -> dict[str, int]:
+        """Derive all table row counts from a single anchor table target.
+
+        Algorithm:
+        1. Get reference row counts from the largest defined scale preset
+        2. Compute scale_factor = target_count / ref_counts[target_table]
+        3. Apply factor to all tables
+        """
+        if target_table not in schema.tables:
+            raise ValueError(
+                f"target_table '{target_table}' not found in schema. "
+                f"Available tables: {schema.table_names}"
+            )
+
+        # Get reference counts at the largest defined scale
+        ref_counts = self._get_reference_counts(schema)
+
+        # If target_table isn't in any scale definition, use derived_counts
+        ref_target = ref_counts.get(target_table)
+        if ref_target is None or ref_target == 0:
+            # Fall back: set target directly, scale others from it
+            ref_target = target_count
+            ref_counts[target_table] = ref_target
+
+        scale_factor = target_count / ref_target
+
+        derived: dict[str, int] = {}
+        for table_name in schema.table_names:
+            ref = ref_counts.get(table_name)
+            if ref is not None and ref > 0:
+                derived[table_name] = max(1, int(ref * scale_factor))
+            else:
+                # Table not in any scale definition — default proportional
+                derived[table_name] = max(1, int(100 * scale_factor))
+
+        # Ensure anchor table matches exactly
+        derived[target_table] = target_count
+
+        # Apply explicit overrides
+        if overrides:
+            derived.update(overrides)
+
+        return derived
+
+    @staticmethod
+    def _get_reference_counts(schema: SpindleSchema) -> dict[str, int]:
+        """Get row counts at the largest defined scale for ratio computation."""
+        # Prefer scales in order of size: xxxl > xxl > warehouse > xlarge > large > medium > small
+        scale_priority = ["xxxl", "xxl", "warehouse", "xlarge", "large", "medium", "small", "fabric_demo"]
+        ref_scale = None
+        for name in scale_priority:
+            if name in schema.generation.scales:
+                ref_scale = name
+                break
+
+        if ref_scale is None and schema.generation.scales:
+            ref_scale = next(iter(schema.generation.scales))
+
+        if ref_scale is None:
+            return {}
+
+        # Start with scale anchor counts
+        counts = dict(schema.generation.scales[ref_scale])
+
+        # Calculate derived counts at reference scale
+        for table_name, derived in schema.generation.derived_counts.items():
+            if "fixed" in derived:
+                if isinstance(derived["fixed"], int):
+                    counts[table_name] = derived["fixed"]
+            elif "per_parent" in derived:
+                parent = derived["per_parent"]
+                parent_count = counts.get(parent, 100)
+                ratio = derived.get("ratio", derived.get("mean", 1.0))
+                counts[table_name] = int(parent_count * ratio)
+            elif "per_year" in derived:
+                date_range = schema.model.date_range
+                if date_range:
+                    start_year = int(date_range.get("start", "2022")[:4])
+                    end_year = int(date_range.get("end", "2025")[:4])
+                    years = end_year - start_year + 1
+                    counts[table_name] = derived["per_year"] * years
+
+        return counts
 
     def _classify_tables(
         self,

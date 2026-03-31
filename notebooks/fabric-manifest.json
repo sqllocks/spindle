@@ -1,0 +1,29 @@
+{
+  "_comment": "Maps local .ipynb filenames to Fabric workspace/item IDs. Used by the notebook-deploy advisory hook.",
+  "workspace_id": "990dbc7b-f5d1-4bc8-a929-9dfd509a5d52",
+  "deploy_script": "MCP-Suite/scripts/deploy_fabric_notebook.py",
+  "notebooks": {
+    "spindle_comprehensive_test.ipynb": {
+      "fabric_name": "Spindle_Comprehensive_Test",
+      "item_id": null,
+      "notes": "Comprehensive multi-track test notebook"
+    },
+    "spindle_eh_benchmark.ipynb": {
+      "fabric_name": "Spindle_EH_Benchmark",
+      "item_id": "606b6869-0433-450b-9b7b-16ba8c6d3dc2",
+      "notes": "MultiJSON streaming vs Parquet queued ingest benchmark"
+    },
+    "spindle_billion_demo.ipynb": {
+      "fabric_name": "Spindle_Billion_Demo",
+      "item_id": null,
+      "notes": "v2.5.0 Anchor API + MultiWriter billion-row demo"
+    }
+  },
+  "deploy_pattern": {
+    "step1": "Direct REST: POST /v1/workspaces/{ws}/items?format=ipynb with definition inline. MCP create_item returns 400 with definition param.",
+    "step2": "python MCP-Suite/scripts/deploy_fabric_notebook.py <workspace_id> <item_id> <notebook.ipynb>",
+    "api": "POST /v1/workspaces/{ws}/items/{item}/updateDefinition",
+    "auth": "MSAL browser auth (script handles it)",
+    "warning": "source fields must be list of strings (splitlines(keepends=True)), NOT plain strings. LRO result has no item ID \u2014 list items after success."
+  }
+}

@@ -2,9 +2,12 @@
 
 import importlib as _importlib
 
-__version__ = "2.4.4"
+__version__ = "2.5.0"
 
 from sqllocks_spindle.engine.generator import Spindle
+from sqllocks_spindle.engine.chunked_generator import ChunkedSpindle, ChunkedGenerationResult
+from sqllocks_spindle.fabric.multi_writer import MultiWriter, MultiWriteResult
+from sqllocks_spindle.fabric.lakehouse_files_writer import LakehouseWriteResult
 
 # Lazy domain imports — domains are loaded on first access
 _LAZY_IMPORTS = {
@@ -79,6 +82,12 @@ from sqllocks_spindle.presets import get_preset, list_presets
 __all__ = [
     # Core
     "Spindle",
+    "ChunkedSpindle",
+    "ChunkedGenerationResult",
+    # Multi-store
+    "MultiWriter",
+    "MultiWriteResult",
+    "LakehouseWriteResult",
     # Domains
     "RetailDomain",
     "HealthcareDomain",
