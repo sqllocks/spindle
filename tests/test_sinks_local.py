@@ -62,3 +62,47 @@ def test_memory_sink_raises_when_max_exceeded():
     sink.open(schema=None)
     with pytest.raises(MemoryError):
         sink.write_chunk("t", {"col": np.ones(1_000_000, dtype=np.float64)})
+
+
+def test_parquet_sink_writes_partitioned_files(tmp_path):
+    import numpy as np
+    from sqllocks_spindle.engine.sinks.parquet import ParquetSink
+
+    sink = ParquetSink(output_dir=str(tmp_path))
+    sink.open(schema=None)
+
+    arrays = {"id": np.array([1, 2, 3]), "val": np.array([10.0, 20.0, 30.0])}
+    sink.write_chunk("orders", arrays)
+    sink.write_chunk("orders", {"id": np.array([4]), "val": np.array([40.0])})
+    sink.close()
+
+    parts = sorted((tmp_path / "orders").glob("part-*.parquet"))
+    assert len(parts) == 2, f"Expected 2 partition files, got {len(parts)}"
+
+
+def test_parquet_sink_creates_output_dir(tmp_path):
+    import numpy as np
+    from sqllocks_spindle.engine.sinks.parquet import ParquetSink
+
+    out = tmp_path / "nonexistent" / "nested"
+    sink = ParquetSink(output_dir=str(out))
+    sink.open(schema=None)
+    sink.write_chunk("t", {"x": np.array([1, 2])})
+    sink.close()
+
+    assert (out / "t").exists()
+    assert len(list((out / "t").glob("*.parquet"))) == 1
+
+
+def test_parquet_sink_multiple_tables(tmp_path):
+    import numpy as np
+    from sqllocks_spindle.engine.sinks.parquet import ParquetSink
+
+    sink = ParquetSink(output_dir=str(tmp_path))
+    sink.open(schema=None)
+    sink.write_chunk("customers", {"id": np.array([1, 2])})
+    sink.write_chunk("orders", {"id": np.array([10, 20, 30])})
+    sink.close()
+
+    assert (tmp_path / "customers").exists()
+    assert (tmp_path / "orders").exists()
