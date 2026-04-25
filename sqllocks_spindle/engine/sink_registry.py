@@ -4,9 +4,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
+    import numpy as np
     from sqllocks_spindle.engine.sinks.base import Sink
     from sqllocks_spindle.schema.parser import SpindleSchema
 
