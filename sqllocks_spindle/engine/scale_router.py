@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import TYPE_CHECKING
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_WARN_RAM_FRACTION = 0.80  # warn when estimated working set exceeds this fraction of available RAM
+
 
 class ScaleRouter:
     """Entry point for multi-process chunked generation with multi-sink fan-out.
@@ -24,7 +27,9 @@ class ScaleRouter:
         schema_path: Path to a .json file containing a serialized SpindleSchema.
         sinks: List of Sink instances to receive generated data.
         chunk_size: Rows per chunk. Default 500_000.
-        max_workers: Subprocess count. Default os.cpu_count() - 1.
+        max_workers: Subprocess count. Default os.cpu_count() - 1. Capped
+            automatically if the estimated working set would exceed 80 % of
+            available RAM.
     """
 
     def __init__(
@@ -34,11 +39,33 @@ class ScaleRouter:
         chunk_size: int = 500_000,
         max_workers: int | None = None,
     ) -> None:
-        import os
         self._schema_path = schema_path
         self._registry = SinkRegistry(sinks)
         self._chunk_size = chunk_size
-        self._max_workers = max_workers or max(1, (os.cpu_count() or 2) - 1)
+        requested = max_workers or max(1, (os.cpu_count() or 2) - 1)
+        self._max_workers = self._cap_workers(requested, chunk_size)
+
+    @staticmethod
+    def _cap_workers(requested: int, chunk_size: int) -> int:
+        """Cap worker count if estimated RAM working set would exceed 80 % of available."""
+        try:
+            import psutil
+            available = psutil.virtual_memory().available
+            # Rough estimate: 8 bytes/row × 10 columns per chunk
+            bytes_per_chunk = chunk_size * 8 * 10
+            max_by_ram = max(1, int(available * _WARN_RAM_FRACTION / bytes_per_chunk))
+            if max_by_ram < requested:
+                logger.warning(
+                    "Capping max_workers from %d to %d to stay within 80%% of available RAM "
+                    "(%.1f GB free, ~%.1f GB per chunk).",
+                    requested, max_by_ram,
+                    available / 1024 ** 3,
+                    bytes_per_chunk / 1024 ** 3,
+                )
+                return max_by_ram
+        except ImportError:
+            pass
+        return requested
 
     def run(
         self,
@@ -108,6 +135,7 @@ class ScaleRouter:
     def _estimate_peak_gb(self) -> float:
         try:
             import psutil
-            return round(psutil.virtual_memory().used / 1024 ** 3, 2)
+            proc = psutil.Process(os.getpid())
+            return round(proc.memory_info().rss / 1024 ** 3, 2)
         except ImportError:
             return 0.0
