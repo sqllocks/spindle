@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class Sink(Protocol):
     """Protocol all sinks must implement."""
 
-    def open(self, schema: SpindleSchema) -> None:
+    def open(self, schema: SpindleSchema | None) -> None:
         """Called once before any chunks arrive. Create directories/tables/connections."""
         ...
 
