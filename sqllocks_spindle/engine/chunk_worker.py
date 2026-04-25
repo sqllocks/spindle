@@ -5,8 +5,6 @@ import json
 import logging
 from pathlib import Path
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +35,7 @@ def generate_chunk(
         ``{table_name: {column_name: [values...]}}`` — plain Python lists,
         NOT numpy arrays.
     """
+    import numpy as np
     from sqllocks_spindle.engine.id_manager import IDManager
     from sqllocks_spindle.engine.strategies.base import StrategyRegistry
     from sqllocks_spindle.engine.strategies.computed import ComputedStrategy
@@ -111,11 +110,15 @@ def generate_chunk(
     id_manager = IDManager(rng)
     table_gen = TableGenerator(registry, id_manager)
 
-    model_config = {
+    model_config: dict = {
         "locale": schema.model.locale,
         "date_range": schema.model.date_range,
         "seed": seed,
     }
+    # _domain_path is injected by the caller (e.g. ScaleRouter) before serializing
+    # the schema to JSON. reference_data strategy uses it to find data files.
+    if "_domain_path" in schema_dict:
+        model_config["_domain_path"] = schema_dict["_domain_path"]
 
     result: dict[str, dict[str, list]] = {}
 

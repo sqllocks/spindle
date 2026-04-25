@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 
-import numpy as np
 import pytest
-
-
-def _write_schema_json(schema_dict: dict, path: str) -> None:
-    with open(path, "w") as f:
-        json.dump(schema_dict, f)
 
 
 def _minimal_schema_dict() -> dict:
@@ -47,13 +42,13 @@ def _minimal_schema_dict() -> dict:
     }
 
 
-def test_generate_chunk_returns_dict_of_lists():
+def test_generate_chunk_returns_dict_of_lists(tmp_path):
     from sqllocks_spindle.engine.chunk_worker import generate_chunk
 
     schema = _minimal_schema_dict()
-    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+    path = str(tmp_path / "schema.json")
+    with open(path, "w") as f:
         json.dump(schema, f)
-        path = f.name
 
     result = generate_chunk(schema_path=path, seed=42, offset=0, count=50)
 
@@ -65,27 +60,26 @@ def test_generate_chunk_returns_dict_of_lists():
     assert len(result["widgets"]["widget_id"]) == 50
 
 
-def test_generate_chunk_sequence_offset():
+def test_generate_chunk_sequence_offset(tmp_path):
     from sqllocks_spindle.engine.chunk_worker import generate_chunk
 
     schema = _minimal_schema_dict()
-    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+    path = str(tmp_path / "schema.json")
+    with open(path, "w") as f:
         json.dump(schema, f)
-        path = f.name
 
     result = generate_chunk(schema_path=path, seed=42, offset=100, count=10)
     ids = result["widgets"]["widget_id"]
-    # With offset=100 and sequence start=1, IDs should start at 101
     assert min(ids) >= 101
 
 
-def test_generate_chunk_deterministic():
+def test_generate_chunk_deterministic(tmp_path):
     from sqllocks_spindle.engine.chunk_worker import generate_chunk
 
     schema = _minimal_schema_dict()
-    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+    path = str(tmp_path / "schema.json")
+    with open(path, "w") as f:
         json.dump(schema, f)
-        path = f.name
 
     r1 = generate_chunk(path, seed=99, offset=0, count=20)
     r2 = generate_chunk(path, seed=99, offset=0, count=20)
