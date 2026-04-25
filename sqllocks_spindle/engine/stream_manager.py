@@ -17,6 +17,7 @@ class StreamState:
     error: str | None = None
     stop_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = field(default=None, repr=False)
+    counter_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 class StreamManager:
@@ -61,19 +62,30 @@ class StreamManager:
             state = self._streams.get(stream_id)
         if state is None:
             return {"error": f"Unknown stream_id: {stream_id}"}
+        with state.counter_lock:
+            chunks = state.chunks_written
+            rows = state.rows_written
         return {
             "stream_id": stream_id,
-            "chunks_written": state.chunks_written,
-            "rows_written": state.rows_written,
+            "chunks_written": chunks,
+            "rows_written": rows,
             "running": state.running,
             "error": state.error,
         }
 
-    def stop(self, stream_id: str) -> None:
+    def stop(self, stream_id: str) -> bool | None:
+        """Signal a stream to stop and wait up to 5 s for it to finish.
+
+        Returns:
+            None  — stream_id was not found.
+            True  — stream stopped cleanly within the timeout.
+            False — stream did not finish within the timeout (still alive).
+        """
         with self._lock:
-            state = self._streams.get(stream_id)
+            state = self._streams.pop(stream_id, None)
         if state is None:
-            return
+            return None
         state.stop_event.set()
         if state.thread and state.thread.is_alive():
             state.thread.join(timeout=5.0)
+        return not (state.thread is not None and state.thread.is_alive())

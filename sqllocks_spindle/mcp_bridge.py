@@ -524,8 +524,9 @@ def cmd_stream(params: dict) -> dict:
                 for table, col_lists in chunk_data.items():
                     arrays = {col: np.array(vals) for col, vals in col_lists.items()}
                     registry.write_chunk(table, arrays)
-                state.chunks_written += 1
-                state.rows_written += chunk_size
+                with state.counter_lock:
+                    state.chunks_written += 1
+                    state.rows_written += chunk_size
                 pk_offset += chunk_size
                 chunk_idx += 1
                 if interval > 0 and not state.stop_event.is_set():
@@ -540,8 +541,19 @@ def cmd_stream(params: dict) -> dict:
             except OSError:
                 pass
 
+    import atexit
+    atexit.register(lambda p=schema_path: os.path.exists(p) and os.unlink(p))
+
     manager = StreamManager.instance()
-    stream_id = manager.start(_stream_fn)
+    try:
+        stream_id = manager.start(_stream_fn)
+    except Exception:
+        registry.close()
+        try:
+            os.unlink(schema_path)
+        except OSError:
+            pass
+        raise
     return {"stream_id": stream_id, "status": "started"}
 
 
@@ -555,8 +567,11 @@ def cmd_stream_stop(params: dict) -> dict:
     """Stop a running stream. Params: stream_id."""
     from sqllocks_spindle.engine.stream_manager import StreamManager
     stream_id = params.get("stream_id", "")
-    StreamManager.instance().stop(stream_id)
-    return {"stream_id": stream_id, "status": "stopped"}
+    result = StreamManager.instance().stop(stream_id)
+    if result is None:
+        return {"error": f"Unknown stream_id: {stream_id}"}
+    status = "stopped" if result else "stop_timeout"
+    return {"stream_id": stream_id, "status": status}
 
 
 def cmd_demo_list(_params: dict) -> dict:

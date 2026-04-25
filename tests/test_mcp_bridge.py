@@ -4,6 +4,20 @@ from __future__ import annotations
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def reset_stream_manager():
+    """Reset StreamManager singleton between tests to prevent state bleed."""
+    from sqllocks_spindle.engine.stream_manager import StreamManager
+    yield
+    with StreamManager._class_lock:
+        if StreamManager._instance is not None:
+            with StreamManager._instance._lock:
+                for state in StreamManager._instance._streams.values():
+                    state.stop_event.set()
+            StreamManager._instance = None
+
+
 from sqllocks_spindle.mcp_bridge import (
     cmd_list,
     cmd_describe,
@@ -185,11 +199,16 @@ class TestMcpBridgeStreaming:
             "max_chunks": 1,
         })
         stream_id = start_result["stream_id"]
-        time.sleep(0.5)
-        status = cmd_stream_status({"stream_id": stream_id})
-        assert "chunks_written" in status
-        assert "rows_written" in status
-        assert "running" in status
+        # Poll until the single chunk finishes (up to 10 s)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            status = cmd_stream_status({"stream_id": stream_id})
+            if not status.get("running"):
+                break
+            time.sleep(0.05)
+        assert status["chunks_written"] == 1
+        assert status["rows_written"] == 5
+        assert status["running"] is False
 
     def test_stream_stop(self):
         import time
@@ -205,8 +224,12 @@ class TestMcpBridgeStreaming:
         stream_id = start_result["stream_id"]
         time.sleep(0.1)
         stop_result = cmd_stream_stop({"stream_id": stream_id})
-        assert stop_result.get("status") == "stopped"
+        assert stop_result.get("status") in ("stopped", "stop_timeout")
         assert stop_result.get("stream_id") == stream_id
+
+    def test_stream_stop_unknown_id(self):
+        stop_result = cmd_stream_stop({"stream_id": "nonexistent-uuid"})
+        assert "error" in stop_result
 
     def test_stream_status_unknown_id(self):
         status = cmd_stream_status({"stream_id": "nonexistent-uuid"})
