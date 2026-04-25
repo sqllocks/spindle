@@ -387,6 +387,7 @@ def cmd_scale_generate(params: dict) -> dict:
             "domain": domain_name,
             "scale": scale,
             "scale_mode": scale_mode,
+            "seed": seed,
             "rows_generated": total_rows,
             "elapsed_seconds": round(elapsed, 2),
             "throughput_rows_per_sec": int(total_rows / max(elapsed, 0.001)),
@@ -417,22 +418,31 @@ def cmd_scale_generate(params: dict) -> dict:
         elif hasattr(domain, "domain_path"):
             schema_dict["_domain_path"] = str(domain.domain_path)
 
-        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
-            json.dump(schema_dict, f)
-            schema_path = f.name
+        tmp_schema_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+                json.dump(schema_dict, f)
+                tmp_schema_path = f.name
 
-        sinks = _build_sinks(sinks_list, sink_config)
+            sinks = _build_sinks(sinks_list, sink_config)
 
-        router_kwargs = {
-            "schema_path": schema_path,
-            "sinks": sinks,
-            "chunk_size": chunk_size,
-        }
-        if max_workers is not None:
-            router_kwargs["max_workers"] = max_workers
+            router_kwargs = {
+                "schema_path": tmp_schema_path,
+                "sinks": sinks,
+                "chunk_size": chunk_size,
+            }
+            if max_workers is not None:
+                router_kwargs["max_workers"] = max_workers
 
-        router = ScaleRouter(**router_kwargs)
-        stats = router.run(total_rows=total_rows, seed=seed)
+            router = ScaleRouter(**router_kwargs)
+            stats = router.run(total_rows=total_rows, seed=seed)
+        finally:
+            if tmp_schema_path:
+                import os as _os
+                try:
+                    _os.unlink(tmp_schema_path)
+                except OSError:
+                    pass
 
         sinks_written = {name: "ok" for name in sinks_list}
 
@@ -440,6 +450,7 @@ def cmd_scale_generate(params: dict) -> dict:
             "domain": domain_name,
             "scale": scale,
             "scale_mode": scale_mode,
+            "seed": seed,
             "rows_generated": stats["rows_generated"],
             "elapsed_seconds": stats["elapsed_seconds"],
             "throughput_rows_per_sec": stats["throughput_rows_per_sec"],
