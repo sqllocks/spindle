@@ -106,3 +106,19 @@ def test_parquet_sink_multiple_tables(tmp_path):
 
     assert (tmp_path / "customers").exists()
     assert (tmp_path / "orders").exists()
+
+
+def test_lakehouse_sink_delegates_to_files_writer(tmp_path):
+    """LakehouseSink with a local base_path should write files via LakehouseFilesWriter."""
+    import numpy as np
+    from sqllocks_spindle.engine.sinks.lakehouse import LakehouseSink
+
+    # Use local file path mode — no Fabric token needed
+    sink = LakehouseSink(base_path=str(tmp_path))
+    sink.open(schema=None)
+    sink.write_chunk("customers", {"id": np.array([1, 2, 3]), "name": np.array(["a", "b", "c"], dtype=object)})
+    sink.close()
+
+    # LakehouseFilesWriter writes parquet into base_path/customers/
+    files = list(tmp_path.glob("**/*.parquet"))
+    assert len(files) >= 1
