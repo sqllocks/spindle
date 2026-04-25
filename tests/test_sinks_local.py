@@ -122,3 +122,73 @@ def test_lakehouse_sink_delegates_to_files_writer(tmp_path):
     # LakehouseFilesWriter writes parquet into base_path/customers/
     files = list(tmp_path.glob("**/*.parquet"))
     assert len(files) >= 1
+
+
+def test_warehouse_sink_accumulates_and_flushes():
+    """WarehouseSink accumulates chunks and calls write_tables on close."""
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    from sqllocks_spindle.engine.sinks.warehouse import WarehouseSink
+
+    mock_result = MagicMock()
+    mock_result.errors = []
+    mock_writer = MagicMock()
+    mock_writer.write_tables.return_value = mock_result
+
+    with patch("sqllocks_spindle.fabric.warehouse_bulk_writer.WarehouseBulkWriter", return_value=mock_writer):
+        sink = WarehouseSink(connection_string="Server=fake", staging_lakehouse_path="abfss://fake")
+        sink.open(schema=None)
+        sink.write_chunk("orders", {"id": np.array([1, 2]), "amount": np.array([10.0, 20.0])})
+        sink.write_chunk("orders", {"id": np.array([3]), "amount": np.array([30.0])})
+        sink.close()
+
+    mock_writer.write_tables.assert_called_once()
+    _, kwargs = mock_writer.write_tables.call_args
+    assert "orders" in kwargs["tables"]
+    assert len(kwargs["tables"]["orders"]) == 3
+
+
+def test_kql_sink_accumulates_and_flushes():
+    """KQLSink accumulates chunks and calls write on close."""
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    from sqllocks_spindle.engine.sinks.kql import KQLSink
+
+    mock_result = MagicMock()
+    mock_result.errors = []
+    mock_writer = MagicMock()
+    mock_writer.write.return_value = mock_result
+
+    with patch("sqllocks_spindle.fabric.eventhouse_writer.EventhouseWriter", return_value=mock_writer):
+        sink = KQLSink(cluster_uri="https://fake.kusto.fabric.microsoft.com", database="mydb")
+        sink.open(schema=None)
+        sink.write_chunk("events", {"ts": np.array([1, 2, 3]), "val": np.array([0.1, 0.2, 0.3])})
+        sink.close()
+
+    mock_writer.write.assert_called_once()
+    _, kwargs = mock_writer.write.call_args
+    assert "events" in kwargs["result"]
+    assert len(kwargs["result"]["events"]) == 3
+
+
+def test_sql_database_sink_accumulates_and_flushes():
+    """SQLDatabaseSink accumulates chunks and calls write on close."""
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    from sqllocks_spindle.engine.sinks.sql_database import SQLDatabaseSink
+
+    mock_result = MagicMock()
+    mock_result.errors = []
+    mock_writer = MagicMock()
+    mock_writer.write.return_value = mock_result
+
+    with patch("sqllocks_spindle.fabric.sql_database_writer.FabricSqlDatabaseWriter", return_value=mock_writer):
+        sink = SQLDatabaseSink(connection_string="Server=fake;Database=mydb")
+        sink.open(schema=None)
+        sink.write_chunk("users", {"id": np.array([10, 20]), "name": np.array(["a", "b"], dtype=object)})
+        sink.close()
+
+    mock_writer.write.assert_called_once()
+    _, kwargs = mock_writer.write.call_args
+    assert "users" in kwargs["result"]
+    assert len(kwargs["result"]["users"]) == 2

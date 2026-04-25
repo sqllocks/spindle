@@ -58,5 +58,10 @@ class LakehouseSink:
             table: pd.concat(frames, ignore_index=True)
             for table, frames in self._chunks.items()
         }
-        self._writer.write_all(tables, format=self._format)
+        result = self._writer.write_all(tables, format=self._format)
         self._chunks = {}
+        if result.errors:
+            raise RuntimeError(
+                f"LakehouseSink.close() — {len(result.errors)} table(s) failed:\n"
+                + "\n".join(result.errors)
+            )

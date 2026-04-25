@@ -56,7 +56,13 @@ class KQLSink:
     def open(self, schema: SpindleSchema | None) -> None:
         # Defer import so that missing azure-kusto packages don't break local
         # test runs that don't exercise this sink.
-        from sqllocks_spindle.fabric.eventhouse_writer import EventhouseWriter
+        try:
+            from sqllocks_spindle.fabric.eventhouse_writer import EventhouseWriter
+        except ImportError as exc:
+            raise ImportError(
+                "KQLSink requires the fabric-kusto extra: "
+                "pip install sqllocks-spindle[fabric-kusto]"
+            ) from exc
 
         self._writer = EventhouseWriter(
             cluster_uri=self._cluster_uri,
@@ -79,9 +85,14 @@ class KQLSink:
             table: pd.concat(frames, ignore_index=True)
             for table, frames in self._chunks.items()
         }
-        self._writer.write(
+        result = self._writer.write(
             result=tables,
             table_prefix=self._table_prefix,
             batch_size=self._batch_size,
         )
         self._chunks = {}
+        if result.errors:
+            raise RuntimeError(
+                f"KQLSink.close() — {len(result.errors)} table(s) failed:\n"
+                + "\n".join(result.errors)
+            )

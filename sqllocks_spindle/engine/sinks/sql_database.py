@@ -84,10 +84,15 @@ class SQLDatabaseSink:
             table: pd.concat(frames, ignore_index=True)
             for table, frames in self._chunks.items()
         }
-        self._writer.write(
+        result = self._writer.write(
             result=tables,
             schema_name=self._schema_name,
             mode=self._mode,
             batch_size=self._batch_size,
         )
         self._chunks = {}
+        if result.errors:
+            raise RuntimeError(
+                f"SQLDatabaseSink.close() — {len(result.errors)} table(s) failed:\n"
+                + "\n".join(result.errors)
+            )

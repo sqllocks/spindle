@@ -79,5 +79,10 @@ class WarehouseSink:
             table: pd.concat(frames, ignore_index=True)
             for table, frames in self._chunks.items()
         }
-        self._writer.write_tables(tables=tables, chunk_size=self._chunk_size)
+        result = self._writer.write_tables(tables=tables, chunk_size=self._chunk_size)
         self._chunks = {}
+        if result.errors:
+            raise RuntimeError(
+                f"WarehouseSink.close() — {len(result.errors)} table(s) failed:\n"
+                + "\n".join(result.errors)
+            )
