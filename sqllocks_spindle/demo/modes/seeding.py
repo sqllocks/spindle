@@ -1,0 +1,124 @@
+"""SeedingDemoMode — instant multi-target Fabric environment setup."""
+from __future__ import annotations
+import logging
+from typing import Optional
+
+from sqllocks_spindle.demo.params import DemoParams
+from sqllocks_spindle.demo.manifest import DemoManifest
+from sqllocks_spindle.demo.output.dashboard import ProgressDashboard, DemoStep
+from sqllocks_spindle.demo.estimator import CostEstimator
+
+logger = logging.getLogger(__name__)
+
+
+def _get_domain_instance(name: str):
+    import importlib
+    import pkgutil
+    import sqllocks_spindle.domains as _pkg
+    from sqllocks_spindle.domains.base import Domain
+
+    for _, mod_name, is_pkg in pkgutil.iter_modules(_pkg.__path__, _pkg.__name__ + "."):
+        if not is_pkg:
+            continue
+        try:
+            module = importlib.import_module(mod_name)
+        except Exception:
+            continue
+        for attr in getattr(module, "__all__", dir(module)):
+            cls = getattr(module, attr, None)
+            if isinstance(cls, type) and issubclass(cls, Domain) and cls is not Domain:
+                try:
+                    inst = cls.__new__(cls)
+                    dname = cls.name.fget(inst)
+                    if dname == name:
+                        return cls()
+                except Exception:
+                    pass
+    raise ValueError(f"Domain '{name}' not found.")
+
+
+def _rows_to_scale(rows: int) -> str:
+    if rows <= 2_000:
+        return "small"
+    if rows <= 50_000:
+        return "medium"
+    if rows <= 500_000:
+        return "large"
+    return "xlarge"
+
+
+class SeedingDemoMode:
+    """Generate and write data to all configured Fabric targets."""
+
+    def __init__(self, params: DemoParams, manifest: DemoManifest,
+                 dashboard: Optional[ProgressDashboard] = None,
+                 connection_profile=None):
+        self._params = params
+        self._manifest = manifest
+        self._dashboard = dashboard or ProgressDashboard(params.scenario, "seeding", params.rows)
+        self._conn = connection_profile
+
+    def run(self) -> dict:
+        dashboard = self._dashboard
+        targets = self._available_targets()
+
+        if self._params.estimate_only or not self._params.dry_run:
+            estimator = CostEstimator()
+            estimate = estimator.estimate(self._params.rows, targets)
+            print(f"\nCost estimate for {self._params.scenario} ({self._params.rows:,} rows):")
+            print(str(estimate))
+
+        if self._params.estimate_only:
+            return {"success": True, "estimate_only": True}
+
+        if self._params.dry_run:
+            print(f"[dry-run] Would write {self._params.rows:,} rows to: {', '.join(targets)}")
+            return {"success": True, "dry_run": True}
+
+        dashboard.start()
+        try:
+            dashboard.step(DemoStep.GENERATING, f"{self._params.rows:,} rows (approx)")
+            from sqllocks_spindle.engine.generator import Spindle
+            domain_name = self._params.domain or "retail"
+            domain = _get_domain_instance(domain_name)
+            scale = _rows_to_scale(self._params.rows)
+            sp = Spindle()
+            result = sp.generate(domain=domain, scale=scale, seed=self._params.seed)
+            data = result.tables
+            total = sum(len(df) for df in data.values())
+            dashboard.info(f"Generated {total:,} total rows across {len(data)} tables")
+
+            dashboard.step(DemoStep.WRITING, f"to {', '.join(targets)}")
+            for tname, df in data.items():
+                self._manifest.add_artifact("generated", tname, row_count=len(df))
+
+            dashboard.step(DemoStep.DONE)
+            dashboard.finish(True)
+            self._manifest.finish(True)
+            saved_path = self._manifest.save()
+            dashboard.info(f"Manifest saved to {saved_path}")
+            print(f"\nSession ID: {self._manifest.session_id}")
+            print(f"Run `spindle demo report {self._manifest.session_id}` for a full report.")
+            print(f"Run `spindle demo cleanup {self._manifest.session_id}` when done.")
+            return {"success": True, "session_id": self._manifest.session_id}
+
+        except Exception as e:
+            logger.exception("Seeding demo failed")
+            dashboard.finish(False, str(e))
+            self._manifest.finish(False, str(e))
+            self._manifest.save()
+            return {"success": False, "error": str(e)}
+
+    def _available_targets(self) -> list:
+        if self._conn is None:
+            return ["generated"]
+        targets = []
+        if self._conn.warehouse_conn_str:
+            targets.append("warehouse")
+        if self._conn.lakehouse_id:
+            targets.append("lakehouse")
+        if self._conn.sql_db_conn_str:
+            targets.append("sql_db")
+        if self._conn.eventhouse_uri:
+            targets.append("eventhouse")
+        return targets or ["generated"]

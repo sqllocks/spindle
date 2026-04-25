@@ -1,0 +1,50 @@
+<h2>Spindle Demo Engine — Architectural Approaches</h2>
+<p class="subtitle">Three ways to build a full-featured demo engine. All share the same foundation; they differ in how much new structure gets added.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Thin Orchestration Layer</h3>
+      <p><strong>What it is:</strong> A new <code>spindle demo</code> CLI command with three subcommands (<code>infer</code>, <code>stream</code>, <code>seed</code>) that wire together existing Spindle features. A companion Fabric notebook template gets auto-generated per mode.</p>
+      <p><strong>New code:</strong> ~500–800 LOC. No new modules — just orchestration scripts calling the existing engine, writers, and inference system.</p>
+      <p><strong>Entry points:</strong> CLI for consultants, one pre-built notebook per mode for presenters.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Fastest to ship (1–2 sprints)</li><li>Minimal risk — no new architecture</li><li>Every mode works today with glue code</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Hard-coded flows — no easy customization</li><li>Three separate notebooks, not unified</li><li>No progress visibility / observability</li><li>No client-specific scenario memory</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Scenario Pack Architecture <span style="background:#2a6496;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-left:8px;">Recommended</span></h3>
+      <p><strong>What it is:</strong> Demo scenarios are YAML packs (Spindle already has a packs system — just undocumented). Each pack declares: what data to generate, which writers to target, which validation gates to run, and a cleanup spec. <code>spindle demo run PACK_NAME</code> executes the scenario. A notebook is auto-generated from the pack.</p>
+      <p><strong>New code:</strong> ~1,200–1,800 LOC across: pack schema extensions (demo metadata), a <code>DemoRunner</code> that wraps <code>PackRunner</code>, a notebook generator, and a progress reporter.</p>
+      <p><strong>Entry points:</strong> CLI (<code>spindle demo run retail-inference --target myworkspace</code>) + auto-generated Fabric notebook from the pack spec. One source of truth for both.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Builds on existing packs system (not reinventing)</li><li>Consultants can customize YAML per client</li><li>Notebook auto-gen means CLI + Fabric stay in sync</li><li>Extensible: add new scenarios without code changes</li><li>Can ship Phase 1 (inference pack) in 1 sprint</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Packs system needs to be documented (was already undocumented)</li><li>More upfront design on pack schema</li><li>YAML learning curve for new consultants</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Full Demo Engine Module</h3>
+      <p><strong>What it is:</strong> A new first-class <code>sqllocks_spindle/demo/</code> module with: <code>ScenarioCatalog</code> (registered scenarios), <code>DemoOrchestrator</code> (multi-step execution with rollback), <code>ProgressDashboard</code> (Jupyter widget or Power BI streaming), and <code>CostEstimator</code> (CU impact before run). The cleanest product experience.</p>
+      <p><strong>New code:</strong> ~3,500–5,000 LOC. New module, new abstractions, new widget/dashboard layer.</p>
+      <p><strong>Entry points:</strong> CLI + Fabric notebook + optional local web dashboard.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Best end-user experience — unified, polished</li><li>Real-time progress + cost visibility</li><li>Full rollback on partial failure</li><li>Conference-quality wow factor</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>3–5× more code than Option B</li><li>2–3 sprints minimum before anything ships</li><li>Jupyter widget / PBI streaming is non-trivial</li><li>Most risk — new abstractions may conflict with existing engine</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px;padding:16px;background:#1a2a1a;border-radius:8px;border-left:4px solid #5cb85c;">
+  <p style="margin:0;color:#aaa;font-size:0.85rem;"><strong style="color:#5cb85c;">My recommendation: B</strong> — The packs system already exists and is production-code quality, just undocumented. Building the demo engine on top of it means we get extensibility and customization for free, ship Phase 1 (inference demo) in one sprint, and add streaming + seeding as additional packs without re-architecting. Option C is the right long-term vision but Option B delivers 80% of the value in 30% of the time.</p>
+</div>

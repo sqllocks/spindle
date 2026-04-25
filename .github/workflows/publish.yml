@@ -1,0 +1,63 @@
+name: Publish to PyPI
+
+# Triggers:
+#   1. Push a version tag:  git tag v2.5.0 && git push origin v2.5.0
+#   2. Publish a GitHub release (manual)
+#   3. workflow_dispatch (manual trigger from Actions tab)
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    name: Build and publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/sqllocks-spindle
+
+    permissions:
+      id-token: write  # Required for OIDC trusted publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Verify version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          PKG_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Package version: $PKG_VERSION"
+          echo "Tag version:     $TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: pyproject.toml version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+            echo "Bump the version in pyproject.toml and __init__.py before tagging."
+            exit 1
+          fi
+
+      - name: Install build tools
+        run: |
+          pip install --upgrade pip build twine
+
+      - name: Run tests before publish
+        run: |
+          pip install -e ".[dev]"
+          pytest tests/ -q
+
+      - name: Build distribution
+        run: python -m build
+
+      - name: Verify distribution
+        run: twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

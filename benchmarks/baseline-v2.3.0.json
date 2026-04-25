@@ -1,0 +1,143 @@
+{
+  "version": "2.3.0",
+  "benchmarks": [
+    {
+      "domain": "RetailDomain",
+      "scale": "small",
+      "total_rows": 21750,
+      "total_seconds": 2.2229,
+      "rows_per_second": 9785,
+      "peak_memory_mb": 19.88,
+      "per_table": {
+        "customer": {
+          "rows": 1000,
+          "columns": 8
+        },
+        "product_category": {
+          "rows": 50,
+          "columns": 4
+        },
+        "promotion": {
+          "rows": 200,
+          "columns": 6
+        },
+        "store": {
+          "rows": 150,
+          "columns": 5
+        },
+        "address": {
+          "rows": 1500,
+          "columns": 10
+        },
+        "product": {
+          "rows": 500,
+          "columns": 6
+        },
+        "order": {
+          "rows": 5000,
+          "columns": 8
+        },
+        "order_line": {
+          "rows": 12500,
+          "columns": 8
+        },
+        "return": {
+          "rows": 850,
+          "columns": 5
+        }
+      }
+    },
+    {
+      "domain": "RetailDomain",
+      "scale": "medium",
+      "total_rows": 1965400,
+      "total_seconds": 92.9022,
+      "rows_per_second": 21156,
+      "peak_memory_mb": 270.95,
+      "per_table": {
+        "customer": {
+          "rows": 50000,
+          "columns": 8
+        },
+        "product_category": {
+          "rows": 50,
+          "columns": 4
+        },
+        "promotion": {
+          "rows": 200,
+          "columns": 6
+        },
+        "store": {
+          "rows": 150,
+          "columns": 5
+        },
+        "address": {
+          "rows": 75000,
+          "columns": 10
+        },
+        "product": {
+          "rows": 5000,
+          "columns": 6
+        },
+        "order": {
+          "rows": 500000,
+          "columns": 8
+        },
+        "order_line": {
+          "rows": 1250000,
+          "columns": 8
+        },
+        "return": {
+          "rows": 85000,
+          "columns": 5
+        }
+      }
+    },
+    {
+      "domain": "HealthcareDomain",
+      "scale": "small",
+      "total_rows": 21212,
+      "total_seconds": 1.0354,
+      "rows_per_second": 20487,
+      "peak_memory_mb": 2.63,
+      "per_table": {
+        "facility": {
+          "rows": 50,
+          "columns": 11
+        },
+        "patient": {
+          "rows": 500,
+          "columns": 17
+        },
+        "provider": {
+          "rows": 100,
+          "columns": 7
+        },
+        "encounter": {
+          "rows": 2500,
+          "columns": 7
+        },
+        "claim": {
+          "rows": 2375,
+          "columns": 10
+        },
+        "diagnosis": {
+          "rows": 4500,
+          "columns": 6
+        },
+        "medication": {
+          "rows": 2250,
+          "columns": 7
+        },
+        "procedure": {
+          "rows": 3000,
+          "columns": 7
+        },
+        "claim_line": {
+          "rows": 5937,
+          "columns": 8
+        }
+      }
+    }
+  ]
+}

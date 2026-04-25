@@ -1,0 +1,33 @@
+{
+  "name": "default",
+  "description": "Calibrated US insurance distribution profile",
+  "source": "Calibrated from NAIC, ISO, and AM Best industry data (2023-2024)",
+  "distributions": {
+    "agent.specialization": {"P&C": 0.30, "Life": 0.20, "Health": 0.20, "Commercial": 0.15, "Multi-Line": 0.15},
+    "agent.is_active": {"true": 0.90, "false": 0.10},
+
+    "policy_type.category": {"Auto": 0.25, "Home": 0.20, "Life": 0.18, "Health": 0.15, "Commercial": 0.15, "Umbrella": 0.07},
+
+    "policy.deductible": {"500": 0.30, "1000": 0.35, "2000": 0.20, "5000": 0.15},
+    "policy.status": {"Active": 0.72, "Cancelled": 0.08, "Expired": 0.15, "Lapsed": 0.05},
+
+    "coverage.coverage_type": {"Liability": 0.25, "Collision": 0.18, "Comprehensive": 0.17, "Medical": 0.15, "Property": 0.15, "Uninsured": 0.10},
+
+    "claim.status": {"Open": 0.10, "Under Review": 0.15, "Approved": 0.40, "Denied": 0.10, "Closed": 0.25},
+
+    "claim_payment.payment_type": {"Check": 0.20, "EFT": 0.70, "Wire": 0.10},
+
+    "premium_payment.payment_method": {"Auto-Pay": 0.45, "Online": 0.30, "Mail": 0.15, "Agent": 0.10},
+    "premium_payment.status": {"Paid": 0.82, "Pending": 0.08, "Late": 0.07, "Returned": 0.03},
+
+    "underwriting.risk_tier": {"Low": 0.35, "Medium": 0.35, "High": 0.20, "Very High": 0.10}
+  },
+  "ratios": {
+    "policy_per_policyholder": 1.8,
+    "coverage_per_policy": 2.5,
+    "claim_per_policy": 0.3,
+    "claim_payment_per_claim": 1.5,
+    "premium_payment_per_policy": 6.0,
+    "underwriting_per_policy": 1.0
+  }
+}

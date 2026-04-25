@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Distribution
+*.whl
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+*.orig
+
+# OneDrive sync conflict files
+*-Jonathan's *
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+!examples/**/*.ipynb
+
+# Local dev output
+/output/
+/star/
+/cdm/
+events.jsonl
+
+# Notebook execution output (demo data generated during runs)
+examples/notebooks/**/*_demo/
+examples/notebooks/**/*_enterprise/
+examples/notebooks/**/*_month_end/
+examples/notebooks/**/*_local/
+examples/notebooks/**/medallion_demo/
+examples/notebooks/**/*_sql/
+examples/notebooks/**/*_output/
+examples/notebooks/**/*.jsonl
+examples/notebooks/**/*.bim
+examples/notebooks/**/Files/
+
+# Logs and sweep results
+*.log
+sweep_results/
+site/
+
+# Source planning docs (not code artifacts)
+Spindle.zip
+Spindle_*.docx
+Spindle_*.zip
+SPINDLE_*.md
+scenario_packs_extracted/

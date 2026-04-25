@@ -1,0 +1,140 @@
+[
+  {
+    "sector_id": 1,
+    "sector_name": "Information Technology",
+    "sector_code": "45",
+    "industries": [
+      {"industry_id": 1, "industry_name": "Software"},
+      {"industry_id": 2, "industry_name": "Technology Hardware, Storage & Peripherals"},
+      {"industry_id": 3, "industry_name": "Semiconductors & Semiconductor Equipment"},
+      {"industry_id": 4, "industry_name": "IT Services"},
+      {"industry_id": 5, "industry_name": "Communications Equipment"},
+      {"industry_id": 6, "industry_name": "Electronic Equipment, Instruments & Components"}
+    ]
+  },
+  {
+    "sector_id": 2,
+    "sector_name": "Health Care",
+    "sector_code": "35",
+    "industries": [
+      {"industry_id": 7, "industry_name": "Pharmaceuticals"},
+      {"industry_id": 8, "industry_name": "Biotechnology"},
+      {"industry_id": 9, "industry_name": "Health Care Equipment & Supplies"},
+      {"industry_id": 10, "industry_name": "Health Care Providers & Services"},
+      {"industry_id": 11, "industry_name": "Life Sciences Tools & Services"},
+      {"industry_id": 12, "industry_name": "Health Care Technology"}
+    ]
+  },
+  {
+    "sector_id": 3,
+    "sector_name": "Financials",
+    "sector_code": "40",
+    "industries": [
+      {"industry_id": 13, "industry_name": "Banks"},
+      {"industry_id": 14, "industry_name": "Insurance"},
+      {"industry_id": 15, "industry_name": "Capital Markets"},
+      {"industry_id": 16, "industry_name": "Financial Services"},
+      {"industry_id": 17, "industry_name": "Consumer Finance"},
+      {"industry_id": 18, "industry_name": "Mortgage Real Estate Investment Trusts"}
+    ]
+  },
+  {
+    "sector_id": 4,
+    "sector_name": "Consumer Discretionary",
+    "sector_code": "25",
+    "industries": [
+      {"industry_id": 19, "industry_name": "Automobiles"},
+      {"industry_id": 20, "industry_name": "Hotels, Restaurants & Leisure"},
+      {"industry_id": 21, "industry_name": "Specialty Retail"},
+      {"industry_id": 22, "industry_name": "Broadline Retail"},
+      {"industry_id": 23, "industry_name": "Textiles, Apparel & Luxury Goods"},
+      {"industry_id": 24, "industry_name": "Household Durables"},
+      {"industry_id": 25, "industry_name": "Leisure Products"}
+    ]
+  },
+  {
+    "sector_id": 5,
+    "sector_name": "Communication Services",
+    "sector_code": "50",
+    "industries": [
+      {"industry_id": 26, "industry_name": "Interactive Media & Services"},
+      {"industry_id": 27, "industry_name": "Entertainment"},
+      {"industry_id": 28, "industry_name": "Media"},
+      {"industry_id": 29, "industry_name": "Diversified Telecommunication Services"},
+      {"industry_id": 30, "industry_name": "Wireless Telecommunication Services"}
+    ]
+  },
+  {
+    "sector_id": 6,
+    "sector_name": "Industrials",
+    "sector_code": "20",
+    "industries": [
+      {"industry_id": 31, "industry_name": "Aerospace & Defense"},
+      {"industry_id": 32, "industry_name": "Building Products"},
+      {"industry_id": 33, "industry_name": "Construction & Engineering"},
+      {"industry_id": 34, "industry_name": "Electrical Equipment"},
+      {"industry_id": 35, "industry_name": "Industrial Conglomerates"},
+      {"industry_id": 36, "industry_name": "Machinery"},
+      {"industry_id": 37, "industry_name": "Professional Services"},
+      {"industry_id": 38, "industry_name": "Commercial Services & Supplies"},
+      {"industry_id": 39, "industry_name": "Air Freight & Logistics"},
+      {"industry_id": 40, "industry_name": "Passenger Airlines"},
+      {"industry_id": 41, "industry_name": "Ground Transportation"}
+    ]
+  },
+  {
+    "sector_id": 7,
+    "sector_name": "Consumer Staples",
+    "sector_code": "30",
+    "industries": [
+      {"industry_id": 42, "industry_name": "Beverages"},
+      {"industry_id": 43, "industry_name": "Food Products"},
+      {"industry_id": 44, "industry_name": "Tobacco"},
+      {"industry_id": 45, "industry_name": "Household Products"},
+      {"industry_id": 46, "industry_name": "Personal Care Products"},
+      {"industry_id": 47, "industry_name": "Consumer Staples Distribution & Retail"}
+    ]
+  },
+  {
+    "sector_id": 8,
+    "sector_name": "Energy",
+    "sector_code": "10",
+    "industries": [
+      {"industry_id": 48, "industry_name": "Oil, Gas & Consumable Fuels"},
+      {"industry_id": 49, "industry_name": "Energy Equipment & Services"}
+    ]
+  },
+  {
+    "sector_id": 9,
+    "sector_name": "Utilities",
+    "sector_code": "55",
+    "industries": [
+      {"industry_id": 50, "industry_name": "Electric Utilities"},
+      {"industry_id": 51, "industry_name": "Multi-Utilities"},
+      {"industry_id": 52, "industry_name": "Gas Utilities"},
+      {"industry_id": 53, "industry_name": "Water Utilities"},
+      {"industry_id": 54, "industry_name": "Independent Power and Renewable Electricity Producers"}
+    ]
+  },
+  {
+    "sector_id": 10,
+    "sector_name": "Real Estate",
+    "sector_code": "60",
+    "industries": [
+      {"industry_id": 55, "industry_name": "Equity Real Estate Investment Trusts"},
+      {"industry_id": 56, "industry_name": "Real Estate Management & Development"}
+    ]
+  },
+  {
+    "sector_id": 11,
+    "sector_name": "Materials",
+    "sector_code": "15",
+    "industries": [
+      {"industry_id": 57, "industry_name": "Chemicals"},
+      {"industry_id": 58, "industry_name": "Construction Materials"},
+      {"industry_id": 59, "industry_name": "Containers & Packaging"},
+      {"industry_id": 60, "industry_name": "Metals & Mining"},
+      {"industry_id": 61, "industry_name": "Paper & Forest Products"}
+    ]
+  }
+]

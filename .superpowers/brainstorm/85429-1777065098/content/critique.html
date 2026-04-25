@@ -1,0 +1,86 @@
+<h2>What Could Be Better + What's Missing</h2>
+<p class="subtitle">10 gaps and design improvements found after digging into the actual code. Some are critical blockers; others are structural improvements.</p>
+
+<div class="section">
+  <h3 style="color:#d9534f;">Critical Blockers — Phase 1 won't land without these</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px;">
+
+    <div style="background:#1a0a0a;border-radius:8px;padding:16px;border-left:4px solid #d9534f;">
+      <div style="color:#d9534f;font-weight:bold;margin-bottom:6px;">1. No connection registry</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">The design has no <code>spindle demo init</code> — no way to store which Fabric workspace, Warehouse, Eventhouse to target. Every demo still requires manual credential entry, which killed ChrisHydeRules. <strong>This is the #1 friction point.</strong></p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> Add <code>connections.py</code> + <code>spindle demo init</code> command. Stores named profiles: <code>spindle demo run retail-inference --connection mycompany</code>.</p>
+    </div>
+
+    <div style="background:#1a0a0a;border-radius:8px;padding:16px;border-left:4px solid #d9534f;">
+      <div style="color:#d9534f;font-weight:bold;margin-bottom:6px;">2. ProgressDashboard is Phase 2 — wrong</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">Even for inference mode (Phase 1), the audience sees nothing happening. "Learning schema... analyzing 47 columns... generating 500K rows... comparing distributions" needs to be visible from day one. Without it Phase 1 is a black box.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> Move <code>output/dashboard.py</code> (rich progress bar, step tracker) into Phase 1. ipywidgets version stays Phase 2.</p>
+    </div>
+
+    <div style="background:#1a0a0a;border-radius:8px;padding:16px;border-left:4px solid #d9534f;">
+      <div style="color:#d9534f;font-weight:bold;margin-bottom:6px;">3. powerbi.py is a lie</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;"><code>SemanticModelExporter</code> already exists and generates <strong>.bim (TOM JSON)</strong> — not <code>.pbix</code>. Generating <code>.pbix</code> from scratch is not feasible (binary format, no public spec). The design file is misnamed and will confuse anyone reading the spec.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> Rename to <code>output/semantic_model.py</code>. Wrap <code>SemanticModelExporter</code> + XMLA deploy. Be explicit: produces <code>.bim</code>, not <code>.pbix</code>.</p>
+    </div>
+
+    <div style="background:#1a0a0a;border-radius:8px;padding:16px;border-left:4px solid #d9534f;">
+      <div style="color:#d9534f;font-weight:bold;margin-bottom:6px;">4. No scenario parameterization</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">A consultant in a client meeting can't say <em>"use my client's actual CSV"</em> or <em>"name the environment Contoso"</em>. Scenarios baked as Python files have no parameter surface.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> Scenarios take a <code>DemoParams</code> dataclass: <code>--input-file</code>, <code>--rows</code>, <code>--env-name</code>, <code>--connection</code>. Pass through to all modes.</p>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3 style="color:#f0ad4e;">Design Improvements — make the architecture cleaner</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px;">
+
+    <div style="background:#1a1400;border-radius:8px;padding:16px;border-left:4px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;margin-bottom:6px;">5. scenarios/ splits by domain+mode combo</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;"><code>retail_inference.py</code> + <code>retail_streaming.py</code> as separate files means every new domain needs 3 files. Mode logic leaks into scenario definitions.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> <code>scenarios/retail.py</code> defines a <code>RetailScenario</code> that supports all modes. Mode is a parameter: <code>spindle demo run retail --mode inference</code>.</p>
+    </div>
+
+    <div style="background:#1a1400;border-radius:8px;padding:16px;border-left:4px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;margin-bottom:6px;">6. database_profiler.py is already built</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">The design implies live DB inference is future work. It's not — <code>inference/database_profiler.py</code> already connects via pyodbc + Entra ID token. The InferenceDemoMode can use live Fabric Warehouse connections today.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> Update design to show that <code>--input live-db</code> is already supported. Expose it in the inference demo flow from day one.</p>
+    </div>
+
+    <div style="background:#1a1400;border-radius:8px;padding:16px;border-left:4px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;margin-bottom:6px;">7. Missing: spindle demo preflight</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">Before a conference talk: "can I write to all 4 targets? is auth working? can I hit the Eventhouse? does the workspace exist?" No pre-show health check means you find out on stage that something's broken.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> Add <code>spindle demo preflight --connection mycompany</code> to Phase 1 CLI commands. Validates auth + targets before anything runs.</p>
+    </div>
+
+    <div style="background:#1a1400;border-radius:8px;padding:16px;border-left:4px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;margin-bottom:6px;">8. Missing: AdventureWorks scenario</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">The conference talk is literally titled <em>"Retire AdventureWorks."</em> There should be a built-in <code>adventureworks</code> scenario that generates AW-compatible schema and runs a head-to-head comparison. Without it the talk has no demo.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> <code>scenarios/adventureworks.py</code> — generates DimCustomer, DimProduct, FactSalesOrder etc., then compares against real AW distributions. Should be Phase 1.</p>
+    </div>
+
+    <div style="background:#1a1400;border-radius:8px;padding:16px;border-left:4px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;margin-bottom:6px;">9. DemoResult needs an export format</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">After a demo runs, there's no shareable artifact showing what was created, where it lives, and how to clean it up. For workshop mode, attendees need this to take something home.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> <code>DemoManifest.export(format="md"|"html")</code> generates a summary report. Add <code>spindle demo report SESSION_ID</code> command.</p>
+    </div>
+
+    <div style="background:#1a1400;border-radius:8px;padding:16px;border-left:4px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;margin-bottom:6px;">10. No dynamic scenario composition</div>
+      <p style="color:#aaa;font-size:0.82rem;margin:0;">To run retail + healthcare together without a pre-built scenario file, you're stuck. Dynamic composition would let consultants mix domains on the fly per client.</p>
+      <p style="color:#888;font-size:0.78rem;margin:8px 0 0;"><strong>Fix:</strong> <code>spindle demo run --domain retail,healthcare --mode seed --connection myco</code> — ScenarioCatalog assembles the composite at runtime using existing presets system.</p>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top:20px;background:#0d1a0d;border-radius:8px;padding:16px;border-left:4px solid #5cb85c;">
+  <strong style="color:#5cb85c;">Revised Phase 1 scope (additions highlighted):</strong>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:0.82rem;color:#aaa;">
+    <div>✅ demo/ module scaffold<br>✅ ScenarioCatalog + DemoOrchestrator<br>✅ DemoManifest + CleanupEngine<br>✅ InferenceDemoMode<br>✅ terminal.py + charts.py<br>✅ retail-inference scenario<br>✅ CLI: list, run, cleanup<br>✅ NotebookGenerator (inference)</div>
+    <div style="color:#7ee787;">➕ connections.py + spindle demo init<br>➕ spindle demo preflight<br>➕ DemoParams parameterization<br>➕ output/dashboard.py (rich progress)<br>➕ adventureworks scenario<br>➕ Rename powerbi.py → semantic_model.py<br>➕ Flatten scenarios/ to domain-per-file<br>➕ spindle demo report command</div>
+  </div>
+</div>
+
+<p style="text-align:center;color:#aaa;font-size:0.85rem;margin-top:16px;">Respond in terminal — which of these do you want to include?</p>

@@ -1,0 +1,17 @@
+[
+  {"name": "Visual Inspection", "weight": 1.5},
+  {"name": "Dimensional Check", "weight": 1.4},
+  {"name": "Functional Test", "weight": 1.3},
+  {"name": "Material Analysis", "weight": 1.0},
+  {"name": "Pressure Test", "weight": 0.8},
+  {"name": "Electrical Test", "weight": 0.9},
+  {"name": "Surface Finish Inspection", "weight": 0.8},
+  {"name": "Hardness Test", "weight": 0.7},
+  {"name": "Tensile Strength Test", "weight": 0.6},
+  {"name": "Leak Test", "weight": 0.7},
+  {"name": "Weld Integrity Check", "weight": 0.8},
+  {"name": "Assembly Verification", "weight": 1.1},
+  {"name": "Paint/Coating Inspection", "weight": 0.6},
+  {"name": "Weight Verification", "weight": 0.5},
+  {"name": "Final QC Audit", "weight": 1.0}
+]

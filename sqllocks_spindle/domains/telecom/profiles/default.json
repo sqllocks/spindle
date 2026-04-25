@@ -1,0 +1,36 @@
+{
+  "name": "default",
+  "description": "Calibrated US telecom distribution profile",
+  "source": "Calibrated from FCC, CTIA, OpenSignal, and carrier data (2022-2024)",
+  "distributions": {
+    "plan.plan_type": {"Prepaid": 0.25, "Postpaid": 0.35, "Family": 0.25, "Business": 0.15},
+    "plan.data_limit_gb": {"5": 0.10, "10": 0.15, "25": 0.20, "50": 0.20, "100": 0.15, "Unlimited": 0.20},
+    "plan.talk_minutes": {"300": 0.15, "500": 0.20, "1000": 0.30, "Unlimited": 0.35},
+
+    "device_model.manufacturer": {"Samsung": 0.28, "Apple": 0.35, "Google": 0.15, "OnePlus": 0.10, "Motorola": 0.12},
+    "device_model.device_type": {"Smartphone": 0.70, "Tablet": 0.12, "Hotspot": 0.08, "Watch": 0.10},
+
+    "subscriber.account_status": {"Active": 0.85, "Suspended": 0.05, "Cancelled": 0.10},
+    "subscriber.credit_class": {"A": 0.30, "B": 0.35, "C": 0.25, "D": 0.10},
+
+    "service_line.status": {"Active": 0.82, "Suspended": 0.08, "Disconnected": 0.10},
+    "service_line.is_primary": {"true": 0.55, "false": 0.45},
+
+    "usage_record.record_type": {"Voice": 0.25, "Data": 0.45, "SMS": 0.25, "MMS": 0.05},
+
+    "billing.payment_status": {"Paid": 0.75, "Pending": 0.10, "Overdue": 0.10, "Partial": 0.05},
+
+    "payment.payment_method": {"Auto-Pay": 0.40, "Online": 0.25, "In-Store": 0.15, "Phone": 0.10, "Mail": 0.10},
+
+    "churn_indicator.risk_level": {"Low": 0.40, "Medium": 0.30, "High": 0.20, "Very High": 0.10},
+    "churn_indicator.primary_factor": {"Price": 0.25, "Service Quality": 0.20, "Competition": 0.20, "Coverage": 0.15, "Life Event": 0.20}
+  },
+  "ratios": {
+    "service_line_per_subscriber": 1.8,
+    "usage_record_per_line": 30.0,
+    "billing_per_subscriber": 6.0,
+    "payment_per_billing": 1.0,
+    "network_event_per_line": 2.0,
+    "churn_indicator_per_subscriber": 1.0
+  }
+}

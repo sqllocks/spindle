@@ -1,0 +1,38 @@
+[
+  {
+    "index_name": "S&P 500",
+    "index_code": "SPX",
+    "member_count": 500,
+    "description": "Large-cap US equities"
+  },
+  {
+    "index_name": "Russell 1000",
+    "index_code": "RUI",
+    "member_count": 1000,
+    "description": "Large- and mid-cap US equities"
+  },
+  {
+    "index_name": "Dow Jones Industrial Average",
+    "index_code": "DJIA",
+    "member_count": 30,
+    "description": "Blue-chip US equities"
+  },
+  {
+    "index_name": "NASDAQ-100",
+    "index_code": "NDX",
+    "member_count": 100,
+    "description": "Large-cap non-financial NASDAQ equities"
+  },
+  {
+    "index_name": "S&P MidCap 400",
+    "index_code": "MID",
+    "member_count": 400,
+    "description": "Mid-cap US equities"
+  },
+  {
+    "index_name": "Russell 2000",
+    "index_code": "RUT",
+    "member_count": 2000,
+    "description": "Small-cap US equities"
+  }
+]

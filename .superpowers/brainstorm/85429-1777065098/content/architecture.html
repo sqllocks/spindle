@@ -1,0 +1,131 @@
+<h2>Spindle Demo Engine — Architecture</h2>
+<p class="subtitle">New <code>sqllocks_spindle/demo/</code> module. Three modes, three output surfaces, one orchestrator.</p>
+
+<div class="section">
+  <h3>Module Structure</h3>
+  <div style="font-family:monospace;background:#0d1117;border-radius:8px;padding:20px;font-size:0.85rem;line-height:1.8;color:#c9d1d9;">
+    <span style="color:#58a6ff;">sqllocks_spindle/demo/</span><br>
+    &nbsp;&nbsp;<span style="color:#7ee787;">__init__.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># exports: SpindleDemo, Scenario, DemoResult</span><br>
+    &nbsp;&nbsp;<span style="color:#7ee787;">catalog.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># ScenarioCatalog — register + discover scenarios</span><br>
+    &nbsp;&nbsp;<span style="color:#7ee787;">orchestrator.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># DemoOrchestrator — multi-step run + rollback</span><br>
+    &nbsp;&nbsp;<span style="color:#7ee787;">manifest.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># DemoManifest — tracks all created artifacts</span><br>
+    &nbsp;&nbsp;<span style="color:#7ee787;">cleanup.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># CleanupEngine — remove everything from a session</span><br>
+    &nbsp;&nbsp;<span style="color:#7ee787;">estimator.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># CostEstimator — CU impact before run</span><br>
+    &nbsp;&nbsp;<span style="color:#7ee787;">notebook_gen.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># NotebookGenerator — .ipynb from scenario def</span><br>
+    &nbsp;&nbsp;<span style="color:#58a6ff;">modes/</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">inference.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># InferenceDemoMode — learn → generate → compare</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">streaming.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># StreamingDemoMode — seed → stream → live PBI</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">seeding.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># SeedingDemoMode — instant multi-target env</span><br>
+    &nbsp;&nbsp;<span style="color:#58a6ff;">output/</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">terminal.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># FidelityReport — rich terminal table + pass/fail</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">charts.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># ChartRenderer — plotly inline for Jupyter</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">powerbi.py</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># PBIReportGenerator — .pbix + semantic model writer</span><br>
+    &nbsp;&nbsp;<span style="color:#58a6ff;">scenarios/</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">retail_inference.py</span> &nbsp;&nbsp;<span style="color:#6e7681;"># Phase 1 — built first</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">healthcare_inference.py</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">retail_streaming.py</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#7ee787;">enterprise_seed.py</span>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Data Flow — All Three Modes</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:12px;">
+    <div style="background:#0d2137;border-radius:8px;padding:16px;border-top:3px solid #2a9fd6;">
+      <div style="color:#2a9fd6;font-weight:bold;margin-bottom:8px;">MODE 1: Inference</div>
+      <div style="font-size:0.8rem;color:#aaa;line-height:2;">
+        📂 Input: CSV / DDL / live DB<br>
+        ↓ <code>spindle learn</code><br>
+        📊 ProfileResult (.spindle.json)<br>
+        ↓ <code>spindle generate</code><br>
+        🗃 Synthetic dataset<br>
+        ↓ <code>spindle compare</code><br>
+        📈 FidelityReport<br>
+        ↓ output surface<br>
+        🖥 Terminal / 📓 Notebook charts / 📊 PBI
+      </div>
+    </div>
+    <div style="background:#0d2137;border-radius:8px;padding:16px;border-top:3px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;margin-bottom:8px;">MODE 2: Streaming</div>
+      <div style="font-size:0.8rem;color:#aaa;line-height:2;">
+        🎯 Target: Fabric workspace<br>
+        ↓ seed phase<br>
+        🗃 Lakehouse + Warehouse + SQL DB<br>
+        ↓ DemoManifest recorded<br>
+        📡 Stream phase (live)<br>
+        ↓ Eventhouse + Event Hub<br>
+        📊 PBI report animates live<br>
+        ↓ Ctrl+C → cleanup prompt<br>
+        🧹 CleanupEngine on confirm
+      </div>
+    </div>
+    <div style="background:#0d2137;border-radius:8px;padding:16px;border-top:3px solid #5cb85c;">
+      <div style="color:#5cb85c;font-weight:bold;margin-bottom:8px;">MODE 3: Instant Seed</div>
+      <div style="font-size:0.8rem;color:#aaa;line-height:2;">
+        🎯 Target: Fabric workspace<br>
+        ↓ CostEstimator runs first<br>
+        💡 "~45 CUs for ~3 min"<br>
+        ↓ confirm → MultiWriter<br>
+        🗃 All 4 targets in parallel<br>
+        ↓ validation gates run<br>
+        ✅ DemoManifest saved<br>
+        ↓ notebook auto-generated<br>
+        📓 Ready-to-share .ipynb
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>CLI Commands</h3>
+  <div style="font-family:monospace;background:#0d1117;border-radius:8px;padding:16px;font-size:0.82rem;line-height:2;color:#c9d1d9;">
+    <span style="color:#7ee787;">spindle demo list</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># show all scenarios + modes</span><br>
+    <span style="color:#7ee787;">spindle demo run retail-inference</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># run in all output modes</span><br>
+    <span style="color:#7ee787;">spindle demo run retail-streaming --workspace myws</span><br>
+    <span style="color:#7ee787;">spindle demo run enterprise-seed --estimate</span> <span style="color:#6e7681;"># cost estimate only</span><br>
+    <span style="color:#7ee787;">spindle demo cleanup SESSION_ID</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#6e7681;"># remove all artifacts</span><br>
+    <span style="color:#7ee787;">spindle demo status SESSION_ID</span><br>
+    <span style="color:#7ee787;">spindle demo notebook retail-inference</span> &nbsp;&nbsp;<span style="color:#6e7681;"># generate .ipynb only</span>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Build Phases</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:8px;">
+    <div style="background:#1a2a1a;border-radius:8px;padding:14px;border-left:4px solid #5cb85c;">
+      <div style="color:#5cb85c;font-weight:bold;font-size:0.85rem;">PHASE 1 — Ship in sprint</div>
+      <ul style="color:#aaa;font-size:0.8rem;margin:8px 0 0;padding-left:16px;line-height:1.8;">
+        <li>demo/ module scaffold</li>
+        <li>ScenarioCatalog + DemoOrchestrator</li>
+        <li>DemoManifest + CleanupEngine</li>
+        <li>InferenceDemoMode</li>
+        <li>terminal.py + charts.py output</li>
+        <li>retail-inference scenario</li>
+        <li>CLI: list, run, cleanup</li>
+        <li>Notebook generator (inference)</li>
+      </ul>
+    </div>
+    <div style="background:#2a1a0a;border-radius:8px;padding:14px;border-left:4px solid #f0ad4e;">
+      <div style="color:#f0ad4e;font-weight:bold;font-size:0.85rem;">PHASE 2 — Next sprint</div>
+      <ul style="color:#aaa;font-size:0.8rem;margin:8px 0 0;padding-left:16px;line-height:1.8;">
+        <li>StreamingDemoMode</li>
+        <li>ProgressDashboard (ipywidgets)</li>
+        <li>retail-streaming scenario</li>
+        <li>healthcare-inference scenario</li>
+        <li>CLI: status</li>
+      </ul>
+    </div>
+    <div style="background:#0a1a2a;border-radius:8px;padding:14px;border-left:4px solid #2a9fd6;">
+      <div style="color:#2a9fd6;font-weight:bold;font-size:0.85rem;">PHASE 3 — Future</div>
+      <ul style="color:#aaa;font-size:0.8rem;margin:8px 0 0;padding-left:16px;line-height:1.8;">
+        <li>SeedingDemoMode</li>
+        <li>CostEstimator</li>
+        <li>powerbi.py (.pbix gen)</li>
+        <li>enterprise-seed scenario</li>
+        <li>MCP tools for demo engine</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<p style="text-align:center;color:#aaa;font-size:0.85rem;margin-top:16px;">Does this architecture look right? Respond in terminal.</p>

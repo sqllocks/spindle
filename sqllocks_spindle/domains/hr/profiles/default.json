@@ -1,0 +1,38 @@
+{
+  "name": "default",
+  "description": "Calibrated US HR distribution profile",
+  "source": "Calibrated from BLS, SHRM, WorldatWork, and industry data (2024)",
+  "distributions": {
+    "department.is_active": {"true": 0.93, "false": 0.07},
+
+    "position.pay_grade": {"G1": 0.15, "G2": 0.20, "G3": 0.25, "G4": 0.20, "G5": 0.12, "G6": 0.05, "G7": 0.03},
+    "position.is_exempt": {"true": 0.60, "false": 0.40},
+
+    "employee.employment_status": {"Active": 0.82, "On Leave": 0.05, "Terminated": 0.10, "Retired": 0.03},
+    "employee.employment_type": {"Full-Time": 0.75, "Part-Time": 0.12, "Contract": 0.08, "Temporary": 0.05},
+
+    "compensation.change_reason": {"Annual Review": 0.40, "Promotion": 0.25, "Market Adjustment": 0.15, "New Hire": 0.12, "Transfer": 0.08},
+
+    "performance_review.review_period_year": {"2020": 0.15, "2021": 0.18, "2022": 0.20, "2023": 0.22, "2024": 0.25},
+    "performance_review.rating": {"1": 0.05, "2": 0.12, "3": 0.45, "4": 0.28, "5": 0.10},
+
+    "time_off_request.leave_type": {"PTO": 0.45, "Sick": 0.25, "Personal": 0.12, "Bereavement": 0.04, "Jury Duty": 0.03, "Parental": 0.06, "Unpaid": 0.05},
+    "time_off_request.status": {"Approved": 0.75, "Pending": 0.10, "Denied": 0.08, "Cancelled": 0.07},
+
+    "training.category": {"Compliance": 0.25, "Technical": 0.22, "Leadership": 0.15, "Safety": 0.13, "Soft Skills": 0.12, "Onboarding": 0.08, "Diversity": 0.05},
+    "training.is_mandatory": {"true": 0.35, "false": 0.65},
+
+    "training_enrollment.status": {"Completed": 0.65, "In Progress": 0.15, "Enrolled": 0.10, "Dropped": 0.07, "Failed": 0.03},
+
+    "termination.termination_type": {"Voluntary": 0.55, "Involuntary": 0.25, "Layoff": 0.10, "Retirement": 0.07, "End of Contract": 0.03},
+    "termination.reason": {"Better Opportunity": 0.30, "Relocation": 0.12, "Performance": 0.15, "Conduct": 0.08, "Restructuring": 0.10, "Personal": 0.10, "Retirement": 0.07, "Other": 0.08},
+    "termination.eligible_for_rehire": {"true": 0.70, "false": 0.30}
+  },
+  "ratios": {
+    "compensation_per_employee": 3.0,
+    "review_per_employee": 2.5,
+    "time_off_per_employee": 5.0,
+    "enrollment_per_employee": 4.0,
+    "termination_per_employee": 0.15
+  }
+}

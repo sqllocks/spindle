@@ -1,0 +1,17 @@
+[
+  {"name": "Temperature", "weight": 2.5},
+  {"name": "Humidity", "weight": 2.0},
+  {"name": "Pressure", "weight": 1.8},
+  {"name": "Vibration", "weight": 1.5},
+  {"name": "Light Intensity", "weight": 1.2},
+  {"name": "Sound Level", "weight": 1.0},
+  {"name": "CO2 Concentration", "weight": 1.3},
+  {"name": "Voltage", "weight": 1.1},
+  {"name": "Current", "weight": 1.0},
+  {"name": "Flow Rate", "weight": 1.2},
+  {"name": "Proximity", "weight": 0.9},
+  {"name": "Acceleration", "weight": 1.0},
+  {"name": "pH Level", "weight": 0.8},
+  {"name": "Dissolved Oxygen", "weight": 0.7},
+  {"name": "Wind Speed", "weight": 0.6}
+]
