@@ -13,7 +13,12 @@ _WARN_THRESHOLD_BYTES = 4 * 1024 ** 3  # 4 GB
 
 
 class MemorySink:
-    """Accumulates all chunks in memory as DataFrames."""
+    """Accumulates all chunks in memory as DataFrames.
+
+    Not thread-safe. Each MemorySink instance should receive write_chunk()
+    calls from a single thread. Safe for use with SinkRegistry since the
+    registry calls each sink once per chunk dispatch.
+    """
 
     def __init__(self, max_memory_gb: float | None = None) -> None:
         self._max_bytes = int(max_memory_gb * 1024 ** 3) if max_memory_gb is not None else None
@@ -26,16 +31,16 @@ class MemorySink:
 
     def write_chunk(self, table: str, arrays: dict[str, np.ndarray]) -> None:
         chunk_bytes = sum(a.nbytes for a in arrays.values())
-        self._cumulative_bytes += chunk_bytes
+        new_total = self._cumulative_bytes + chunk_bytes
 
-        if self._max_bytes is not None and self._cumulative_bytes > self._max_bytes:
+        if self._max_bytes is not None and new_total > self._max_bytes:
             raise MemoryError(
                 f"MemorySink exceeded max_memory_gb limit "
-                f"({self._cumulative_bytes / 1024**3:.1f} GB used)"
+                f"({new_total / 1024**3:.1f} GB used)"
             )
-        if self._cumulative_bytes > _WARN_THRESHOLD_BYTES:
+        if new_total > _WARN_THRESHOLD_BYTES:
             warnings.warn(
-                f"MemorySink has accumulated {self._cumulative_bytes / 1024**3:.1f} GB. "
+                f"MemorySink has accumulated {new_total / 1024**3:.1f} GB. "
                 "Consider using ParquetSink or a Fabric sink for large workloads.",
                 ResourceWarning,
                 stacklevel=2,
@@ -43,6 +48,7 @@ class MemorySink:
 
         df = pd.DataFrame({col: vals for col, vals in arrays.items()})
         self._chunks.setdefault(table, []).append(df)
+        self._cumulative_bytes = new_total
 
     def close(self) -> None:
         pass
