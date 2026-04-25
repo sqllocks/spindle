@@ -13,6 +13,9 @@ from sqllocks_spindle.mcp_bridge import (
     cmd_preview,
     cmd_profile_info,
     cmd_scale_generate,
+    cmd_stream,
+    cmd_stream_status,
+    cmd_stream_stop,
 )
 
 
@@ -153,3 +156,56 @@ class TestMcpBridgeScaleGenerate:
             "sink_config": {},
         })
         assert result.get("error") == "not_implemented"
+
+
+class TestMcpBridgeStreaming:
+    def test_stream_returns_stream_id(self):
+        result = cmd_stream({
+            "domain": "retail",
+            "scale": "small",
+            "sinks": ["memory"],
+            "sink_config": {},
+            "interval_seconds": 0,
+            "chunk_size": 10,
+            "max_chunks": 1,
+        })
+        assert "stream_id" in result
+        assert isinstance(result["stream_id"], str)
+
+    def test_stream_status_returns_progress(self):
+        import time
+        start_result = cmd_stream({
+            "domain": "retail",
+            "scale": "small",
+            "sinks": ["memory"],
+            "sink_config": {},
+            "interval_seconds": 0,
+            "chunk_size": 5,
+            "max_chunks": 1,
+        })
+        stream_id = start_result["stream_id"]
+        time.sleep(0.5)
+        status = cmd_stream_status({"stream_id": stream_id})
+        assert "chunks_written" in status
+        assert "rows_written" in status
+        assert "running" in status
+
+    def test_stream_stop(self):
+        import time
+        start_result = cmd_stream({
+            "domain": "retail",
+            "scale": "small",
+            "sinks": ["memory"],
+            "sink_config": {},
+            "interval_seconds": 10,
+            "chunk_size": 5,
+            "max_chunks": None,
+        })
+        stream_id = start_result["stream_id"]
+        time.sleep(0.1)
+        stop_result = cmd_stream_stop({"stream_id": stream_id})
+        assert stop_result.get("stopped") is True
+
+    def test_stream_status_unknown_id(self):
+        status = cmd_stream_status({"stream_id": "nonexistent-uuid"})
+        assert "error" in status

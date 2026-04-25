@@ -462,6 +462,101 @@ def cmd_scale_generate(params: dict) -> dict:
         raise ValueError(f"Unknown scale_mode: '{scale_mode}'. Supported: local_single, local_mp, fabric_spark")
 
 
+def cmd_stream(params: dict) -> dict:
+    """Start a background streaming job.
+
+    Params: domain, scale, seed, sinks, sink_config, interval_seconds,
+    chunk_size, max_chunks, mode, profile.
+
+    Returns: {"stream_id": "uuid"}
+    """
+    import json, os, tempfile
+    import numpy as np
+    from sqllocks_spindle.engine.stream_manager import StreamManager
+    from sqllocks_spindle.engine.chunk_worker import generate_chunk
+    from sqllocks_spindle.engine.sink_registry import SinkRegistry
+
+    domain_name = params.get("domain", "")
+    scale = params.get("scale", "small")
+    seed = params.get("seed", 42)
+    sinks_list = params.get("sinks", ["memory"])
+    sink_config = params.get("sink_config", {})
+    interval = params.get("interval_seconds", 30.0)
+    chunk_size = params.get("chunk_size", 100_000)
+    max_chunks = params.get("max_chunks", None)
+    mode = params.get("mode", "3nf")
+    profile = params.get("profile")
+
+    from sqllocks_spindle.engine.generator import Spindle
+    import dataclasses
+
+    domain = _resolve_domain(domain_name, mode, profile)
+    spindle = Spindle()
+    parsed = spindle._resolve_schema(domain, None)
+    parsed.generation.scale = scale
+    parsed.model.seed = seed
+
+    schema_dict = dataclasses.asdict(parsed)
+    if hasattr(domain, "child_domains"):
+        schema_dict["_domain_path"] = [str(d.domain_path) for d in domain.child_domains]
+    elif hasattr(domain, "domain_path"):
+        schema_dict["_domain_path"] = str(domain.domain_path)
+
+    sinks = _build_sinks(sinks_list, sink_config)
+    registry = SinkRegistry(sinks)
+    registry.open(parsed)
+
+    tmp_f = tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False)
+    json.dump(schema_dict, tmp_f)
+    tmp_f.flush()
+    schema_path = tmp_f.name
+    tmp_f.close()
+
+    def _stream_fn(state):
+        chunk_idx = 0
+        pk_offset = 0
+        try:
+            while not state.stop_event.is_set():
+                if max_chunks is not None and chunk_idx >= max_chunks:
+                    break
+                chunk_seed = seed ^ chunk_idx
+                chunk_data = generate_chunk(schema_path, chunk_seed, pk_offset, chunk_size)
+                for table, col_lists in chunk_data.items():
+                    arrays = {col: np.array(vals) for col, vals in col_lists.items()}
+                    registry.write_chunk(table, arrays)
+                state.chunks_written += 1
+                state.rows_written += chunk_size
+                pk_offset += chunk_size
+                chunk_idx += 1
+                if interval > 0 and not state.stop_event.is_set():
+                    state.stop_event.wait(timeout=interval)
+        finally:
+            try:
+                registry.close()
+            except Exception:
+                pass
+            try:
+                os.unlink(schema_path)
+            except OSError:
+                pass
+
+    manager = StreamManager.instance()
+    stream_id = manager.start(_stream_fn)
+    return {"stream_id": stream_id}
+
+
+def cmd_stream_status(params: dict) -> dict:
+    """Get status of a running stream. Params: stream_id."""
+    from sqllocks_spindle.engine.stream_manager import StreamManager
+    return StreamManager.instance().status(params.get("stream_id", ""))
+
+
+def cmd_stream_stop(params: dict) -> dict:
+    """Stop a running stream. Params: stream_id."""
+    from sqllocks_spindle.engine.stream_manager import StreamManager
+    return StreamManager.instance().stop(params.get("stream_id", ""))
+
+
 def cmd_demo_list(_params: dict) -> dict:
     """List all available demo scenarios."""
     from sqllocks_spindle.demo.catalog import get_catalog
@@ -556,6 +651,9 @@ COMMANDS = {
     "demo_list": cmd_demo_list,
     "demo_run": cmd_demo_run,
     "scale_generate": cmd_scale_generate,
+    "stream": cmd_stream,
+    "stream_status": cmd_stream_status,
+    "stream_stop": cmd_stream_stop,
 }
 
 
