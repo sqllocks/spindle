@@ -12,6 +12,7 @@ from sqllocks_spindle.mcp_bridge import (
     cmd_validate,
     cmd_preview,
     cmd_profile_info,
+    cmd_scale_generate,
 )
 
 
@@ -98,3 +99,57 @@ class TestMcpBridgeValidate:
     def test_validate_missing_file_errors(self):
         with pytest.raises(FileNotFoundError):
             cmd_validate({"schema_path": "/nonexistent/path.spindle.json"})
+
+
+class TestMcpBridgeScaleGenerate:
+    def test_scale_generate_local_single_mode(self):
+        """scale_mode=local_single with memory sink returns expected shape."""
+        result = cmd_scale_generate({
+            "domain": "retail",
+            "scale": "small",
+            "seed": 42,
+            "scale_mode": "local_single",
+            "sinks": ["memory"],
+            "sink_config": {},
+        })
+        assert "rows_generated" in result
+        assert result["rows_generated"] > 0
+        assert "sinks_written" in result
+        assert result["sinks_written"].get("memory") == "ok"
+
+    def test_scale_generate_local_mp_memory_sink(self):
+        """scale_mode=local_mp with memory sink — full multi-process path."""
+        result = cmd_scale_generate({
+            "domain": "retail",
+            "scale": "small",
+            "seed": 42,
+            "scale_mode": "local_mp",
+            "sinks": ["memory"],
+            "sink_config": {},
+            "chunk_size": 100,
+        })
+        assert result["rows_generated"] > 0
+        assert result.get("throughput_rows_per_sec", 0) > 0
+
+    def test_scale_generate_parquet_sink(self, tmp_path):
+        result = cmd_scale_generate({
+            "domain": "retail",
+            "scale": "small",
+            "seed": 1,
+            "scale_mode": "local_mp",
+            "sinks": ["parquet"],
+            "sink_config": {"parquet": {"output_dir": str(tmp_path)}},
+            "chunk_size": 200,
+        })
+        assert result["sinks_written"].get("parquet") == "ok"
+        assert len(list(tmp_path.iterdir())) > 0
+
+    def test_scale_generate_fabric_spark_not_implemented(self):
+        result = cmd_scale_generate({
+            "domain": "retail",
+            "scale": "small",
+            "scale_mode": "fabric_spark",
+            "sinks": ["memory"],
+            "sink_config": {},
+        })
+        assert result.get("error") == "not_implemented"

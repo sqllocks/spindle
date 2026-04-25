@@ -26,7 +26,7 @@ def _load_dataset(dataset_name: str, domain_path: Path | list[Path] | None = Non
         # Support multiple domain paths (composite domains)
         paths = domain_path if isinstance(domain_path, list) else [domain_path]
         for dp in paths:
-            search_paths.append(dp / "reference_data" / f"{dataset_name}.json")
+            search_paths.append(Path(dp) / "reference_data" / f"{dataset_name}.json")
 
     # Shared reference data (cross-domain datasets like us_zip_locations)
     shared_dir = Path(__file__).parent.parent.parent / "domains" / "_shared" / "reference_data"

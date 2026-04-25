@@ -312,6 +312,145 @@ def cmd_profile_info(params: dict) -> dict:
 
 
 
+def _build_sinks(sinks: list[str], sink_config: dict) -> list:
+    """Instantiate sink objects from sink name list and config dict."""
+    from sqllocks_spindle.engine.sinks import MemorySink, ParquetSink
+
+    instances = []
+    for name in sinks:
+        cfg = sink_config.get(name, {})
+        if name == "memory":
+            instances.append(MemorySink(**cfg))
+        elif name == "parquet":
+            output_dir = cfg.get("output_dir")
+            if not output_dir:
+                raise ValueError("parquet sink requires sink_config.parquet.output_dir")
+            instances.append(ParquetSink(output_dir=output_dir))
+        else:
+            raise ValueError(f"Unknown sink: '{name}'. Supported: memory, parquet")
+    return instances
+
+
+def cmd_scale_generate(params: dict) -> dict:
+    """Generate data at scale using multi-process (local_mp) or single-process (local_single) path."""
+    import dataclasses
+    import json
+    import tempfile
+    import time
+
+    domain_name = params.get("domain", "")
+    scale = params.get("scale", "small")
+    seed = params.get("seed", 42)
+    scale_mode = params.get("scale_mode", "local_mp")
+    sinks_list = params.get("sinks", ["memory"])
+    sink_config = params.get("sink_config", {})
+    chunk_size = params.get("chunk_size", 500_000)
+    max_workers = params.get("max_workers")
+    mode = params.get("mode", "3nf")
+    profile = params.get("profile")
+
+    # fabric_spark is not yet implemented
+    if scale_mode == "fabric_spark":
+        return {"error": "not_implemented"}
+
+    from sqllocks_spindle.engine.generator import Spindle
+
+    domain = _resolve_domain(domain_name, mode, profile)
+    spindle = Spindle()
+
+    if scale_mode == "local_single":
+        # Single-process path via Spindle.generate()
+        start = time.perf_counter()
+        result = spindle.generate(domain=domain, scale=scale, seed=seed)
+        elapsed = time.perf_counter() - start
+
+        # Fan out to sinks manually
+        sinks = _build_sinks(sinks_list, sink_config)
+        schema = result.schema
+        import numpy as np
+
+        for sink in sinks:
+            sink.open(schema)
+
+        for table_name, df in result.tables.items():
+            arrays = {col: np.array(df[col].values) for col in df.columns}
+            for sink in sinks:
+                sink.write_chunk(table_name, arrays)
+
+        for sink in sinks:
+            sink.close()
+
+        total_rows = sum(result.row_counts.values())
+        sinks_written = {name: "ok" for name in sinks_list}
+
+        return {
+            "domain": domain_name,
+            "scale": scale,
+            "scale_mode": scale_mode,
+            "rows_generated": total_rows,
+            "elapsed_seconds": round(elapsed, 2),
+            "throughput_rows_per_sec": int(total_rows / max(elapsed, 0.001)),
+            "sinks_written": sinks_written,
+        }
+
+    elif scale_mode == "local_mp":
+        # Multi-process path via ScaleRouter
+        from sqllocks_spindle.engine.scale_router import ScaleRouter
+
+        # Resolve schema and serialize to temp JSON for ScaleRouter
+        parsed = spindle._resolve_schema(domain, None)
+        parsed.generation.scale = scale
+        parsed.model.seed = seed
+
+        # Calculate total rows from scale config
+        row_counts = spindle._calculate_row_counts(parsed)
+        total_rows = sum(row_counts.values())
+
+        # Serialize schema to temp file.
+        # Inject _domain_path at the top level so chunk_worker's subprocess
+        # can pass it to reference_data strategy to locate dataset files.
+        schema_dict = dataclasses.asdict(parsed)
+        if hasattr(domain, "child_domains"):
+            schema_dict["_domain_path"] = [
+                str(d.domain_path) for d in domain.child_domains
+            ]
+        elif hasattr(domain, "domain_path"):
+            schema_dict["_domain_path"] = str(domain.domain_path)
+
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+            json.dump(schema_dict, f)
+            schema_path = f.name
+
+        sinks = _build_sinks(sinks_list, sink_config)
+
+        router_kwargs = {
+            "schema_path": schema_path,
+            "sinks": sinks,
+            "chunk_size": chunk_size,
+        }
+        if max_workers is not None:
+            router_kwargs["max_workers"] = max_workers
+
+        router = ScaleRouter(**router_kwargs)
+        stats = router.run(total_rows=total_rows, seed=seed)
+
+        sinks_written = {name: "ok" for name in sinks_list}
+
+        return {
+            "domain": domain_name,
+            "scale": scale,
+            "scale_mode": scale_mode,
+            "rows_generated": stats["rows_generated"],
+            "elapsed_seconds": stats["elapsed_seconds"],
+            "throughput_rows_per_sec": stats["throughput_rows_per_sec"],
+            "memory_peak_gb": stats.get("memory_peak_gb"),
+            "sinks_written": sinks_written,
+        }
+
+    else:
+        raise ValueError(f"Unknown scale_mode: '{scale_mode}'. Supported: local_single, local_mp, fabric_spark")
+
+
 def cmd_demo_list(_params: dict) -> dict:
     """List all available demo scenarios."""
     from sqllocks_spindle.demo.catalog import get_catalog
@@ -405,6 +544,7 @@ COMMANDS = {
     "profile_info": cmd_profile_info,
     "demo_list": cmd_demo_list,
     "demo_run": cmd_demo_run,
+    "scale_generate": cmd_scale_generate,
 }
 
 
