@@ -171,6 +171,7 @@ class TestMcpBridgeStreaming:
         })
         assert "stream_id" in result
         assert isinstance(result["stream_id"], str)
+        assert result.get("status") == "started"
 
     def test_stream_status_returns_progress(self):
         import time
@@ -204,7 +205,8 @@ class TestMcpBridgeStreaming:
         stream_id = start_result["stream_id"]
         time.sleep(0.1)
         stop_result = cmd_stream_stop({"stream_id": stream_id})
-        assert stop_result.get("stopped") is True
+        assert stop_result.get("status") == "stopped"
+        assert stop_result.get("stream_id") == stream_id
 
     def test_stream_status_unknown_id(self):
         status = cmd_stream_status({"stream_id": "nonexistent-uuid"})

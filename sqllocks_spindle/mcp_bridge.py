@@ -542,7 +542,7 @@ def cmd_stream(params: dict) -> dict:
 
     manager = StreamManager.instance()
     stream_id = manager.start(_stream_fn)
-    return {"stream_id": stream_id}
+    return {"stream_id": stream_id, "status": "started"}
 
 
 def cmd_stream_status(params: dict) -> dict:
@@ -554,7 +554,9 @@ def cmd_stream_status(params: dict) -> dict:
 def cmd_stream_stop(params: dict) -> dict:
     """Stop a running stream. Params: stream_id."""
     from sqllocks_spindle.engine.stream_manager import StreamManager
-    return StreamManager.instance().stop(params.get("stream_id", ""))
+    stream_id = params.get("stream_id", "")
+    StreamManager.instance().stop(stream_id)
+    return {"stream_id": stream_id, "status": "stopped"}
 
 
 def cmd_demo_list(_params: dict) -> dict:

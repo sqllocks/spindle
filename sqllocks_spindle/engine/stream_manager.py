@@ -69,12 +69,11 @@ class StreamManager:
             "error": state.error,
         }
 
-    def stop(self, stream_id: str) -> dict:
+    def stop(self, stream_id: str) -> None:
         with self._lock:
             state = self._streams.get(stream_id)
         if state is None:
-            return {"error": f"Unknown stream_id: {stream_id}"}
+            return
         state.stop_event.set()
         if state.thread and state.thread.is_alive():
             state.thread.join(timeout=5.0)
-        return {"stopped": True, "stream_id": stream_id}
