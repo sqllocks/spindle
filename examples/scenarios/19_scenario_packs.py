@@ -33,7 +33,7 @@ print(f"  Total built-in packs: {len(packs)}")
 # Group by domain
 domains = {}
 for p in packs:
-    domains.setdefault(p.domain, []).append(p.kind)
+    domains.setdefault(p['domain'], []).append(p['pack_id'])
 for domain, kinds in sorted(domains.items()):
     print(f"  {domain:<20} {kinds}")
 

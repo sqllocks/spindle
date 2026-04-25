@@ -5,6 +5,31 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-04-25
+
+### Added
+
+- **Billion-row pipeline (Phase 1)** — multi-process scale generation for datasets up to 1B+ rows
+    - `SinkRegistry` — fan-out coordinator; writes to all sinks in parallel via `ThreadPoolExecutor`; raises `SinkError` with per-sink failures on partial errors
+    - `ChunkWorker` (`generate_chunk`) — subprocess-safe pure function; deferred imports; returns plain Python lists (pickle-safe); applies `sequence_offset` for PK continuity across chunks
+    - `ScaleRouter` — `ProcessPoolExecutor`-based orchestrator; psutil RAM guard caps workers at 80% available RAM; `as_completed()` fan-out with configurable `max_workers` and `chunk_size`
+    - `StreamManager` — singleton per process; daemon threads; `stop_event.wait()` for interruptible sleep; thread-safe `counter_lock` on `StreamState`; `stop()` returns `bool | None` (None=unknown, True=clean, False=timeout)
+    - `LakehouseSink` — writes Parquet via `LakehouseFilesWriter`; supports local path mode for testing
+    - `WarehouseSink` — stages Parquet and loads via COPY INTO using `WarehouseBulkWriter`
+    - `KQLSink` — ingests into Fabric Eventhouse via `EventhouseWriter`; deferred import with clear pip-install error
+    - `SQLDatabaseSink` — bulk-inserts into Fabric SQL Database / Azure SQL via `FabricSqlDatabaseWriter`
+    - `cmd_scale_generate` MCP bridge command — local single-process and multi-process (subprocess workers) modes; temp file cleanup in finally; seed propagated in return dict
+    - `cmd_stream` / `cmd_stream_status` / `cmd_stream_stop` MCP bridge commands — background streaming with configurable `interval_seconds`, `max_chunks`, sink fan-out
+
+### Fixed
+
+- `reference_data.py` — `_load_dataset` now wraps domain path strings with `Path()` before `/` operator; was raising `TypeError` when `_domain_path` was injected as a plain string from JSON
+- `19_scenario_packs.py` — updated to use dict-access (`p['domain']`, `p['pack_id']`) after `PackLoader.list_builtin()` API change
+
+### Changed
+
+- Test count: 1,867 → 1,912 (+45 Phase 1 tests including e2e integration test)
+
 ## [2.0.0] - 2026-03-14
 
 ### Added

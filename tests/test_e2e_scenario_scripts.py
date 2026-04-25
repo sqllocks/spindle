@@ -20,9 +20,7 @@ SKIP_SCRIPTS = {
 }
 
 # Scripts with known API drift that need broader rewrite
-XFAIL_SCRIPTS = {
-    "19_scenario_packs.py",  # PackLoader API changed, script references old attrs
-}
+XFAIL_SCRIPTS: set[str] = set()
 
 
 @pytest.mark.parametrize(
