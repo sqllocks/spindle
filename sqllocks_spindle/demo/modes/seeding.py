@@ -74,6 +74,103 @@ def _resolve_scale_mode(requested: str, conn_profile, rows: int) -> str:
     return "local"
 
 
+def _import_sink_class(kind: str):
+    """Indirection so monkeypatch can intercept individual sink imports."""
+    if kind == "lakehouse":
+        from sqllocks_spindle.engine.sinks import LakehouseSink
+        return LakehouseSink
+    if kind == "warehouse":
+        from sqllocks_spindle.engine.sinks import WarehouseSink
+        return WarehouseSink
+    if kind == "sql_db":
+        from sqllocks_spindle.engine.sinks import SQLDatabaseSink
+        return SQLDatabaseSink
+    if kind == "kql":
+        from sqllocks_spindle.engine.sinks import KQLSink
+        return KQLSink
+    raise ValueError(f"Unknown sink kind: {kind!r}")
+
+
+def _build_sinks(conn, token: str) -> tuple[list, list, dict]:
+    """Build sink instances + sinks_list (for FabricSparkRouter) + sink_config dict.
+
+    Returns three values:
+      sinks       — list[Sink] for ScaleRouter (local mode)
+      sinks_list  — list[{"type", "config"}] passed to FabricSparkRouter
+      sink_config — flat dict of common config (workspace_id, lakehouse_id, token)
+
+    A sink whose construction fails or lacks required config is logged and skipped —
+    other sinks proceed.
+    """
+    sinks: list = []
+    sinks_list: list = []
+    sink_config: dict = {
+        "workspace_id": getattr(conn, "workspace_id", "") if conn else "",
+        "lakehouse_id": getattr(conn, "lakehouse_id", "") if conn else "",
+        "token": token,
+    }
+    if conn is None:
+        return sinks, sinks_list, sink_config
+
+    targets: list[tuple[str, dict, dict]] = []
+    # Each target: (kind, init_kwargs_for_local_sink, config_for_spark_sinks_list)
+    if conn.lakehouse_id:
+        targets.append((
+            "lakehouse",
+            {},  # LakehouseSink takes optional args; defaults are fine for local
+            {"workspace_id": conn.workspace_id, "lakehouse_id": conn.lakehouse_id},
+        ))
+    if conn.warehouse_conn_str and getattr(conn, "warehouse_staging_path", ""):
+        targets.append((
+            "warehouse",
+            {
+                "connection_string": conn.warehouse_conn_str,
+                "staging_lakehouse_path": conn.warehouse_staging_path,
+                "auth_method": getattr(conn, "auth_method", "cli"),
+            },
+            {
+                "connection_string": conn.warehouse_conn_str,
+                "staging_lakehouse_path": conn.warehouse_staging_path,
+            },
+        ))
+    elif conn.warehouse_conn_str:
+        logger.warning("Skipping warehouse sink — warehouse_staging_path is required but empty")
+    if conn.sql_db_conn_str:
+        targets.append((
+            "sql_db",
+            {
+                "connection_string": conn.sql_db_conn_str,
+                "auth_method": getattr(conn, "auth_method", "cli"),
+            },
+            {"connection_string": conn.sql_db_conn_str},
+        ))
+    if conn.eventhouse_uri and getattr(conn, "eventhouse_database", ""):
+        targets.append((
+            "kql",
+            {
+                "cluster_uri": conn.eventhouse_uri,
+                "database": conn.eventhouse_database,
+                "auth_method": getattr(conn, "auth_method", "cli"),
+            },
+            {
+                "cluster_uri": conn.eventhouse_uri,
+                "database": conn.eventhouse_database,
+            },
+        ))
+    elif conn.eventhouse_uri:
+        logger.warning("Skipping kql sink — eventhouse_database is required but empty")
+
+    for kind, init_kwargs, spark_cfg in targets:
+        try:
+            cls = _import_sink_class(kind)
+            sinks.append(cls(**init_kwargs))
+            sinks_list.append({"type": kind, "config": spark_cfg})
+        except Exception as e:
+            logger.warning("Skipping %s sink — construction failed: %s", kind, e)
+
+    return sinks, sinks_list, sink_config
+
+
 class SeedingDemoMode:
     """Generate and write data to all configured Fabric targets."""
 

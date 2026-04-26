@@ -11,7 +11,9 @@ class ConnectionProfile:
     name: str
     workspace_id: str = ""
     warehouse_conn_str: str = ""
+    warehouse_staging_path: str = ""
     eventhouse_uri: str = ""
+    eventhouse_database: str = ""
     sql_db_conn_str: str = ""
     lakehouse_id: str = ""
     auth_method: str = "cli"

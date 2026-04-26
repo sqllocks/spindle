@@ -10,8 +10,10 @@ class _Conn:
         self.lakehouse_id = lakehouse_id
         self.workspace_id = workspace_id
         self.warehouse_conn_str = ""
+        self.warehouse_staging_path = ""
         self.sql_db_conn_str = ""
         self.eventhouse_uri = ""
+        self.eventhouse_database = ""
 
 
 def test_scale_mode_auto_picks_local_under_threshold():
@@ -50,3 +52,61 @@ def test_scale_mode_explicit_spark_without_lakehouse_raises():
 
 def test_scale_mode_explicit_spark_with_full_connection_returns_spark():
     assert _resolve_scale_mode("spark", _Conn(), rows=100) == "spark"
+
+
+from sqllocks_spindle.demo.modes.seeding import _build_sinks
+
+
+def test_build_sinks_empty_when_no_targets():
+    conn = _Conn()
+    conn.lakehouse_id = ""
+    sinks, sinks_list, sink_config = _build_sinks(conn, token="t")
+    assert sinks == []
+    assert sinks_list == []
+    assert sink_config["workspace_id"] == "ws-1"
+    assert sink_config["token"] == "t"
+
+
+def test_build_sinks_lakehouse_only():
+    conn = _Conn()
+    sinks, sinks_list, sink_config = _build_sinks(conn, token="t")
+    assert len(sinks) == 1
+    assert sinks_list == [{"type": "lakehouse",
+                           "config": {"workspace_id": "ws-1",
+                                      "lakehouse_id": "lh-1"}}]
+    assert sink_config["lakehouse_id"] == "lh-1"
+
+
+def test_build_sinks_all_targets_with_extra_fields():
+    """Warehouse and KQL only build when extra fields are present."""
+    conn = _Conn()
+    conn.warehouse_conn_str = "Driver=...;Server=wh"
+    conn.warehouse_staging_path = "abfss://ws@onelake.dfs.fabric.microsoft.com/lh/Files/staging"
+    conn.sql_db_conn_str = "Driver=...;Server=sql"
+    conn.eventhouse_uri = "https://eh.kusto"
+    conn.eventhouse_database = "demo_db"
+    sinks, sinks_list, sink_config = _build_sinks(conn, token="t")
+    types = [s["type"] for s in sinks_list]
+    assert types == ["lakehouse", "warehouse", "sql_db", "kql"]
+    assert len(sinks) == 4
+
+
+def test_build_sinks_skips_warehouse_without_staging_path():
+    """Warehouse sink is skipped when warehouse_staging_path is empty."""
+    conn = _Conn()
+    conn.warehouse_conn_str = "Driver=...;Server=wh"
+    # warehouse_staging_path is "" by default — should be skipped
+    sinks, sinks_list, sink_config = _build_sinks(conn, token="t")
+    types = [s["type"] for s in sinks_list]
+    assert "warehouse" not in types
+    assert "lakehouse" in types  # still built
+
+
+def test_build_sinks_skips_kql_without_database():
+    """KQL sink is skipped when eventhouse_database is empty."""
+    conn = _Conn()
+    conn.eventhouse_uri = "https://eh.kusto"
+    # eventhouse_database is "" by default — should be skipped
+    sinks, sinks_list, sink_config = _build_sinks(conn, token="t")
+    types = [s["type"] for s in sinks_list]
+    assert "kql" not in types
