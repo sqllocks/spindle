@@ -74,7 +74,16 @@ class IDManager:
         self._lock = threading.Lock()
 
     def register_table(self, table_name: str, df: pd.DataFrame, pk_columns: list[str]) -> None:
-        """Register a generated table's PKs for FK resolution (thread-safe)."""
+        """Register a generated table's PKs for FK resolution (thread-safe).
+
+        Tables with no primary_key (pk_columns=[]) are registered as data-only
+        so lookups and constrained FKs still work, but get_random_fks() will
+        raise KeyError since they have no PK pool.
+        """
+        if not pk_columns:
+            with self._lock:
+                self._table_data[table_name] = df
+            return
         if len(pk_columns) == 1:
             pool = df[pk_columns[0]].values
         else:
@@ -217,19 +226,23 @@ class IDManager:
         Example: get order_ids where status='completed'.
         """
         df = self._table_data.get(table_name)
-        if df is None:
+        pool = self._pk_pools.get(table_name)
+        if df is None or pool is None:
             raise KeyError(f"No table data registered for '{table_name}'")
 
         mask = df[filter_column] == filter_value
-        filtered_pks = df.loc[mask, df.columns[0]].values  # Assumes first col or PK
+        # Use the PK pool (aligned with df rows) rather than df.columns[0]
+        # so the correct PK column is returned regardless of column order.
+        filtered_indices = np.where(mask.values)[0]
 
-        if len(filtered_pks) == 0:
+        if len(filtered_indices) == 0:
             raise ValueError(
                 f"No rows in '{table_name}' match filter {filter_column}='{filter_value}'"
             )
 
-        indices = self._rng.integers(0, len(filtered_pks), size=count)
-        return filtered_pks[indices]
+        filtered_pks = pool[filtered_indices]
+        chosen = self._rng.integers(0, len(filtered_pks), size=count)
+        return filtered_pks[chosen]
 
     def get_sampled_fks(
         self,

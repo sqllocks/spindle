@@ -10,6 +10,11 @@ class CircularDependencyError(Exception):
     pass
 
 
+class MissingTableError(ValueError):
+    """Raised when a table references another table that is not defined in the schema."""
+    pass
+
+
 class DependencyResolver:
     """Resolve table generation order via topological sort."""
 
@@ -42,8 +47,8 @@ class DependencyResolver:
         for node, deps in graph.items():
             for dep in deps:
                 if dep not in graph:
-                    raise CircularDependencyError(
-                        f"Table '{node}' depends on '{dep}' which is not defined"
+                    raise MissingTableError(
+                        f"Table '{node}' has a foreign key to '{dep}' which is not defined in the schema"
                     )
 
         # Kahn's algorithm

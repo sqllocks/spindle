@@ -5,6 +5,26 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2026-04-26
+
+### Fixed
+
+- **GAP 1 — Reference table chunk replication**: `ScaleRouter` now classifies tables as *static* (schema count < `chunk_size`) or *dynamic* (schema count ≥ `chunk_size`). Static tables are generated once with their natural cardinality and broadcast as pre-loaded PK pools into every chunk worker via the augmented schema JSON. Dynamic tables are generated `chunk_size` rows per chunk. Added `_classify_tables`, `_generate_static_tables`, and `_SpindleJSONEncoder` (handles `pd.Timestamp`, numpy scalars) to `scale_router.py`.
+- **GAP 2 — Composite FK reference impossible**: New `composite_foreign_key` strategy (`engine/strategies/composite_foreign_key.py`) — takes `ref_table` + `ref_columns: [list]`, samples rows from the parent table, returns a dict of per-column arrays. New `composite_fk_field` strategy reads one component from the stashed dict. Both strategies registered in `Spindle`, `ChunkWorker`, `ScaleRouter._generate_static_tables`.
+- **GAP 3 — Composite PK FK lookup returns 2D array**: `TableGenerator.generate()` now detects `dict` returns from strategies (multi-column path) and unpacks each key into `ctx.current_table`. `_cfo_` prefix cache keys are filtered from the public DataFrame alongside `_rs_` and `_sr_`.
+- **GAP 4 — Computed columns not applied in `ChunkWorker`**: Extracted `_compute_phase` into module-level `apply_compute_phase(tables, schema)` in `generator.py`; `chunk_worker.generate_chunk` now calls it after generating all tables.
+- **GAP 5 — Business rules not applied in `ChunkWorker`**: `generate_chunk` calls `BusinessRulesEngine.fix_violations()` after `apply_compute_phase` when the schema defines business rules.
+- **GAP 6 — PK-free tables rejected as errors**: Downgraded `"Table has no primary key defined"` from `error` to `warning` in `SchemaValidator`. `IDManager.register_table()` now gracefully skips pool registration for empty `pk_columns` lists (registers data-only for constrained FK lookups).
+- **GAP 7 — Self-referencing hierarchies shatter across chunks**: Resolved by GAP 1 fix — tables using `self_referencing` strategy are typically small reference tables (count < `chunk_size`) and are now generated once, preserving a single unified hierarchy.
+- **GAP 8 — `get_filtered_fks` reads first column, not PK**: Replaced `df.loc[mask, df.columns[0]]` with `pool[np.where(mask.values)[0]]` — uses the PK pool (aligned with df rows) regardless of column order.
+- **GAP 9 — `generate_stream()` missing compute phase and business rules**: `Spindle.generate_stream()` now buffers all generated tables internally before yielding, then applies `_compute_phase` and `fix_violations` in the same pass as `Spindle.generate()`.
+- **GAP 10 — Wrong exception type in `DependencyResolver`**: Added `MissingTableError(ValueError)` to `schema/dependency.py`; the resolver now raises it (not `CircularDependencyError`) when a table depends on a non-existent table.
+
+### Changed
+
+- Test count: 1,912 → 1,913 (+1 revised E2E test asserting correct static/dynamic cardinalities)
+- `test_e2e_scale_router.py`: Assertions updated to validate static table natural cardinality (e.g., `product_category` = 50 rows) and dynamic table chunk multiplication, replacing the incorrect "all tables = TOTAL_ROWS" assertion.
+
 ## [2.6.0] - 2026-04-25
 
 ### Added

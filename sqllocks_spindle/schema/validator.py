@@ -38,6 +38,9 @@ _STRATEGY_REQUIRED_KEYS: dict[str, set[str]] = {
     "record_sample": {"dataset", "field"},
     "record_field": {"dataset", "field"},
     "scd2": {"role", "business_key"},
+    "composite_foreign_key": {"ref_table", "ref_columns"},
+    "composite_fk_field": {"source_column", "ref_column"},
+    "native": set(),
 }
 
 
@@ -66,7 +69,8 @@ class SchemaValidator:
         for table_name, table in schema.tables.items():
             if not table.primary_key:
                 errors.append(ValidationError(
-                    "error", "Table has no primary key defined",
+                    "warning",
+                    "Table has no primary key defined — it cannot be FK-referenced by other tables",
                     f"tables.{table_name}",
                 ))
             for pk_col in table.primary_key:

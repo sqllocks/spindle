@@ -2,9 +2,16 @@
 
 Task 10 of the Spindle billion-row Phase 1 plan.
 
-Exercises the full multi-process generation path with a real domain
-schema — verifying table existence, row counts, and PK uniqueness
-across chunks.
+Exercises the full multi-process generation path with a real domain schema,
+verifying the static/dynamic table split, row counts, and PK uniqueness across
+chunks.
+
+At chunk_size=500 with the retail domain at small scale:
+  Static tables  (count < chunk_size=500): product_category(50), promotion(200), store(150)
+  Dynamic tables (count >= chunk_size=500): customer, address, product, order, order_line, return
+
+Static tables are generated once (correct cardinality); dynamic tables are
+generated chunk_size rows per chunk and concatenated by the sink.
 """
 from __future__ import annotations
 
@@ -16,17 +23,47 @@ import tempfile
 import pytest
 
 
+# Per-table expected counts at small scale with chunk_size=500, total_rows=1000,
+# 2 chunks.  Static tables use their natural schema cardinality; dynamic tables
+# get TOTAL_ROWS rows total.
+_STATIC_COUNTS = {
+    "product_category": 50,
+    "promotion": 200,
+    "store": 150,
+}
+_DYNAMIC_TABLES = {
+    "customer",
+    "address",
+    "product",
+    "order",
+    "order_line",
+    "return",
+}
+
+# PK columns for each table (sequence-based PKs only — UUID tables not checked)
+_PK_COLUMNS = {
+    "customer": "customer_id",
+    "address": "address_id",
+    "product_category": "category_id",
+    "product": "product_id",
+    "store": "store_id",
+    "promotion": "promotion_id",
+    "order": "order_id",
+    "order_line": "order_line_id",
+    "return": "return_id",
+}
+
+
 @pytest.mark.slow
 def test_scale_router_retail_e2e(tmp_path):
-    """Run ScaleRouter against the retail domain with two chunks and verify:
+    """Run ScaleRouter against the retail domain and verify:
 
-    1. All expected tables are present in the MemorySink output.
-    2. Total rows_generated reported by run() equals total_rows (1000).
-    3. Each table has exactly total_rows rows (one row per table per chunk row).
-    4. Per-table PK sequence columns are unique across chunks (no collision
-       caused by incorrect sequence_offset).
+    1. Static tables (count < chunk_size) have their natural schema cardinality.
+    2. Dynamic tables have TOTAL_ROWS rows across all chunks.
+    3. stats['rows_generated'] == TOTAL_ROWS (counts dynamic rows only).
+    4. Per-table PK sequence columns are unique (no cross-chunk collisions).
     """
-    from sqllocks_spindle.engine.generator import Spindle
+    from sqllocks_spindle.engine.generator import Spindle, calculate_row_counts
     from sqllocks_spindle.engine.scale_router import ScaleRouter
     from sqllocks_spindle.engine.sinks.memory import MemorySink
 
@@ -35,7 +72,6 @@ def test_scale_router_retail_e2e(tmp_path):
     MAX_WORKERS = 1
     SEED = 42
 
-    # --- Resolve domain and build schema dict (mirrors cmd_scale_generate local_mp) ---
     from sqllocks_spindle.mcp_bridge import _resolve_domain
 
     domain = _resolve_domain("retail", mode="3nf")
@@ -44,13 +80,15 @@ def test_scale_router_retail_e2e(tmp_path):
     parsed.generation.scale = "small"
     parsed.model.seed = SEED
 
+    # Get the schema row counts so we know what to expect
+    schema_counts = calculate_row_counts(parsed)
+
     schema_dict = dataclasses.asdict(parsed)
     if hasattr(domain, "child_domains"):
         schema_dict["_domain_path"] = [str(d.domain_path) for d in domain.child_domains]
     elif hasattr(domain, "domain_path"):
         schema_dict["_domain_path"] = str(domain.domain_path)
 
-    # --- Write schema to temp file ---
     tmp_schema_path = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -59,7 +97,6 @@ def test_scale_router_retail_e2e(tmp_path):
             json.dump(schema_dict, f)
             tmp_schema_path = f.name
 
-        # --- Run ScaleRouter ---
         sink = MemorySink()
         router = ScaleRouter(
             schema_path=tmp_schema_path,
@@ -73,59 +110,44 @@ def test_scale_router_retail_e2e(tmp_path):
         if tmp_schema_path and os.path.exists(tmp_schema_path):
             os.unlink(tmp_schema_path)
 
-    # ------------------------------------------------------------------ #
-    # Assertions                                                           #
-    # ------------------------------------------------------------------ #
-
     result = sink.result()
 
-    # 1. Expected tables are present
-    expected_tables = {
-        "customer",
-        "address",
-        "product_category",
-        "product",
-        "store",
-        "promotion",
-        "order",
-        "order_line",
-        "return",
-    }
+    # 1. All expected tables are present
+    expected_tables = set(schema_counts.keys())
     missing = expected_tables - set(result.keys())
     assert not missing, f"Missing tables in MemorySink output: {missing}"
 
-    # 2. stats["rows_generated"] equals TOTAL_ROWS
+    # 2. Static tables have their natural schema cardinality (generated once)
+    for table_name, expected_count in _STATIC_COUNTS.items():
+        if table_name not in result:
+            continue
+        actual = len(result[table_name])
+        assert actual == expected_count, (
+            f"Static table '{table_name}': expected {expected_count} rows "
+            f"(natural cardinality), got {actual}. "
+            f"ScaleRouter may be replicating reference tables across chunks."
+        )
+
+    # 3. Dynamic tables have TOTAL_ROWS rows (2 chunks × chunk_size)
+    for table_name in _DYNAMIC_TABLES:
+        if table_name not in result:
+            continue
+        actual = len(result[table_name])
+        assert actual == TOTAL_ROWS, (
+            f"Dynamic table '{table_name}': expected {TOTAL_ROWS} rows, got {actual}"
+        )
+
+    # 4. stats["rows_generated"] counts dynamic chunk rows (not static rows)
     assert stats["rows_generated"] == TOTAL_ROWS, (
         f"Expected rows_generated={TOTAL_ROWS}, got {stats['rows_generated']}"
     )
 
-    # 3. Each table has TOTAL_ROWS rows (chunk_worker generates `count` rows per table)
-    for table_name, df in result.items():
-        assert len(df) == TOTAL_ROWS, (
-            f"Table '{table_name}': expected {TOTAL_ROWS} rows, got {len(df)}"
-        )
-
-    # 4. PK sequence columns are unique across chunks — sequence_offset ensures
-    #    chunk 0 produces IDs 1..500 and chunk 1 produces IDs 501..1000 for each
-    #    sequence-based PK.  Check every table whose PK column is a sequence int.
-    pk_columns = {
-        "customer": "customer_id",
-        "address": "address_id",
-        "product_category": "category_id",
-        "product": "product_id",
-        "store": "store_id",
-        "promotion": "promotion_id",
-        "order": "order_id",
-        "order_line": "order_line_id",
-        "return": "return_id",
-    }
-    for table_name, pk_col in pk_columns.items():
+    # 5. PK uniqueness across chunks — sequence_offset must produce non-overlapping IDs
+    for table_name, pk_col in _PK_COLUMNS.items():
         if table_name not in result:
-            continue  # already caught by assertion 1
+            continue
         df = result[table_name]
         if pk_col not in df.columns:
-            # Column naming may differ — skip with explanation rather than fail
-            # (the row-count assertion above still validates coverage)
             continue
         pk_values = df[pk_col]
         assert pk_values.nunique() == len(pk_values), (

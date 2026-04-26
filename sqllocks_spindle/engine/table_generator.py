@@ -69,16 +69,31 @@ class TableGenerator:
             strategy = self._registry.get(strategy_name)
             values = strategy.generate(col, col.generator, ctx)
 
-            # Apply null masking
+            if isinstance(values, dict):
+                # Multi-column return (composite_foreign_key) — unpack each
+                # key into ctx.current_table.  The triggering column name gets
+                # the first value array; all values are also stored under their
+                # own column names so DataFrames come out correctly.
+                first_key = next(iter(values))
+                for dict_col, dict_vals in values.items():
+                    ctx.current_table[dict_col] = dict_vals
+                # Also store under the triggering column name if it differs
+                if col_name not in values:
+                    ctx.current_table[col_name] = values[first_key]
+                continue
+
+            # Apply null masking (single-column path)
             if col.nullable and col.null_rate > 0:
                 values = strategy.apply_nulls(values, col, ctx)
 
             ctx.current_table[col_name] = values
 
-        # Build DataFrame — exclude internal cache keys (_rs_*, _sr_*)
+        # Build DataFrame — exclude internal cache keys (_rs_*, _sr_*, _cfo_*)
         public_columns = {
             k: v for k, v in ctx.current_table.items()
-            if not k.startswith("_rs_") and not k.startswith("_sr_")
+            if not k.startswith("_rs_")
+            and not k.startswith("_sr_")
+            and not k.startswith("_cfo_")
         }
         df = pd.DataFrame(public_columns)
 
@@ -100,12 +115,12 @@ class TableGenerator:
 
             if col_name in table.primary_key and strategy in ("sequence", "uuid"):
                 pk_cols.append(col_name)
-            elif strategy == "foreign_key":
+            elif strategy in ("foreign_key", "composite_foreign_key"):
                 fk_cols.append(col_name)
             elif strategy in (
                 "formula", "lookup", "derived", "computed",
                 "first_per_parent", "record_field", "self_ref_field",
-                "correlated", "conditional",
+                "composite_fk_field", "correlated", "conditional",
             ):
                 if strategy == "computed":
                     computed_cols.append(col_name)

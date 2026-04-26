@@ -36,6 +36,10 @@ from sqllocks_spindle.engine.strategies.scd2 import SCD2Strategy
 from sqllocks_spindle.engine.strategies.reference_data import ReferenceDataStrategy
 from sqllocks_spindle.engine.strategies.self_referencing import SelfReferencingStrategy, SelfRefFieldStrategy
 from sqllocks_spindle.engine.strategies.sequence import SequenceStrategy
+from sqllocks_spindle.engine.strategies.composite_foreign_key import (
+    CompositeForeignKeyStrategy,
+    CompositeFKFieldStrategy,
+)
 from sqllocks_spindle.engine.strategies.temporal import TemporalStrategy
 from sqllocks_spindle.engine.strategies.uuid_strategy import UUIDStrategy
 from sqllocks_spindle.engine.table_generator import TableGenerator
@@ -226,6 +230,48 @@ class GenerationResult:
         return self.tables[table_name]
 
 
+def calculate_row_counts(
+    schema: SpindleSchema,
+    overrides: dict[str, int] | None = None,
+) -> dict[str, int]:
+    """Return per-table row counts derived from the schema's generation config.
+
+    Exposed at module level so ScaleRouter and ChunkWorker can use it without
+    instantiating a full Spindle object.
+    """
+    counts: dict[str, int] = {}
+
+    scale_def = schema.generation.scales.get(schema.generation.scale, {})
+    for table_name, count in scale_def.items():
+        counts[table_name] = count
+
+    for table_name, derived in schema.generation.derived_counts.items():
+        if "fixed" in derived:
+            if isinstance(derived["fixed"], int):
+                counts[table_name] = derived["fixed"]
+        elif "per_parent" in derived:
+            parent = derived["per_parent"]
+            parent_count = counts.get(parent, 100)
+            ratio = derived.get("ratio", derived.get("mean", 1.0))
+            counts[table_name] = int(parent_count * ratio)
+        elif "per_year" in derived:
+            date_range = schema.model.date_range
+            if date_range:
+                start_year = int(date_range.get("start", "2022")[:4])
+                end_year = int(date_range.get("end", "2025")[:4])
+                years = end_year - start_year + 1
+                counts[table_name] = derived["per_year"] * years
+
+    if overrides:
+        counts.update(overrides)
+
+    for table_name in schema.tables:
+        if table_name not in counts:
+            counts[table_name] = 100
+
+    return counts
+
+
 class Spindle:
     """Main entry point for Spindle data generation."""
 
@@ -260,6 +306,8 @@ class Spindle:
         registry.register("record_sample", RecordSampleStrategy())
         registry.register("record_field", RecordFieldStrategy())
         registry.register("scd2", SCD2Strategy())
+        registry.register("composite_foreign_key", CompositeForeignKeyStrategy())
+        registry.register("composite_fk_field", CompositeFKFieldStrategy())
         # Load any third-party strategy plugins via entrypoints
         registry.load_entrypoint_plugins()
         return registry
@@ -479,6 +527,10 @@ class Spindle:
         tables_done = 0
         tables_total = sum(1 for t in gen_order if t in parsed.tables)
 
+        # Buffer all tables so compute phase and business rules run over the
+        # full multi-table result before anything is yielded to the caller.
+        buffered: list[tuple[str, pd.DataFrame]] = []
+
         for level_tables in dep_levels:
             level_tables = [t for t in level_tables if t in parsed.tables]
             if not level_tables:
@@ -495,10 +547,20 @@ class Spindle:
                     model_config=model_config,
                     schema=parsed,
                 )
+                buffered.append((table_name, df))
                 tables_done += 1
                 if on_progress:
                     on_progress(table_name, tables_done, tables_total)
-                yield table_name, df
+
+        # Post-generation phases (same as Spindle.generate)
+        all_tables = {name: df for name, df in buffered}
+        self._compute_phase(all_tables, parsed)
+        if parsed.business_rules:
+            rules_engine = BusinessRulesEngine()
+            rules_engine.fix_violations(all_tables, parsed, rng)
+
+        for table_name, _ in buffered:
+            yield table_name, all_tables[table_name]
 
     def describe(self, domain=None, schema=None) -> SpindleSchema:
         """Parse and return schema without generating data."""
@@ -520,41 +582,7 @@ class Spindle:
         schema: SpindleSchema,
         overrides: dict[str, int] | None = None,
     ) -> dict[str, int]:
-        counts = {}
-
-        # Start with scale presets for anchor tables
-        scale_def = schema.generation.scales.get(schema.generation.scale, {})
-        for table_name, count in scale_def.items():
-            counts[table_name] = count
-
-        # Calculate derived counts
-        for table_name, derived in schema.generation.derived_counts.items():
-            if "fixed" in derived:
-                if isinstance(derived["fixed"], int):
-                    counts[table_name] = derived["fixed"]
-            elif "per_parent" in derived:
-                parent = derived["per_parent"]
-                parent_count = counts.get(parent, 100)
-                ratio = derived.get("ratio", derived.get("mean", 1.0))
-                counts[table_name] = int(parent_count * ratio)
-            elif "per_year" in derived:
-                date_range = schema.model.date_range
-                if date_range:
-                    start_year = int(date_range.get("start", "2022")[:4])
-                    end_year = int(date_range.get("end", "2025")[:4])
-                    years = end_year - start_year + 1
-                    counts[table_name] = derived["per_year"] * years
-
-        # Apply any explicit overrides
-        if overrides:
-            counts.update(overrides)
-
-        # Default for any table not yet assigned
-        for table_name in schema.tables:
-            if table_name not in counts:
-                counts[table_name] = 100
-
-        return counts
+        return calculate_row_counts(schema, overrides)
 
     @staticmethod
     def _group_by_dep_level(
@@ -589,43 +617,49 @@ class Spindle:
         schema: SpindleSchema,
     ) -> None:
         """Back-fill computed columns from child table data."""
-        for table_name, table_def in schema.tables.items():
-            if table_name not in tables:
+        apply_compute_phase(tables, schema)
+
+
+def apply_compute_phase(
+    tables: dict[str, pd.DataFrame],
+    schema: SpindleSchema,
+) -> None:
+    """Module-level helper so ChunkWorker can call this without a Spindle instance."""
+    for table_name, table_def in schema.tables.items():
+        if table_name not in tables:
+            continue
+
+        for col_name, col in table_def.columns.items():
+            if col.generator.get("strategy") != "computed":
                 continue
 
-            for col_name, col in table_def.columns.items():
-                if col.generator.get("strategy") != "computed":
-                    continue
+            config = col.generator
+            rule = config.get("rule", "sum_children")
+            child_table = config.get("child_table", "")
+            child_column = config.get("child_column", "")
 
-                config = col.generator
-                rule = config.get("rule", "sum_children")
-                child_table = config.get("child_table", "")
-                child_column = config.get("child_column", "")
+            if child_table not in tables:
+                continue
 
-                if child_table not in tables:
-                    continue
+            pk_col = table_def.primary_key[0] if table_def.primary_key else None
+            if not pk_col:
+                continue
 
-                # Find the FK relationship to determine join columns
-                pk_col = table_def.primary_key[0] if table_def.primary_key else None
-                if not pk_col:
-                    continue
+            child_fk = None
+            for c_col in schema.tables[child_table].columns.values():
+                if c_col.fk_ref_table == table_name:
+                    child_fk = c_col.name
+                    break
 
-                # Find child FK column that references this table
-                child_fk = None
-                for c_col in schema.tables[child_table].columns.values():
-                    if c_col.fk_ref_table == table_name:
-                        child_fk = c_col.name
-                        break
+            if not child_fk:
+                continue
 
-                if not child_fk:
-                    continue
-
-                ComputedStrategy.backfill(
-                    parent_df=tables[table_name],
-                    child_df=tables[child_table],
-                    parent_pk=pk_col,
-                    child_fk=child_fk,
-                    child_column=child_column,
-                    target_column=col_name,
-                    rule=rule,
-                )
+            ComputedStrategy.backfill(
+                parent_df=tables[table_name],
+                child_df=tables[child_table],
+                parent_pk=pk_col,
+                child_fk=child_fk,
+                child_column=child_column,
+                target_column=col_name,
+                rule=rule,
+            )

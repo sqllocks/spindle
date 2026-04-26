@@ -63,6 +63,10 @@ def generate_chunk(
     from sqllocks_spindle.engine.strategies.sequence import SequenceStrategy
     from sqllocks_spindle.engine.strategies.temporal import TemporalStrategy
     from sqllocks_spindle.engine.strategies.uuid_strategy import UUIDStrategy
+    from sqllocks_spindle.engine.strategies.composite_foreign_key import (
+        CompositeForeignKeyStrategy,
+        CompositeFKFieldStrategy,
+    )
     from sqllocks_spindle.engine.table_generator import TableGenerator
     from sqllocks_spindle.schema.dependency import DependencyResolver
     from sqllocks_spindle.schema.parser import SchemaParser
@@ -71,6 +75,12 @@ def generate_chunk(
     schema_dict = json.loads(Path(schema_path).read_text())
     parser = SchemaParser()
     schema = parser.parse_dict(schema_dict)
+
+    # Read static/dynamic classification injected by ScaleRouter
+    static_tables: set[str] = set(schema_dict.get("_static_tables", []))
+    dynamic_tables: set[str] = set(schema_dict.get("_dynamic_tables", []))
+    static_pk_data: dict = schema_dict.get("_static_pk_data", {})
+    schema_counts: dict = schema_dict.get("_schema_counts", {})
 
     # Override seed for this chunk
     schema.model.seed = seed
@@ -100,11 +110,16 @@ def generate_chunk(
     registry.register("record_sample", RecordSampleStrategy())
     registry.register("record_field", RecordFieldStrategy())
     registry.register("scd2", SCD2Strategy())
+    registry.register("composite_foreign_key", CompositeForeignKeyStrategy())
+    registry.register("composite_fk_field", CompositeFKFieldStrategy())
     registry.load_entrypoint_plugins()
 
     # Resolve generation order so FK deps are satisfied
     resolver = DependencyResolver()
     gen_order = resolver.resolve(schema)
+
+    import pandas as pd
+    from sqllocks_spindle.engine.generator import apply_compute_phase
 
     rng = np.random.default_rng(seed)
     id_manager = IDManager(rng)
@@ -120,10 +135,25 @@ def generate_chunk(
     if "_domain_path" in schema_dict:
         model_config["_domain_path"] = schema_dict["_domain_path"]
 
-    result: dict[str, dict[str, list]] = {}
+    # Pre-load static table PK pools so dynamic tables can FK-reference them.
+    # Static table data was generated once by ScaleRouter and broadcast here.
+    for sname, col_lists in static_pk_data.items():
+        if sname not in schema.tables:
+            continue
+        sdf = pd.DataFrame({col: vals for col, vals in col_lists.items()})
+        pk_cols = schema.tables[sname].primary_key
+        id_manager.register_table(sname, sdf, pk_cols)
+        logger.debug("chunk_worker: pre-loaded static table '%s' (%d rows)", sname, len(sdf))
+
+    result_dfs: dict[str, pd.DataFrame] = {}
 
     for table_name in gen_order:
         if table_name not in schema.tables:
+            continue
+
+        # Skip static tables — they were generated once by ScaleRouter
+        if static_tables and table_name in static_tables:
+            logger.debug("chunk_worker: skipping static table '%s'", table_name)
             continue
 
         table_def = schema.tables[table_name]
@@ -146,15 +176,25 @@ def generate_chunk(
             sequence_offset=offset,
         )
 
-        # Convert to plain Python lists — numpy arrays don't pickle reliably
-        # across process boundaries (dtype/endianness edge cases).
-        result[table_name] = {
-            col: (
-                series.tolist()
-                if hasattr(series, "tolist")
-                else list(series)
-            )
+        result_dfs[table_name] = df
+
+    # Apply computed column back-fill (e.g. order.total_amount summed from order_line)
+    apply_compute_phase(result_dfs, schema)
+
+    # Apply business rules (e.g. end_date >= start_date) within this chunk
+    if schema.business_rules:
+        from sqllocks_spindle.engine.rules.business_rules import BusinessRulesEngine
+        rules_engine = BusinessRulesEngine()
+        rules_engine.fix_violations(result_dfs, schema, rng)
+
+    # Convert DataFrames to plain Python lists — numpy arrays don't pickle
+    # reliably across process boundaries (dtype/endianness edge cases).
+    result: dict[str, dict[str, list]] = {
+        table_name: {
+            col: (series.tolist() if hasattr(series, "tolist") else list(series))
             for col, series in df.items()
         }
+        for table_name, df in result_dfs.items()
+    }
 
     return result
