@@ -1937,8 +1937,11 @@ def demo_list():
 @click.option("--dry-run", is_flag=True, default=False)
 @click.option("--estimate", "estimate_only", is_flag=True, default=False)
 @click.option("--seed", default=None, type=int)
+@click.option("--scale-mode", "scale_mode", default="auto",
+              type=click.Choice(["auto", "local", "spark"]),
+              help="local: ProcessPoolExecutor; spark: Fabric notebook; auto: pick by row count + connection")
 def demo_run(scenario, mode, connection, input_file, rows, domain, domains,
-             env_name, output_formats, dry_run, estimate_only, seed):
+             env_name, output_formats, dry_run, estimate_only, seed, scale_mode):
     """Run a demo scenario."""
     from sqllocks_spindle.demo.params import DemoParams
     from sqllocks_spindle.demo.orchestrator import DemoOrchestrator
@@ -1948,7 +1951,8 @@ def demo_run(scenario, mode, connection, input_file, rows, domain, domains,
     fmt_list = [f.strip() for f in output_formats.split(",")]
     params = DemoParams(scenario=scenario, mode=mode, connection=connection, input_file=input_file,
                         rows=effective_rows, domain=domain, domains=domain_list, env_name=env_name,
-                        output_formats=fmt_list, dry_run=dry_run, estimate_only=estimate_only, seed=seed)
+                        output_formats=fmt_list, dry_run=dry_run, estimate_only=estimate_only,
+                        seed=seed, scale_mode=scale_mode)
     result = DemoOrchestrator().run(params)
     if result.success:
         click.echo(f"\nSession: {result.session_id}")

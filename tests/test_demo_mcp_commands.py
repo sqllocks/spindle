@@ -108,3 +108,14 @@ def test_cmd_demo_run_passes_scale_mode_through(monkeypatch):
     cmd_demo_run({"scenario": "retail", "mode": "seeding",
                   "rows": 1000, "scale_mode": "spark", "connection": None})
     assert captured["scale_mode"] == "spark"
+
+
+def test_cli_demo_run_accepts_scale_mode_flag():
+    """Smoke test: --scale-mode flag is accepted by the CLI command."""
+    from click.testing import CliRunner
+    from sqllocks_spindle.cli import demo_run
+
+    runner = CliRunner()
+    result = runner.invoke(demo_run, ["--help"])
+    assert result.exit_code == 0
+    assert "--scale-mode" in result.output
