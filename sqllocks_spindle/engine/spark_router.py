@@ -109,7 +109,26 @@ class FabricSparkRouter:
 
         from sqllocks_spindle.notebooks import SPARK_WORKER_IPYNB
 
-        payload_b64 = base64.b64encode(json.dumps(SPARK_WORKER_IPYNB).encode()).decode()
+        notebook_b64 = base64.b64encode(json.dumps(SPARK_WORKER_IPYNB).encode()).decode()
+        # Fabric requires a .platform JSON part alongside the notebook content.
+        # Without it, the notebook fails at runtime with "Job instance failed
+        # without detail error" after the Spark cluster spins up.
+        platform_json = {
+            "$schema": (
+                "https://developer.microsoft.com/json-schemas/fabric/"
+                "gitIntegration/platformProperties/2.0.0/schema.json"
+            ),
+            "metadata": {
+                "type": "Notebook",
+                "displayName": self._notebook_name,
+                "description": "Spindle Spark worker notebook (auto-generated)",
+            },
+            "config": {
+                "version": "2.0",
+                "logicalId": "00000000-0000-0000-0000-000000000000",
+            },
+        }
+        platform_b64 = base64.b64encode(json.dumps(platform_json).encode()).decode()
         body = {
             "displayName": self._notebook_name,
             "type": "Notebook",
@@ -118,9 +137,14 @@ class FabricSparkRouter:
                 "parts": [
                     {
                         "path": "notebook-content.ipynb",
-                        "payload": payload_b64,
+                        "payload": notebook_b64,
                         "payloadType": "InlineBase64",
-                    }
+                    },
+                    {
+                        "path": ".platform",
+                        "payload": platform_b64,
+                        "payloadType": "InlineBase64",
+                    },
                 ],
             },
         }
