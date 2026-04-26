@@ -23,6 +23,7 @@ from pathlib import Path
 from sqllocks_spindle import __version__
 from sqllocks_spindle.engine.async_job_store import AsyncJobStore
 from sqllocks_spindle.engine.job_tracker import FabricJobTracker
+from sqllocks_spindle.engine.spark_router import FabricSparkRouter
 
 _job_store = AsyncJobStore()
 
@@ -353,9 +354,56 @@ def cmd_scale_generate(params: dict) -> dict:
     mode = params.get("mode", "3nf")
     profile = params.get("profile")
 
-    # fabric_spark is not yet implemented
     if scale_mode == "fabric_spark":
-        return {"error": "not_implemented"}
+        import dataclasses as _dc
+
+        workspace_id = sink_config.get("workspace_id", "")
+        lakehouse_id = sink_config.get("lakehouse_id", "")
+        token = sink_config.get("token", "")
+        notebook_name = sink_config.get("notebook_name", "spindle_spark_worker")
+
+        if not workspace_id or not lakehouse_id or not token:
+            raise ValueError(
+                "fabric_spark requires sink_config with workspace_id, lakehouse_id, and token"
+            )
+
+        from sqllocks_spindle.engine.generator import Spindle
+
+        domain = _resolve_domain(domain_name, mode, profile)
+        spindle = Spindle()
+        parsed = spindle._resolve_schema(domain, None)
+        parsed.generation.scale = scale
+        parsed.model.seed = seed
+
+        row_counts = spindle._calculate_row_counts(parsed)
+        total_rows = sum(row_counts.values())
+
+        schema_dict = _dc.asdict(parsed)
+        if hasattr(domain, "child_domains"):
+            schema_dict["_domain_path"] = [str(d.domain_path) for d in domain.child_domains]
+        elif hasattr(domain, "domain_path"):
+            schema_dict["_domain_path"] = str(domain.domain_path)
+
+        router = FabricSparkRouter(
+            workspace_id=workspace_id,
+            lakehouse_id=lakehouse_id,
+            token=token,
+            notebook_name=notebook_name,
+            sinks=sinks_list,
+            sink_config=sink_config,
+            chunk_size=chunk_size,
+        )
+        record = router.submit(schema_dict, total_rows=total_rows, seed=seed)
+        _job_store.put(record)
+        return {
+            "job_id": record.job_id,
+            "fabric_run_id": record.fabric_run_id,
+            "status": "submitted",
+            "domain": domain_name,
+            "scale": scale,
+            "total_rows_queued": total_rows,
+            "schema_temp_path": record.schema_temp_path,
+        }
 
     from sqllocks_spindle.engine.generator import Spindle
 

@@ -423,3 +423,38 @@ def test_cmd_scale_cancel_known_job_cancels_fabric():
         workspace_id="ws-2", item_id="nb-2", run_id="fab-run-002"
     )
     assert result["cancelled"] is True
+
+
+def test_cmd_scale_generate_fabric_spark_returns_job_id():
+    """cmd_scale_generate with fabric_spark returns {job_id, status:'submitted'}."""
+    import sqllocks_spindle.mcp_bridge as bridge_mod
+    from sqllocks_spindle.engine.async_job_store import JobRecord
+
+    fake_record = JobRecord(
+        job_id="spindle-gentest",
+        fabric_run_id="run-gen-001",
+        workspace_id="ws-gen",
+        notebook_item_id="nb-gen-test",
+        schema_temp_path="spindle_temp/gen_schema.json",
+        lakehouse_id="lh-gen",
+        token="tok-gen",
+    )
+
+    mock_router = MagicMock()
+    mock_router.submit.return_value = fake_record
+
+    with patch("sqllocks_spindle.mcp_bridge.FabricSparkRouter", return_value=mock_router):
+        result = _run_bridge_command("scale_generate", {
+            "domain": "retail",
+            "scale": "small",
+            "scale_mode": "fabric_spark",
+            "sink_config": {
+                "workspace_id": "ws-gen",
+                "lakehouse_id": "lh-gen",
+                "token": "tok-gen",
+            },
+        })
+
+    assert result.get("status") == "submitted"
+    assert result.get("job_id") == "spindle-gentest"
+    assert "fabric_run_id" in result

@@ -161,15 +161,17 @@ class TestMcpBridgeScaleGenerate:
         assert result["sinks_written"].get("parquet") == "ok"
         assert len(list(tmp_path.iterdir())) > 0
 
-    def test_scale_generate_fabric_spark_not_implemented(self):
-        result = cmd_scale_generate({
-            "domain": "retail",
-            "scale": "small",
-            "scale_mode": "fabric_spark",
-            "sinks": ["memory"],
-            "sink_config": {},
-        })
-        assert result.get("error") == "not_implemented"
+    def test_scale_generate_fabric_spark_missing_sink_config_raises(self):
+        """fabric_spark with empty sink_config raises ValueError (not a stub error)."""
+        import pytest
+        with pytest.raises(ValueError, match="fabric_spark requires sink_config"):
+            cmd_scale_generate({
+                "domain": "retail",
+                "scale": "small",
+                "scale_mode": "fabric_spark",
+                "sinks": ["memory"],
+                "sink_config": {},
+            })
 
 
 class TestMcpBridgeStreaming:
