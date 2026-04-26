@@ -39,3 +39,33 @@ def test_unknown_format_raises():
     m = DemoManifest()
     with pytest.raises(ValueError):
         m.export("xml")
+
+
+def test_manifest_records_fabric_run_id(tmp_path):
+    from sqllocks_spindle.demo.manifest import DemoManifest
+    m = DemoManifest(scenario="retail", mode="seeding")
+    m.fabric_run_id = "run-abc-123"
+    m.scale_mode = "spark"
+    m.workspace_id = "ws-456"
+    m.notebook_item_id = "nb-789"
+    m.finish(success=True)
+    path = m.save(directory=tmp_path)
+    assert path.exists()
+    loaded = DemoManifest.load(m.session_id, directory=tmp_path)
+    assert loaded.fabric_run_id == "run-abc-123"
+    assert loaded.scale_mode == "spark"
+    assert loaded.workspace_id == "ws-456"
+    assert loaded.notebook_item_id == "nb-789"
+
+
+def test_manifest_defaults_for_local_mode(tmp_path):
+    from sqllocks_spindle.demo.manifest import DemoManifest
+    m = DemoManifest(scenario="retail", mode="seeding")
+    m.scale_mode = "local"
+    m.finish(success=True)
+    path = m.save(directory=tmp_path)
+    loaded = DemoManifest.load(m.session_id, directory=tmp_path)
+    assert loaded.scale_mode == "local"
+    assert loaded.fabric_run_id is None
+    assert loaded.workspace_id is None
+    assert loaded.notebook_item_id is None

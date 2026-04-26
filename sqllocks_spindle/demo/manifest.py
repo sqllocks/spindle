@@ -28,6 +28,10 @@ class DemoManifest:
     artifacts: list = field(default_factory=list)
     params: dict = field(default_factory=dict)
     metrics: dict = field(default_factory=dict)
+    scale_mode: Optional[str] = None
+    fabric_run_id: Optional[str] = None
+    workspace_id: Optional[str] = None
+    notebook_item_id: Optional[str] = None
     _path: Optional[Any] = field(default=None, repr=False, compare=False)
 
     def add_artifact(self, target: str, name: str, row_count: int = 0, detail: str = "") -> None:
