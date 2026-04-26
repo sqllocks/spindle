@@ -47,6 +47,33 @@ def _rows_to_scale(rows: int) -> str:
     return "xlarge"
 
 
+_SPARK_AUTO_THRESHOLD = 500_000
+
+
+def _resolve_scale_mode(requested: str, conn_profile, rows: int) -> str:
+    """Resolve 'auto' to 'local' or 'spark' based on connection and row count.
+
+    'spark' requires a connection profile with a non-empty lakehouse_id.
+    'local' always works.
+    'auto' picks 'spark' when connection is present, lakehouse_id is set,
+    and rows >= _SPARK_AUTO_THRESHOLD; otherwise 'local'.
+    """
+    if requested == "local":
+        return "local"
+    if requested == "spark":
+        if conn_profile is None:
+            raise ValueError("Spark mode requires a connection profile")
+        if not getattr(conn_profile, "lakehouse_id", ""):
+            raise ValueError("Spark mode requires lakehouse_id in connection profile")
+        return "spark"
+    # auto
+    if (conn_profile is not None
+            and getattr(conn_profile, "lakehouse_id", "")
+            and rows >= _SPARK_AUTO_THRESHOLD):
+        return "spark"
+    return "local"
+
+
 class SeedingDemoMode:
     """Generate and write data to all configured Fabric targets."""
 
