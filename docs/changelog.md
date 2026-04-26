@@ -5,6 +5,38 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2026-04-27
+
+### Changed
+
+- **Demo Engine — Phase 2 wiring**: `SeedingDemoMode.run()` now performs real Fabric
+  sink writes, replacing the previous manifest-only stub. Local mode delegates to
+  `ScaleRouter` (multi-process); Spark mode delegates to `FabricSparkRouter`
+  (Fabric notebook submission). Sinks are constructed from the connection profile
+  and fan out simultaneously to all configured targets (lakehouse + warehouse +
+  sql_db + eventhouse).
+- New `--scale-mode {auto,local,spark}` flag on `spindle demo run`. `auto` selects
+  `spark` when a connection profile is configured, `lakehouse_id` is set, and
+  `rows >= 500_000`; otherwise `local`.
+- `DemoManifest` now records `scale_mode`, `fabric_run_id`, `workspace_id`, and
+  `notebook_item_id` so Spark runs can be polled and cleaned up by `session_id`.
+- `cmd_demo_run` now forwards `scale_mode` into `DemoParams` and includes
+  `fabric_run_id` and `status` in the response payload for Spark submissions.
+- `ConnectionProfile` extended with `warehouse_staging_path` and
+  `eventhouse_database` fields (required by `WarehouseSink` and `KQLSink`).
+
+### Added
+
+- `cmd_demo_status` MCP bridge command — reads the manifest by `session_id` and,
+  when the run was a Spark submission, polls `FabricJobTracker.get_status` for
+  live Fabric job state
+- `cmd_demo_cleanup` MCP bridge command — runs `CleanupEngine` against a saved
+  manifest by `session_id`
+
+### Test count
+
+1,930 → 1,946 (+16 new tests)
+
 ## [2.7.0] - 2026-04-27
 
 ### Added
