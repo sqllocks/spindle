@@ -251,25 +251,27 @@ class FabricSparkRouter:
             f"{_FABRIC_API}/workspaces/{self._workspace_id}"
             f"/items/{notebook_item_id}/jobs/instances?jobType=RunNotebook"
         )
-        # Fabric notebook parameter format: each value needs a "type" field.
-        # Valid types: string | int | float | bool. (cellLanguage is NOT a valid key.)
+        # Fabric Job Scheduler API parameter format: top-level "parameters" array,
+        # NOT nested in executionData. Each entry: {name, value, type}.
+        # Valid types (PascalCase): Text | Number | Integer | Boolean | DateTime | Guid.
+        # (The `executionData.parameters` dict format is silently accepted but
+        # ignored — caught in live testing 2026-04-26.)
         body = {
-            "executionData": {
-                "parameters": {
-                    "schema_path": {"value": schema_path, "type": "string"},
-                    "chunk_size": {"value": self._chunk_size, "type": "int"},
-                    "seed": {"value": seed, "type": "int"},
-                    "total_rows": {"value": total_rows, "type": "int"},
-                    "sinks_json": {
-                        "value": json.dumps(
-                            {"sinks": self._sinks, "sink_config": self._sink_config}
-                        ),
-                        "type": "string",
-                    },
-                    "workspace_id": {"value": self._workspace_id, "type": "string"},
-                    "lakehouse_id": {"value": self._lakehouse_id, "type": "string"},
-                }
-            }
+            "parameters": [
+                {"name": "schema_path", "value": schema_path, "type": "Text"},
+                {"name": "chunk_size", "value": self._chunk_size, "type": "Integer"},
+                {"name": "seed", "value": seed, "type": "Integer"},
+                {"name": "total_rows", "value": total_rows, "type": "Integer"},
+                {
+                    "name": "sinks_json",
+                    "value": json.dumps(
+                        {"sinks": self._sinks, "sink_config": self._sink_config}
+                    ),
+                    "type": "Text",
+                },
+                {"name": "workspace_id", "value": self._workspace_id, "type": "Text"},
+                {"name": "lakehouse_id", "value": self._lakehouse_id, "type": "Text"},
+            ]
         }
         resp = requests.post(url, headers=self._json_headers(), json=body, timeout=30)
         if resp.status_code == 202:
