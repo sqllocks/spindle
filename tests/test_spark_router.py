@@ -144,3 +144,197 @@ def test_tracker_cancel():
 
     assert result["cancelled"] is True
     assert result["fabric_run_id"] == "run3"
+
+
+# ---------------------------------------------------------------------------
+# FabricSparkRouter tests
+# ---------------------------------------------------------------------------
+
+
+def _minimal_schema_dict_dynamic() -> dict:
+    """Schema where all tables have count >= 500 (so all are dynamic at chunk_size=500)."""
+    return {
+        "model": {"name": "test", "domain": "test", "seed": 42, "locale": "en_US", "date_range": None},
+        "tables": {
+            "widgets": {
+                "name": "widgets",
+                "columns": {
+                    "widget_id": {
+                        "name": "widget_id",
+                        "type": "integer",
+                        "generator": {"strategy": "sequence", "start": 1},
+                        "nullable": False,
+                        "null_rate": 0.0,
+                    },
+                },
+                "primary_key": ["widget_id"],
+                "description": "test",
+            }
+        },
+        "relationships": [],
+        "business_rules": [],
+        "generation": {
+            "scale": "large",
+            "scales": {"large": {"widgets": 1000}},
+        },
+    }
+
+
+def _make_router(**kwargs):
+    from sqllocks_spindle.engine.spark_router import FabricSparkRouter
+
+    defaults = dict(
+        workspace_id="ws-123",
+        lakehouse_id="lh-456",
+        token="bearer-tok",
+        chunk_size=500,
+    )
+    defaults.update(kwargs)
+    return FabricSparkRouter(**defaults)
+
+
+def _mock_http_for_submit(notebook_list_items=None, notebook_id="nb-789", submit_status=202):
+    """Return (get_mock, post_mock, put_mock, patch_mock) for a happy-path submit."""
+    if notebook_list_items is None:
+        notebook_list_items = [{"id": notebook_id, "displayName": "spindle_spark_worker"}]
+
+    get_mock = MagicMock()
+    get_mock.return_value.status_code = 200
+    get_mock.return_value.json.return_value = {"value": notebook_list_items}
+    get_mock.return_value.raise_for_status = MagicMock()
+
+    post_mock = MagicMock()
+    post_mock.return_value.status_code = submit_status
+    post_mock.return_value.headers = {
+        "Location": f"https://api.fabric.microsoft.com/v1/runs/{notebook_id}/jobs/instances/run-001"
+    }
+    post_mock.return_value.json.return_value = {"id": "run-001"}
+    post_mock.return_value.raise_for_status = MagicMock()
+
+    put_mock = MagicMock()
+    put_mock.return_value.status_code = 201
+    put_mock.return_value.raise_for_status = MagicMock()
+
+    patch_mock = MagicMock()
+    patch_mock.return_value.status_code = 200
+    patch_mock.return_value.raise_for_status = MagicMock()
+
+    return get_mock, post_mock, put_mock, patch_mock
+
+
+def test_submit_returns_job_record():
+    """submit() returns a JobRecord with non-empty job_id and fabric_run_id."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        record = router.submit(schema, total_rows=1000, seed=42)
+
+    assert record.job_id
+    assert record.fabric_run_id
+    assert record.workspace_id == "ws-123"
+    assert record.notebook_item_id == "nb-789"
+
+
+def test_submit_uploads_schema_to_onelake():
+    """submit() makes three OneLake DFS calls (create, append, flush) before notebook submission."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        router.submit(schema, total_rows=1000, seed=42)
+
+    assert put_m.call_count == 1
+    assert patch_m.call_count == 2
+    put_url = put_m.call_args[0][0]
+    assert "onelake.dfs.fabric.microsoft.com" in put_url
+    assert "ws-123" in put_url
+    assert "lh-456" in put_url
+    assert "spindle_temp/" in put_url
+
+
+def test_submit_embeds_schema_counts_in_upload():
+    """Uploaded schema JSON contains _schema_counts and _base_seed keys."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+    captured_body = []
+
+    def capture_patch(url, **kwargs):
+        if "action=append" in url:
+            captured_body.append(kwargs.get("data", b""))
+        m = MagicMock()
+        m.raise_for_status = MagicMock()
+        return m
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", capture_patch):
+        router = _make_router()
+        router.submit(schema, total_rows=1000, seed=42)
+
+    uploaded = json.loads(captured_body[0])
+    assert "_schema_counts" in uploaded
+    assert "_base_seed" in uploaded
+    assert uploaded["_base_seed"] == 42
+
+
+def test_submit_finds_existing_notebook():
+    """submit() uses the existing notebook ID when found — does not create a new one."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    existing_id = "nb-existing"
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit(
+        notebook_list_items=[{"id": existing_id, "displayName": "spindle_spark_worker"}],
+        notebook_id=existing_id,
+    )
+    schema = _minimal_schema_dict_dynamic()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        record = router.submit(schema, total_rows=1000, seed=42)
+
+    assert record.notebook_item_id == existing_id
+
+
+def test_submit_creates_notebook_when_missing():
+    """submit() creates the notebook via POST /items when not found in workspace."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit(notebook_list_items=[])
+    created_id = "nb-newly-created"
+    post_responses = [
+        MagicMock(**{"status_code": 200, "json.return_value": {"id": created_id}, "raise_for_status": MagicMock()}),
+        MagicMock(**{"status_code": 202, "headers": {"Location": ".../run-999"}, "raise_for_status": MagicMock()}),
+    ]
+    post_m.side_effect = post_responses
+
+    schema = _minimal_schema_dict_dynamic()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        record = router.submit(schema, total_rows=1000, seed=42)
+
+    assert record.notebook_item_id == created_id
+    first_call_url = post_m.call_args_list[0][0][0]
+    assert "/items" in first_call_url
