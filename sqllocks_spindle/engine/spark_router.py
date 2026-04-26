@@ -227,21 +227,23 @@ class FabricSparkRouter:
             f"{_FABRIC_API}/workspaces/{self._workspace_id}"
             f"/items/{notebook_item_id}/jobs/instances?jobType=RunNotebook"
         )
+        # Fabric notebook parameter format: each value needs a "type" field.
+        # Valid types: string | int | float | bool. (cellLanguage is NOT a valid key.)
         body = {
             "executionData": {
                 "parameters": {
-                    "schema_path": {"value": schema_path, "cellLanguage": "Python"},
-                    "chunk_size": {"value": str(self._chunk_size), "cellLanguage": "Python"},
-                    "seed": {"value": str(seed), "cellLanguage": "Python"},
-                    "total_rows": {"value": str(total_rows), "cellLanguage": "Python"},
+                    "schema_path": {"value": schema_path, "type": "string"},
+                    "chunk_size": {"value": self._chunk_size, "type": "int"},
+                    "seed": {"value": seed, "type": "int"},
+                    "total_rows": {"value": total_rows, "type": "int"},
                     "sinks_json": {
                         "value": json.dumps(
                             {"sinks": self._sinks, "sink_config": self._sink_config}
                         ),
-                        "cellLanguage": "Python",
+                        "type": "string",
                     },
-                    "workspace_id": {"value": self._workspace_id, "cellLanguage": "Python"},
-                    "lakehouse_id": {"value": self._lakehouse_id, "cellLanguage": "Python"},
+                    "workspace_id": {"value": self._workspace_id, "type": "string"},
+                    "lakehouse_id": {"value": self._lakehouse_id, "type": "string"},
                 }
             }
         }
