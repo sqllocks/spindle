@@ -62,12 +62,28 @@ class FabricSparkRouter:
         self._sinks = sinks or ["lakehouse"]
         self._sink_config = sink_config or {}
         self._chunk_size = chunk_size
+        self._storage_token: str | None = None
 
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}"}
 
     def _json_headers(self) -> dict[str, str]:
         return {**self._auth_headers(), "Content-Type": "application/json"}
+
+    def _get_storage_token(self) -> str:
+        """Acquire (and cache) a token for OneLake / ADLS Gen2.
+
+        OneLake DFS requires the ``https://storage.azure.com/.default`` audience —
+        distinct from the Fabric API token used for Items/Jobs endpoints.
+        """
+        if self._storage_token is None:
+            from azure.identity import AzureCliCredential
+            cred = AzureCliCredential()
+            self._storage_token = cred.get_token("https://storage.azure.com/.default").token
+        return self._storage_token
+
+    def _storage_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._get_storage_token()}"}
 
     def _get_or_create_notebook(self) -> str:
         """Return the item ID for the Spark worker notebook, creating if absent."""
@@ -123,20 +139,20 @@ class FabricSparkRouter:
 
         requests.put(
             f"{base_url}?resource=file",
-            headers=self._auth_headers(),
+            headers=self._storage_headers(),
             timeout=30,
         ).raise_for_status()
 
         requests.patch(
             f"{base_url}?action=append&position=0",
-            headers={**self._auth_headers(), "Content-Length": str(len(data))},
+            headers={**self._storage_headers(), "Content-Length": str(len(data))},
             data=data,
             timeout=120,
         ).raise_for_status()
 
         requests.patch(
             f"{base_url}?action=flush&position={len(data)}",
-            headers=self._auth_headers(),
+            headers=self._storage_headers(),
             timeout=30,
         ).raise_for_status()
 

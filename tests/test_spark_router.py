@@ -265,6 +265,34 @@ def test_submit_uploads_schema_to_onelake():
     assert "spindle_temp/" in put_url
 
 
+def test_upload_schema_uses_storage_scoped_token():
+    """Regression: OneLake DFS upload must use a token scoped to storage.azure.com,
+    not the Fabric API token. Caught a 401 in live testing 2026-04-26.
+    """
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    fake_storage_token = MagicMock()
+    fake_storage_token.token = "storage-token-abc"
+    fake_credential = MagicMock()
+    fake_credential.get_token.return_value = fake_storage_token
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+
+    with patch("azure.identity.AzureCliCredential",
+               MagicMock(return_value=fake_credential)), \
+         patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        router.submit(schema, total_rows=1000, seed=42)
+
+    fake_credential.get_token.assert_called_with("https://storage.azure.com/.default")
+    put_headers = put_m.call_args.kwargs["headers"]
+    assert put_headers["Authorization"] == "Bearer storage-token-abc"
+
+
 def test_submit_embeds_schema_counts_in_upload():
     """Uploaded schema JSON contains _schema_counts and _base_seed keys."""
     import sqllocks_spindle.engine.spark_router as sr_mod
