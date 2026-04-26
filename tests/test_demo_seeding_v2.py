@@ -110,3 +110,23 @@ def test_build_sinks_skips_kql_without_database():
     sinks, sinks_list, sink_config = _build_sinks(conn, token="t")
     types = [s["type"] for s in sinks_list]
     assert "kql" not in types
+
+
+from sqllocks_spindle.demo.modes.seeding import _acquire_token
+
+
+def test_acquire_token_uses_azure_cli_credential(monkeypatch):
+    fake_token = MagicMock()
+    fake_token.token = "ey-fake-token"
+    fake_credential = MagicMock()
+    fake_credential.get_token.return_value = fake_token
+
+    monkeypatch.setattr(
+        "azure.identity.AzureCliCredential",
+        MagicMock(return_value=fake_credential),
+    )
+    token = _acquire_token()
+    assert token == "ey-fake-token"
+    fake_credential.get_token.assert_called_once_with(
+        "https://api.fabric.microsoft.com/.default"
+    )

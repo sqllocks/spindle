@@ -171,6 +171,17 @@ def _build_sinks(conn, token: str) -> tuple[list, list, dict]:
     return sinks, sinks_list, sink_config
 
 
+def _acquire_token(scope: str = "https://api.fabric.microsoft.com/.default") -> str:
+    """Acquire an Entra bearer token for the Fabric API.
+
+    Uses AzureCliCredential (matches existing patterns in fabric/credentials.py).
+    The caller must have run `az login`.
+    """
+    from azure.identity import AzureCliCredential
+    cred = AzureCliCredential()
+    return cred.get_token(scope).token
+
+
 class SeedingDemoMode:
     """Generate and write data to all configured Fabric targets."""
 
