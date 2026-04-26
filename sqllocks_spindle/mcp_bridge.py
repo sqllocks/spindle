@@ -21,6 +21,10 @@ import traceback
 from pathlib import Path
 
 from sqllocks_spindle import __version__
+from sqllocks_spindle.engine.async_job_store import AsyncJobStore
+from sqllocks_spindle.engine.job_tracker import FabricJobTracker
+
+_job_store = AsyncJobStore()
 
 
 def _discover_domains() -> dict:
@@ -574,6 +578,40 @@ def cmd_stream_stop(params: dict) -> dict:
     return {"stream_id": stream_id, "status": status}
 
 
+def cmd_scale_status(params: dict) -> dict:
+    """Poll the status of a submitted fabric_spark generation job."""
+    job_id = params.get("job_id", "")
+    record = _job_store.get(job_id)
+    if record is None:
+        return {"error": "job_not_found", "job_id": job_id}
+
+    tracker = FabricJobTracker(token=record.token)
+    result = tracker.get_status(
+        workspace_id=record.workspace_id,
+        item_id=record.notebook_item_id,
+        run_id=record.fabric_run_id,
+    )
+    _job_store.update_status(job_id, result["status"])
+    return {**result, "job_id": job_id}
+
+
+def cmd_scale_cancel(params: dict) -> dict:
+    """Cancel an in-flight fabric_spark generation job."""
+    job_id = params.get("job_id", "")
+    record = _job_store.get(job_id)
+    if record is None:
+        return {"error": "job_not_found", "job_id": job_id}
+
+    tracker = FabricJobTracker(token=record.token)
+    result = tracker.cancel(
+        workspace_id=record.workspace_id,
+        item_id=record.notebook_item_id,
+        run_id=record.fabric_run_id,
+    )
+    _job_store.update_status(job_id, "cancelled")
+    return {**result, "job_id": job_id}
+
+
 def cmd_demo_list(_params: dict) -> dict:
     """List all available demo scenarios."""
     from sqllocks_spindle.demo.catalog import get_catalog
@@ -671,6 +709,8 @@ COMMANDS = {
     "stream": cmd_stream,
     "stream_status": cmd_stream_status,
     "stream_stop": cmd_stream_stop,
+    "scale_status": cmd_scale_status,
+    "scale_cancel": cmd_scale_cancel,
 }
 
 

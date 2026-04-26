@@ -338,3 +338,88 @@ def test_submit_creates_notebook_when_missing():
     assert record.notebook_item_id == created_id
     first_call_url = post_m.call_args_list[0][0][0]
     assert "/items" in first_call_url
+
+
+# ---------------------------------------------------------------------------
+# MCP bridge command tests
+# ---------------------------------------------------------------------------
+
+
+def _run_bridge_command(command: str, params: dict) -> dict:
+    """Helper: import and dispatch an mcp_bridge command function directly."""
+    import importlib
+    bridge = importlib.import_module("sqllocks_spindle.mcp_bridge")
+    fn = bridge.COMMANDS[command]
+    return fn(params)
+
+
+def test_cmd_scale_status_unknown_job_id():
+    """cmd_scale_status returns {error: 'job_not_found'} for unknown job_id."""
+    result = _run_bridge_command("scale_status", {"job_id": "no-such-job"})
+    assert result.get("error") == "job_not_found"
+
+
+def test_cmd_scale_cancel_unknown_job_id():
+    """cmd_scale_cancel returns {error: 'job_not_found'} for unknown job_id."""
+    result = _run_bridge_command("scale_cancel", {"job_id": "no-such-job"})
+    assert result.get("error") == "job_not_found"
+
+
+def test_cmd_scale_status_known_job_polls_fabric():
+    """cmd_scale_status calls FabricJobTracker.get_status for a known job."""
+    import sqllocks_spindle.mcp_bridge as bridge_mod
+    from sqllocks_spindle.engine.async_job_store import JobRecord
+
+    record = JobRecord(
+        job_id="spindle-abc",
+        fabric_run_id="fab-run-001",
+        workspace_id="ws-1",
+        notebook_item_id="nb-1",
+        schema_temp_path="spindle_temp/abc_schema.json",
+        lakehouse_id="lh-1",
+        token="tok",
+    )
+    bridge_mod._job_store.put(record)
+
+    mock_tracker = MagicMock()
+    mock_tracker.get_status.return_value = {
+        "status": "running",
+        "fabric_status": "InProgress",
+        "fabric_run_id": "fab-run-001",
+    }
+
+    with patch("sqllocks_spindle.mcp_bridge.FabricJobTracker", return_value=mock_tracker):
+        result = _run_bridge_command("scale_status", {"job_id": "spindle-abc"})
+
+    mock_tracker.get_status.assert_called_once_with(
+        workspace_id="ws-1", item_id="nb-1", run_id="fab-run-001"
+    )
+    assert result["status"] == "running"
+
+
+def test_cmd_scale_cancel_known_job_cancels_fabric():
+    """cmd_scale_cancel calls FabricJobTracker.cancel for a known job."""
+    import sqllocks_spindle.mcp_bridge as bridge_mod
+    from sqllocks_spindle.engine.async_job_store import JobRecord
+
+    record = JobRecord(
+        job_id="spindle-def",
+        fabric_run_id="fab-run-002",
+        workspace_id="ws-2",
+        notebook_item_id="nb-2",
+        schema_temp_path="spindle_temp/def_schema.json",
+        lakehouse_id="lh-2",
+        token="tok2",
+    )
+    bridge_mod._job_store.put(record)
+
+    mock_tracker = MagicMock()
+    mock_tracker.cancel.return_value = {"cancelled": True, "fabric_run_id": "fab-run-002"}
+
+    with patch("sqllocks_spindle.mcp_bridge.FabricJobTracker", return_value=mock_tracker):
+        result = _run_bridge_command("scale_cancel", {"job_id": "spindle-def"})
+
+    mock_tracker.cancel.assert_called_once_with(
+        workspace_id="ws-2", item_id="nb-2", run_id="fab-run-002"
+    )
+    assert result["cancelled"] is True
