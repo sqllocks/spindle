@@ -342,14 +342,17 @@ def test_submit_finds_existing_notebook():
     assert record.notebook_item_id == existing_id
 
 
-def test_submit_creates_notebook_when_missing():
-    """submit() creates the notebook via POST /items when not found in workspace."""
+def test_submit_creates_notebook_when_missing_sync():
+    """submit() creates the notebook via POST /items when not found in workspace.
+
+    Sync path: Items API returns 201 with body containing the new item ID.
+    """
     import sqllocks_spindle.engine.spark_router as sr_mod
 
     get_m, post_m, put_m, patch_m = _mock_http_for_submit(notebook_list_items=[])
     created_id = "nb-newly-created"
     post_responses = [
-        MagicMock(**{"status_code": 200, "json.return_value": {"id": created_id}, "raise_for_status": MagicMock()}),
+        MagicMock(**{"status_code": 201, "json.return_value": {"id": created_id}, "raise_for_status": MagicMock()}),
         MagicMock(**{"status_code": 202, "headers": {"Location": ".../run-999"}, "raise_for_status": MagicMock()}),
     ]
     post_m.side_effect = post_responses
@@ -366,6 +369,58 @@ def test_submit_creates_notebook_when_missing():
     assert record.notebook_item_id == created_id
     first_call_url = post_m.call_args_list[0][0][0]
     assert "/items" in first_call_url
+
+
+def test_submit_creates_notebook_when_missing_async():
+    """submit() handles async 202 from Items API by polling the operation
+    and re-listing notebooks once it succeeds.
+
+    Caught in live testing 2026-04-26: real Fabric returns 202 for items
+    with definition payloads — the mock previously assumed sync 200.
+    """
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    created_id = "nb-async-created"
+    op_url = "https://api.fabric.microsoft.com/v1/operations/op-123"
+
+    # First GET: empty notebook list (notebook not found)
+    # Second GET: poll the operation — returns Succeeded
+    # Third GET: re-list notebooks — now contains the new one
+    get_responses = [
+        MagicMock(**{"status_code": 200, "json.return_value": {"value": []},
+                     "raise_for_status": MagicMock()}),
+        MagicMock(**{"status_code": 200, "json.return_value": {"status": "Succeeded"},
+                     "raise_for_status": MagicMock()}),
+        MagicMock(**{"status_code": 200,
+                     "json.return_value": {"value": [{"id": created_id,
+                                                       "displayName": "spindle_spark_worker"}]},
+                     "raise_for_status": MagicMock()}),
+    ]
+    get_m = MagicMock(side_effect=get_responses)
+
+    post_responses = [
+        MagicMock(**{"status_code": 202, "headers": {"Location": op_url},
+                     "raise_for_status": MagicMock()}),
+        MagicMock(**{"status_code": 202, "headers": {"Location": ".../run-999"},
+                     "json.return_value": {"id": "run-999"},
+                     "raise_for_status": MagicMock()}),
+    ]
+    post_m = MagicMock(side_effect=post_responses)
+
+    _, _, put_m, patch_m = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+
+    # Speed up the polling loop to keep the test fast
+    with patch.object(sr_mod, "requests") as req_m, \
+         patch("time.sleep"):
+        req_m.get = get_m
+        req_m.post = post_m
+        req_m.put = put_m
+        req_m.patch = patch_m
+        router = _make_router()
+        record = router.submit(schema, total_rows=1000, seed=42)
+
+    assert record.notebook_item_id == created_id
 
 
 # ---------------------------------------------------------------------------

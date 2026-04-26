@@ -98,8 +98,14 @@ class FabricSparkRouter:
         return self._create_notebook()
 
     def _create_notebook(self) -> str:
-        """Create the spindle_spark_worker notebook via the Fabric Items API."""
+        """Create the spindle_spark_worker notebook via the Fabric Items API.
+
+        Item creation with a definition payload is a long-running operation. The
+        API returns 202 with a Location header pointing at the operation status URL.
+        We poll until the operation completes, then look up the new notebook by name.
+        """
         import base64
+        import time
 
         from sqllocks_spindle.notebooks import SPARK_WORKER_IPYNB
 
@@ -120,10 +126,59 @@ class FabricSparkRouter:
         }
         url = f"{_FABRIC_API}/workspaces/{self._workspace_id}/items"
         resp = requests.post(url, headers=self._json_headers(), json=body, timeout=60)
+
+        if resp.status_code == 201:
+            item_id = (resp.json() or {}).get("id")
+            if not item_id:
+                raise NotebookNotFoundError(
+                    f"Items API returned 201 with no 'id' in body: {resp.text[:200]}"
+                )
+            logger.info("Created notebook '%s' (id=%s)", self._notebook_name, item_id)
+            return item_id
+
+        if resp.status_code == 202:
+            operation_url = resp.headers.get("Location", "")
+            if not operation_url:
+                raise NotebookNotFoundError(
+                    "Items API returned 202 with no Location header for the operation"
+                )
+            logger.info("Notebook creation accepted (async); polling %s", operation_url)
+            for _ in range(60):  # up to ~120 seconds
+                time.sleep(2)
+                op_resp = requests.get(
+                    operation_url, headers=self._json_headers(), timeout=30,
+                )
+                op_resp.raise_for_status()
+                op_body = op_resp.json() or {}
+                op_status = op_body.get("status", "")
+                if op_status == "Succeeded":
+                    return self._find_notebook_by_name()
+                if op_status == "Failed":
+                    raise NotebookNotFoundError(
+                        f"Notebook creation failed: {op_body.get('error', 'unknown')}"
+                    )
+            raise NotebookNotFoundError("Notebook creation timed out after ~120s")
+
         resp.raise_for_status()
-        item_id = resp.json()["id"]
-        logger.info("Created notebook '%s' (id=%s)", self._notebook_name, item_id)
-        return item_id
+        raise NotebookNotFoundError(
+            f"Unexpected status {resp.status_code} from Items API: {resp.text[:200]}"
+        )
+
+    def _find_notebook_by_name(self) -> str:
+        """Re-list workspace notebooks and find by display name."""
+        url = f"{_FABRIC_API}/workspaces/{self._workspace_id}/notebooks"
+        resp = requests.get(url, headers=self._json_headers(), timeout=30)
+        resp.raise_for_status()
+        for item in resp.json().get("value", []):
+            if item.get("displayName") == self._notebook_name:
+                logger.info(
+                    "Found newly-created notebook '%s' (id=%s)",
+                    self._notebook_name, item["id"],
+                )
+                return item["id"]
+        raise NotebookNotFoundError(
+            f"Notebook '{self._notebook_name}' not found after creation"
+        )
 
     def _upload_schema(self, schema_dict: dict, run_id: str) -> str:
         """Upload augmented schema JSON to OneLake Files via the ADLS Gen2 DFS API.
@@ -133,8 +188,9 @@ class FabricSparkRouter:
         """
         data: bytes = json.dumps(schema_dict, cls=_SpindleJSONEncoder).encode()
         rel_path = f"spindle_temp/{run_id}_schema.json"
+        # OneLake DFS path: /<workspace>/<lakehouse_id>/Files/<path> — capital F is required.
         base_url = (
-            f"{_ONELAKE_DFS}/{self._workspace_id}/{self._lakehouse_id}/files/{rel_path}"
+            f"{_ONELAKE_DFS}/{self._workspace_id}/{self._lakehouse_id}/Files/{rel_path}"
         )
 
         requests.put(
