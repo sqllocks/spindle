@@ -5,6 +5,24 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-04-27
+
+### Added
+
+- **Billion-row pipeline (Phase 2)** — Fabric Spark scale generation via `scale_mode="fabric_spark"`
+    - `FabricSparkRouter` (`engine/spark_router.py`) — generates static tables in-process, uploads augmented schema JSON to OneLake via DFS API, finds or auto-creates `spindle_spark_worker` notebook, submits Fabric notebook run, returns `JobRecord` immediately
+    - `AsyncJobStore` + `JobRecord` (`engine/async_job_store.py`) — thread-safe in-process registry tracking submitted Fabric jobs by `job_id`
+    - `FabricJobTracker` (`engine/job_tracker.py`) — polls and cancels Fabric notebook runs via the Fabric Jobs REST API
+    - `spindle_spark_worker.ipynb` — Fabric notebook template: reads schema from OneLake, `foreachPartition` dynamic table generation, writes to LakehouseSink / WarehouseSink / KQLSink / SQLDatabaseSink, saves result stats and cleans up temp file
+    - `cmd_scale_status` MCP bridge command — polls Fabric job status by `job_id`; maps Fabric statuses to `submitted|running|succeeded|failed|cancelled`
+    - `cmd_scale_cancel` MCP bridge command — cancels an in-flight Fabric notebook run
+    - `cmd_scale_generate(scale_mode="fabric_spark")` now fully implemented; requires `sink_config.workspace_id`, `sink_config.lakehouse_id`, `sink_config.token`
+    - `sqllocks_spindle/notebooks/__init__.py` — loads and exports `SPARK_WORKER_IPYNB` notebook template
+
+### Changed
+
+- Test count: 1,913 → 1,930 (+17 Phase 2 unit tests in `tests/test_spark_router.py`)
+
 ## [2.6.1] - 2026-04-26
 
 ### Fixed
