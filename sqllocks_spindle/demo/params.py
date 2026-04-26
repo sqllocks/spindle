@@ -6,6 +6,7 @@ from typing import Literal, Optional
 
 DemoMode = Literal["inference", "streaming", "seeding"]
 OutputFormat = Literal["terminal", "charts", "semantic_model", "all"]
+ScaleMode = Literal["auto", "local", "spark"]
 
 
 @dataclass
@@ -27,3 +28,4 @@ class DemoParams:
     estimate_only: bool = False
     auto_cleanup: bool = False
     seed: Optional[int] = None
+    scale_mode: ScaleMode = "auto"
