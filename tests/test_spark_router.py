@@ -89,3 +89,58 @@ def test_job_store_thread_safe():
 
     assert not errors
     assert len([store.get(f"j{i}") for i in range(50) if store.get(f"j{i}")]) == 50
+
+
+# ---------------------------------------------------------------------------
+# FabricJobTracker tests
+# ---------------------------------------------------------------------------
+
+
+def test_tracker_get_status_running():
+    """get_status maps Fabric 'InProgress' → 'running'."""
+    from sqllocks_spindle.engine.job_tracker import FabricJobTracker
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"status": "InProgress", "id": "run1"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("sqllocks_spindle.engine.job_tracker.requests.get", return_value=mock_resp):
+        tracker = FabricJobTracker(token="tok")
+        result = tracker.get_status(workspace_id="ws1", item_id="nb1", run_id="run1")
+
+    assert result["status"] == "running"
+    assert result["fabric_status"] == "InProgress"
+    assert result["fabric_run_id"] == "run1"
+
+
+def test_tracker_get_status_succeeded():
+    """get_status maps Fabric 'Completed' → 'succeeded'."""
+    from sqllocks_spindle.engine.job_tracker import FabricJobTracker
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"status": "Completed", "id": "run2"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("sqllocks_spindle.engine.job_tracker.requests.get", return_value=mock_resp):
+        tracker = FabricJobTracker(token="tok")
+        result = tracker.get_status(workspace_id="ws1", item_id="nb1", run_id="run2")
+
+    assert result["status"] == "succeeded"
+
+
+def test_tracker_cancel():
+    """cancel posts to the cancel endpoint and returns cancelled=True."""
+    from sqllocks_spindle.engine.job_tracker import FabricJobTracker
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 202
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("sqllocks_spindle.engine.job_tracker.requests.post", return_value=mock_resp):
+        tracker = FabricJobTracker(token="tok")
+        result = tracker.cancel(workspace_id="ws1", item_id="nb1", run_id="run3")
+
+    assert result["cancelled"] is True
+    assert result["fabric_run_id"] == "run3"
