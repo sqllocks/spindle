@@ -24,6 +24,8 @@ from sqllocks_spindle import __version__
 from sqllocks_spindle.engine.async_job_store import AsyncJobStore
 from sqllocks_spindle.engine.job_tracker import FabricJobTracker
 from sqllocks_spindle.engine.spark_router import FabricSparkRouter
+from sqllocks_spindle.demo.cleanup import CleanupEngine
+from sqllocks_spindle.demo.orchestrator import DemoOrchestrator
 
 _job_store = AsyncJobStore()
 
@@ -682,9 +684,8 @@ def cmd_demo_list(_params: dict) -> dict:
 
 
 def cmd_demo_run(params: dict) -> dict:
-    """Run a demo scenario (inference or seeding). Returns structured result."""
+    """Run a demo scenario. Returns structured result; Spark mode includes fabric_run_id."""
     from sqllocks_spindle.demo.params import DemoParams
-    from sqllocks_spindle.demo.orchestrator import DemoOrchestrator
     import sys
 
     demo_params = DemoParams(
@@ -697,6 +698,7 @@ def cmd_demo_run(params: dict) -> dict:
         output_formats=params.get("output_formats", []),
         dry_run=bool(params.get("dry_run", False)),
         seed=int(params.get("seed", 42)),
+        scale_mode=params.get("scale_mode", "auto"),
     )
 
     real_stdout = sys.stdout
@@ -707,7 +709,7 @@ def cmd_demo_run(params: dict) -> dict:
     finally:
         sys.stdout = real_stdout
 
-    return {
+    payload = {
         "success": result.success,
         "session_id": result.session_id,
         "scenario": result.scenario,
@@ -716,6 +718,52 @@ def cmd_demo_run(params: dict) -> dict:
         "error": result.error,
         "artifact_count": len(result.manifest.artifacts) if result.manifest else 0,
     }
+    if result.manifest is not None:
+        if result.manifest.fabric_run_id:
+            payload["fabric_run_id"] = result.manifest.fabric_run_id
+            payload["status"] = "submitted"
+        if result.manifest.scale_mode:
+            payload["scale_mode"] = result.manifest.scale_mode
+    return payload
+
+
+def cmd_demo_status(params: dict) -> dict:
+    """Return demo manifest by session_id; if Spark, include live Fabric job status."""
+    from sqllocks_spindle.demo.manifest import DemoManifest
+    from dataclasses import asdict
+
+    session_id = params["session_id"]
+    try:
+        manifest = DemoManifest.load(session_id)
+    except FileNotFoundError:
+        return {"error": "session_not_found", "session_id": session_id}
+
+    manifest_dict = asdict(manifest)
+    manifest_dict.pop("_path", None)
+    result = {"session_id": session_id, "manifest": manifest_dict}
+
+    if manifest.fabric_run_id:
+        token = params.get("token", "")
+        tracker = FabricJobTracker(token=token)
+        result["fabric"] = tracker.get_status(
+            manifest.workspace_id, manifest.notebook_item_id, manifest.fabric_run_id,
+        )
+    return result
+
+
+def cmd_demo_cleanup(params: dict) -> dict:
+    """Run CleanupEngine against a saved demo manifest."""
+    from sqllocks_spindle.demo.manifest import DemoManifest
+
+    session_id = params["session_id"]
+    try:
+        manifest = DemoManifest.load(session_id)
+    except FileNotFoundError:
+        return {"error": "session_not_found", "session_id": session_id}
+
+    engine = CleanupEngine()
+    return engine.cleanup(manifest, dry_run=bool(params.get("dry_run", False)))
+
 
 def _write_output(result, fmt: str, output_dir: str) -> list[str]:
     """Write generated data to files."""
@@ -753,6 +801,8 @@ COMMANDS = {
     "profile_info": cmd_profile_info,
     "demo_list": cmd_demo_list,
     "demo_run": cmd_demo_run,
+    "demo_status": cmd_demo_status,
+    "demo_cleanup": cmd_demo_cleanup,
     "scale_generate": cmd_scale_generate,
     "stream": cmd_stream,
     "stream_status": cmd_stream_status,
