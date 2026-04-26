@@ -40,6 +40,7 @@ Thumbs.db
 .ipynb_checkpoints/
 *.ipynb
 !examples/**/*.ipynb
+!notebooks/spindle_spark_worker.ipynb
 
 # Local dev output
 /output/
