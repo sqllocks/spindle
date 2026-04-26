@@ -183,75 +183,195 @@ def _acquire_token(scope: str = "https://api.fabric.microsoft.com/.default") -> 
 
 
 class SeedingDemoMode:
-    """Generate and write data to all configured Fabric targets."""
+    """Generate and write data to all configured Fabric targets.
+
+    Routes generation through ScaleRouter (local multi-process) or
+    FabricSparkRouter (Fabric notebook) based on scale_mode.
+    """
 
     def __init__(self, params: DemoParams, manifest: DemoManifest,
                  dashboard: Optional[ProgressDashboard] = None,
                  connection_profile=None):
         self._params = params
         self._manifest = manifest
-        self._dashboard = dashboard or ProgressDashboard(params.scenario, "seeding", params.rows)
+        self._dashboard = dashboard
         self._conn = connection_profile
 
     def run(self) -> dict:
         dashboard = self._dashboard
+        try:
+            scale_mode = _resolve_scale_mode(
+                self._params.scale_mode, self._conn, self._params.rows,
+            )
+        except ValueError as e:
+            self._manifest.scale_mode = self._params.scale_mode
+            return {"success": False, "error": str(e)}
+
+        self._manifest.scale_mode = scale_mode
         targets = self._available_targets()
 
-        if self._params.estimate_only or not self._params.dry_run:
+        # estimate_only / dry_run paths bypass any sink work
+        if self._params.estimate_only or self._params.dry_run:
             estimator = CostEstimator()
             estimate = estimator.estimate(self._params.rows, targets)
             print(f"\nCost estimate for {self._params.scenario} ({self._params.rows:,} rows):")
             print(str(estimate))
-
-        if self._params.estimate_only:
-            return {"success": True, "estimate_only": True}
-
-        if self._params.dry_run:
-            print(f"[dry-run] Would write {self._params.rows:,} rows to: {', '.join(targets)}")
+            if self._params.estimate_only:
+                return {"success": True, "estimate_only": True}
+            print(f"[dry-run] Would write {self._params.rows:,} rows to: "
+                  f"{', '.join(targets)} via scale_mode={scale_mode}")
             return {"success": True, "dry_run": True}
 
-        dashboard.start()
+        if dashboard is not None:
+            dashboard.start()
+            dashboard.step(DemoStep.GENERATING, f"{self._params.rows:,} rows ({scale_mode})")
+
         try:
-            dashboard.step(DemoStep.GENERATING, f"{self._params.rows:,} rows (approx)")
-            from sqllocks_spindle.engine.generator import Spindle
-            domain_name = self._params.domain or "retail"
-            domain = _get_domain_instance(domain_name)
-            scale = _rows_to_scale(self._params.rows)
-            sp = Spindle()
-            result = sp.generate(domain=domain, scale=scale, seed=self._params.seed)
-            data = result.tables
-            total = sum(len(df) for df in data.values())
-            dashboard.info(f"Generated {total:,} total rows across {len(data)} tables")
-
-            dashboard.step(DemoStep.WRITING, f"to {', '.join(targets)}")
-            for tname, df in data.items():
-                self._manifest.add_artifact("generated", tname, row_count=len(df))
-
-            dashboard.step(DemoStep.DONE)
-            dashboard.finish(True)
-            self._manifest.finish(True)
-            saved_path = self._manifest.save()
-            dashboard.info(f"Manifest saved to {saved_path}")
-            print(f"\nSession ID: {self._manifest.session_id}")
-            print(f"Run `spindle demo report {self._manifest.session_id}` for a full report.")
-            print(f"Run `spindle demo cleanup {self._manifest.session_id}` when done.")
-            return {"success": True, "session_id": self._manifest.session_id}
-
+            if scale_mode == "local":
+                stats = self._run_local()
+            else:
+                stats = self._run_spark()
         except Exception as e:
-            logger.exception("Seeding demo failed")
-            dashboard.finish(False, str(e))
+            logger.exception("Seeding failed")
+            if dashboard is not None:
+                dashboard.finish(False, str(e))
             self._manifest.finish(False, str(e))
             self._manifest.save()
             return {"success": False, "error": str(e)}
+
+        if dashboard is not None:
+            dashboard.step(DemoStep.DONE)
+            dashboard.finish(True)
+        self._manifest.metrics.update(stats.get("metrics", {}))
+        self._manifest.finish(True)
+        saved_path = self._manifest.save()
+        if dashboard is not None:
+            dashboard.info(f"Manifest saved to {saved_path}")
+
+        result: dict = {"success": True, "session_id": self._manifest.session_id}
+        result.update(stats.get("result", {}))
+        return result
+
+    def _run_local(self) -> dict:
+        """Local multi-process generation via ScaleRouter."""
+        import dataclasses
+        import json
+        import os
+        import tempfile
+        from sqllocks_spindle.engine import scale_router as _scale_router_mod
+
+        token = ""  # local does not need a Fabric token (sinks needing it will skip)
+        sinks, _sinks_list, _sink_config = _build_sinks(self._conn, token=token)
+
+        domain_name = self._params.domain or "retail"
+        domain = _get_domain_instance(domain_name)
+        from sqllocks_spindle.engine.generator import Spindle
+        sp = Spindle()
+        parsed = sp._resolve_schema(domain, None)
+        parsed.generation.scale = _rows_to_scale(self._params.rows)
+        if self._params.seed is not None:
+            parsed.model.seed = self._params.seed
+
+        schema_dict = dataclasses.asdict(parsed)
+        if hasattr(domain, "domain_path"):
+            schema_dict["_domain_path"] = str(domain.domain_path)
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False)
+        try:
+            json.dump(schema_dict, tmp, default=str)
+            tmp.close()
+            router = _scale_router_mod.ScaleRouter(
+                schema_path=tmp.name,
+                sinks=sinks,
+                chunk_size=500_000,
+                max_workers=1 if self._params.rows < 500_000 else None,
+            )
+            stats = router.run(
+                total_rows=self._params.rows,
+                seed=self._params.seed if self._params.seed is not None else 42,
+            )
+        finally:
+            if os.path.exists(tmp.name):
+                os.unlink(tmp.name)
+
+        # Record one artifact per table that was generated
+        target_label = (
+            sinks[0].__class__.__name__.replace("Sink", "").lower()
+            if sinks else "generated"
+        )
+        for tname in schema_dict.get("tables", {}):
+            self._manifest.add_artifact(
+                target_label, tname,
+                row_count=stats.get("rows_generated", 0),
+            )
+
+        return {
+            "result": {"stats": stats},
+            "metrics": {"rows_generated": stats.get("rows_generated", 0)},
+        }
+
+    def _run_spark(self) -> dict:
+        """Async Fabric Spark generation via FabricSparkRouter."""
+        import dataclasses
+        from sqllocks_spindle.engine import spark_router as _spark_router_mod
+
+        if self._conn is None:
+            raise ValueError("Spark mode requires a connection profile")
+
+        token = _acquire_token()
+        _sinks, sinks_list, sink_config = _build_sinks(self._conn, token=token)
+
+        domain_name = self._params.domain or "retail"
+        domain = _get_domain_instance(domain_name)
+        from sqllocks_spindle.engine.generator import Spindle
+        sp = Spindle()
+        parsed = sp._resolve_schema(domain, None)
+        if self._params.seed is not None:
+            parsed.model.seed = self._params.seed
+        schema_dict = dataclasses.asdict(parsed)
+        if hasattr(domain, "domain_path"):
+            schema_dict["_domain_path"] = str(domain.domain_path)
+
+        router = _spark_router_mod.FabricSparkRouter(
+            workspace_id=self._conn.workspace_id,
+            lakehouse_id=self._conn.lakehouse_id,
+            token=token,
+            sinks=[s["type"] for s in sinks_list],
+            sink_config=sink_config,
+            chunk_size=500_000,
+        )
+        job = router.submit(
+            schema_dict=schema_dict,
+            total_rows=self._params.rows,
+            seed=self._params.seed if self._params.seed is not None else 42,
+        )
+
+        # Stash job in shared registry so cmd_demo_status can find it
+        from sqllocks_spindle.mcp_bridge import _job_store
+        _job_store.put(job)
+
+        self._manifest.fabric_run_id = job.fabric_run_id
+        self._manifest.workspace_id = job.workspace_id
+        self._manifest.notebook_item_id = job.notebook_item_id
+
+        return {
+            "result": {
+                "fabric_run_id": job.fabric_run_id,
+                "job_id": job.job_id,
+                "status": "submitted",
+                "schema_temp_path": job.schema_temp_path,
+            },
+            "metrics": {},
+        }
 
     def _available_targets(self) -> list:
         if self._conn is None:
             return ["generated"]
         targets = []
-        if self._conn.warehouse_conn_str:
-            targets.append("warehouse")
         if self._conn.lakehouse_id:
             targets.append("lakehouse")
+        if self._conn.warehouse_conn_str:
+            targets.append("warehouse")
         if self._conn.sql_db_conn_str:
             targets.append("sql_db")
         if self._conn.eventhouse_uri:
