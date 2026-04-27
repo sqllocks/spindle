@@ -54,6 +54,7 @@ class FabricSparkRouter:
         sinks: list[str] | None = None,
         sink_config: dict | None = None,
         chunk_size: int = 500_000,
+        table_prefix: str = "spindle_",
     ) -> None:
         self._workspace_id = workspace_id
         self._lakehouse_id = lakehouse_id
@@ -62,6 +63,7 @@ class FabricSparkRouter:
         self._sinks = sinks or ["lakehouse"]
         self._sink_config = sink_config or {}
         self._chunk_size = chunk_size
+        self._table_prefix = table_prefix
         self._storage_token: str | None = None
 
     def _auth_headers(self) -> dict[str, str]:
@@ -222,13 +224,14 @@ class FabricSparkRouter:
 
         Three-step protocol: create → append → flush.
 
-        Always uploads to a fixed path (``spindle_temp/current_run.json``) — the
-        notebook reads from this fixed path. Concurrent submissions to the same
-        notebook will race on this file (acceptable for the demo flow; serialize
-        if you need parallel runs).
+        Each submission uses a unique path (``spindle_temp/<run_id>.json``) so
+        concurrent submissions to the same notebook don't race. The notebook
+        reads the path from the Spark conf ``spark.spindle.schemaPath`` set by
+        ``_submit_notebook_run``; falls back to ``current_run.json`` for
+        backward compat.
         """
         data: bytes = json.dumps(schema_dict, cls=_SpindleJSONEncoder).encode()
-        rel_path = "spindle_temp/current_run.json"
+        rel_path = f"spindle_temp/{run_id}.json"
         # OneLake DFS path: /<workspace>/<lakehouse_id>/Files/<path> — capital F is required.
         base_url = (
             f"{_ONELAKE_DFS}/{self._workspace_id}/{self._lakehouse_id}/Files/{rel_path}"
@@ -265,15 +268,27 @@ class FabricSparkRouter:
     ) -> str:
         """Submit a Fabric notebook run and return the Fabric run ID.
 
-        Sends an empty body — runtime values are embedded in the schema JSON
-        and read by the notebook itself (Fabric's parameter injection via the
-        Job Scheduler API is silently ignored for RunNotebook).
+        Job Scheduler's ``parameters`` array is silently ignored for jobType
+        RunNotebook, so we pass the per-run schema path via Spark conf in
+        ``executionData.configuration.conf`` — that DOES propagate to the
+        Spark session and is readable inside the notebook via
+        ``spark.conf.get("spark.spindle.schemaPath")``.
         """
         url = (
             f"{_FABRIC_API}/workspaces/{self._workspace_id}"
             f"/items/{notebook_item_id}/jobs/instances?jobType=RunNotebook"
         )
-        resp = requests.post(url, headers=self._json_headers(), json={}, timeout=30)
+        body = {
+            "executionData": {
+                "configuration": {
+                    "conf": {
+                        "spark.spindle.schemaPath": schema_path,
+                        "spark.spindle.tablePrefix": self._table_prefix,
+                    }
+                }
+            }
+        }
+        resp = requests.post(url, headers=self._json_headers(), json=body, timeout=30)
         if resp.status_code == 202:
             location = resp.headers.get("Location", "")
             return location.rstrip("/").split("/")[-1]

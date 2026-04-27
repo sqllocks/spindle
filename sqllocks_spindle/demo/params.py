@@ -29,3 +29,4 @@ class DemoParams:
     auto_cleanup: bool = False
     seed: Optional[int] = None
     scale_mode: ScaleMode = "auto"
+    table_prefix: Optional[str] = None  # default: spindle_{domain}_{scale}_

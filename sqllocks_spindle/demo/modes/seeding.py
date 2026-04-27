@@ -336,6 +336,14 @@ class SeedingDemoMode:
         if hasattr(domain, "domain_path"):
             schema_dict["_domain_path"] = str(domain.domain_path)
 
+        # Per-domain + per-scale prefix lets concurrent submissions write to
+        # disjoint Delta tables (no collision). Override with params.table_prefix
+        # to use a custom name.
+        domain_name = self._params.domain or "retail"
+        scale_label = _rows_to_scale(self._params.rows)
+        default_prefix = f"spindle_{domain_name}_{scale_label}_"
+        table_prefix = getattr(self._params, "table_prefix", None) or default_prefix
+
         router = _spark_router_mod.FabricSparkRouter(
             workspace_id=self._conn.workspace_id,
             lakehouse_id=self._conn.lakehouse_id,
@@ -343,6 +351,7 @@ class SeedingDemoMode:
             sinks=[s["type"] for s in sinks_list],
             sink_config=sink_config,
             chunk_size=500_000,
+            table_prefix=table_prefix,
         )
         job = router.submit(
             schema_dict=schema_dict,
