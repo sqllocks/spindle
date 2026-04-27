@@ -326,10 +326,16 @@ class FabricSparkRouter:
             return resp.json().get("id", uuid.uuid4().hex)
         raise FabricAPIError(resp.status_code, resp.text)
 
-    def submit(self, schema_dict: dict, total_rows: int, seed: int) -> JobRecord:
-        """Generate static tables, upload schema, and submit a Fabric notebook run.
+    def prepare(self, schema_dict: dict, total_rows: int, seed: int) -> dict:
+        """Phase A — static generation + OneLake upload + notebook find/create.
 
-        Returns a JobRecord immediately.
+        This is the slow, I/O-heavy phase. Callers that fan out multiple domains
+        should run prepare() calls at controlled concurrency (e.g. 4-way) to avoid
+        OneLake DFS write throttling, then pass the returned dict to submit_run()
+        in a separate, fully-parallel phase.
+
+        Returns a prepared dict with keys:
+            run_id, schema_path, notebook_item_id, total_rows, seed
         """
         from sqllocks_spindle.engine.generator import calculate_row_counts
         from sqllocks_spindle.schema.parser import SchemaParser
@@ -358,9 +364,6 @@ class FabricSparkRouter:
             schema_dict["_schema_counts"] = schema_counts
 
         schema_dict["_base_seed"] = seed
-        # Runtime block — read by the notebook (parameter injection via the Jobs
-        # API doesn't work for RunNotebook). Everything the notebook needs at
-        # runtime lives in the schema JSON.
         schema_dict["_runtime"] = {
             "chunk_size": self._chunk_size,
             "seed": seed,
@@ -372,6 +375,30 @@ class FabricSparkRouter:
         run_id = uuid.uuid4().hex
         schema_path = self._upload_schema(schema_dict, run_id)
         notebook_item_id = self._get_or_create_notebook()
+
+        return {
+            "run_id": run_id,
+            "schema_path": schema_path,
+            "notebook_item_id": notebook_item_id,
+            "total_rows": total_rows,
+            "seed": seed,
+        }
+
+    def submit_run(self, prepared: dict) -> JobRecord:
+        """Phase B — submit the Fabric notebook run from a prepared dict.
+
+        Fast: a single REST call. Callers can fan out all domains in parallel
+        after all prepare() calls have completed.
+
+        Args:
+            prepared: dict returned by prepare().
+        """
+        run_id = prepared["run_id"]
+        schema_path = prepared["schema_path"]
+        notebook_item_id = prepared["notebook_item_id"]
+        total_rows = prepared["total_rows"]
+        seed = prepared["seed"]
+
         fabric_run_id = self._submit_notebook_run(
             notebook_item_id=notebook_item_id,
             schema_path=schema_path,
@@ -389,3 +416,12 @@ class FabricSparkRouter:
             lakehouse_id=self._lakehouse_id,
             token=self._token,
         )
+
+    def submit(self, schema_dict: dict, total_rows: int, seed: int) -> JobRecord:
+        """Generate static tables, upload schema, and submit a Fabric notebook run.
+
+        Thin wrapper around prepare() + submit_run() for backward compatibility.
+        Returns a JobRecord immediately.
+        """
+        prepared = self.prepare(schema_dict, total_rows, seed)
+        return self.submit_run(prepared)

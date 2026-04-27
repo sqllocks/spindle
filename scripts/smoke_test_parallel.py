@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Parallel smoke-test of all 13 spindle domains via Phase 2 Fabric Spark path.
 
-Submits every domain concurrently (each uses spindle_<domain>_<scale>_*
-table prefix and spindle_temp/<run_id>.json schema path so they don't
-collide). Polls all run-IDs concurrently. Wall-clock should be ~max(
-domain run time) instead of sum.
+Architecture (three phases):
+  Phase A — prepare() per domain: static-gen + OneLake upload + notebook find/create.
+             Slow, I/O-heavy, throttle-prone. Run at PREPARE_CONCURRENCY (4-way).
+  Phase B — submit_run() per domain: single REST call per domain.
+             Fast. Run fully parallel (13-way).
+  Phase C — poll all livySessions concurrently until terminal state.
+             Run fully parallel.
 
-Pre-creates the spindle_spark_worker notebook synchronously before the
-parallel phase to avoid concurrent create-item 409 races.
+Wall-clock target: ~max(domain Spark run time) + ~prepare overhead.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 import sys
@@ -21,10 +24,14 @@ from pathlib import Path
 
 import requests
 
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
 WORKSPACE_ID = "990dbc7b-f5d1-4bc8-a929-9dfd509a5d52"
 LAKEHOUSE_ID = "ec851642-fa89-42bc-aebf-2742845d36fe"
 CONNECTION = "fabric-demo"
-ROWS = 50_000  # medium scale
+ROWS = 50_000
 SEED = 42
 
 DOMAINS = [
@@ -33,14 +40,18 @@ DOMAINS = [
     "manufacturing", "telecom", "capital_markets",
 ]
 
+PREPARE_CONCURRENCY = 4   # OneLake DFS throttle ceiling
 POLL_INTERVAL_SEC = 15
 POLL_TIMEOUT_SEC = 900
 
 T_START = time.time()
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 
 def ts() -> str:
-    """Wall-clock HH:MM:SS plus elapsed since script start."""
     elapsed = int(time.time() - T_START)
     return f"{datetime.now().strftime('%H:%M:%S')} +{elapsed:>4}s"
 
@@ -56,101 +67,63 @@ def get_token(resource: str) -> str:
     ).strip()
 
 
-def precreate_notebook() -> None:
-    """Run a single submit synchronously so the spindle_spark_worker notebook
-    exists before parallel submits start. Avoids concurrent 409 create races."""
-    log("warmup: pre-creating spindle_spark_worker notebook...")
-    res = submit_domain("retail", quiet=True)
-    if res.get("submit_failed"):
-        log(f"warmup: FAILED — {res.get('error','')[-200:]}")
-        sys.exit(1)
-    log(f"warmup: notebook ready, run={res['fabric_run_id'][:8]} "
-        f"(this submission is part of the smoke test, count it once)")
-    return res
+def _load_connection():
+    """Load the fabric-demo connection profile."""
+    from sqllocks_spindle.demo.connections import get_connection
+    return get_connection(CONNECTION)
 
 
-def submit_domain(domain: str, quiet: bool = False) -> dict:
-    cmd = [
-        ".venv-mac/bin/python", "-m", "sqllocks_spindle.cli", "demo", "run", "retail",
-        "--mode", "seeding", "--scale-mode", "spark",
-        "--rows", str(ROWS), "--connection", CONNECTION,
-        "--seed", str(SEED), "--domain", domain,
-    ]
-    cwd = Path(__file__).parent.parent
-    t0 = time.time()
-    if not quiet:
-        log(f"  [{domain}] submit START")
-    try:
-        # 360s ceiling: under contention the OneLake retry backoff can take
-        # ~45s per submit, plus the static-gen + notebook submit roundtrip.
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=360)
-    except subprocess.TimeoutExpired as e:
-        return {"domain": domain, "submit_failed": True, "error": f"submit timeout: {e}"}
-    if proc.returncode != 0:
-        return {
-            "domain": domain, "submit_failed": True,
-            "submit_elapsed_sec": int(time.time() - t0),
-            "error": proc.stderr[-400:],
-        }
-    sessions_dir = Path.home() / ".spindle" / "sessions"
-    candidates = [p for p in sessions_dir.glob("demo-*.json") if p.stat().st_mtime >= t0]
-    if not candidates:
-        return {"domain": domain, "submit_failed": True, "error": "no fresh manifest"}
-    manifest = json.loads(max(candidates, key=lambda p: p.stat().st_mtime).read_text())
-    return {
-        "domain": domain,
-        "submit_failed": False,
-        "submit_elapsed_sec": int(time.time() - t0),
-        "session_id": manifest["session_id"],
-        "fabric_run_id": manifest.get("fabric_run_id"),
-        "notebook_item_id": manifest.get("notebook_item_id"),
-    }
+def _build_schema(domain_name: str) -> dict:
+    """Build a schema dict for the given domain at ROWS scale."""
+    import importlib
+    import pkgutil
+    import sqllocks_spindle.domains as _pkg
+    from sqllocks_spindle.domains.base import Domain
+    from sqllocks_spindle.engine.generator import Spindle
 
+    domain = None
+    for _, mod_name, is_pkg in pkgutil.iter_modules(_pkg.__path__, _pkg.__name__ + "."):
+        if not is_pkg:
+            continue
+        try:
+            module = importlib.import_module(mod_name)
+        except Exception:
+            continue
+        for attr in getattr(module, "__all__", dir(module)):
+            cls = getattr(module, attr, None)
+            if isinstance(cls, type) and issubclass(cls, Domain) and cls is not Domain:
+                try:
+                    inst = cls.__new__(cls)
+                    if cls.name.fget(inst) == domain_name:
+                        domain = cls()
+                        break
+                except Exception:
+                    pass
+        if domain is not None:
+            break
 
-def poll_one(api_token: str, notebook_item_id: str, fabric_run_id: str, domain: str) -> dict:
-    url = (
-        f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
-        f"/notebooks/{notebook_item_id}/livySessions"
-    )
-    headers = {"Authorization": f"Bearer {api_token}"}
-    start = time.time()
-    last_state = None
-    while time.time() - start < POLL_TIMEOUT_SEC:
-        r = requests.get(url, headers=headers, timeout=30)
-        if r.status_code != 200:
-            time.sleep(POLL_INTERVAL_SEC); continue
-        for s in r.json().get("value", []):
-            if s.get("jobInstanceId") == fabric_run_id:
-                state = s.get("state")
-                running = s.get("runningDuration", {}).get("value", 0)
-                if state != last_state:
-                    log(f"  [{domain}] state={state} running={running}s")
-                    last_state = state
-                if state in ("Succeeded", "Failed", "Cancelled", "Dead", "Error"):
-                    return {
-                        "state": state, "running_sec": running,
-                        "spark_app_id": s.get("sparkApplicationId"),
-                    }
-                break
-        time.sleep(POLL_INTERVAL_SEC)
-    return {"state": "TIMEOUT", "running_sec": int(time.time() - start)}
+    if domain is None:
+        raise ValueError(f"Domain '{domain_name}' not found")
 
+    sp = Spindle()
+    parsed = sp._resolve_schema(domain, None)
 
-def get_table_sizes(storage_token: str, prefix: str) -> dict[str, int]:
-    url = (
-        f"https://onelake.dfs.fabric.microsoft.com/{WORKSPACE_ID}"
-        f"?resource=filesystem&recursive=true"
-        f"&directory={LAKEHOUSE_ID}/Tables&maxResults=10000"
-    )
-    r = requests.get(url, headers={"Authorization": f"Bearer {storage_token}"}, timeout=30)
-    r.raise_for_status()
-    sizes: dict[str, int] = {}
-    for p in r.json().get("paths", []):
-        name = p.get("name", "")
-        parts = name.split("/")
-        if len(parts) >= 3 and parts[2].startswith(prefix) and p.get("isDirectory") != "true":
-            sizes[parts[2]] = sizes.get(parts[2], 0) + int(p.get("contentLength", 0))
-    return sizes
+    rows = ROWS
+    if rows <= 2_000:
+        scale = "small"
+    elif rows <= 50_000:
+        scale = "medium"
+    elif rows <= 500_000:
+        scale = "large"
+    else:
+        scale = "xlarge"
+
+    parsed.generation.scale = scale
+    parsed.model.seed = SEED
+    schema_dict = dataclasses.asdict(parsed)
+    if hasattr(domain, "domain_path"):
+        schema_dict["_domain_path"] = str(domain.domain_path)
+    return schema_dict, scale
 
 
 def delete_prefix(storage_token: str, prefix: str) -> int:
@@ -176,81 +149,207 @@ def delete_prefix(storage_token: str, prefix: str) -> int:
     return deleted
 
 
+def get_table_sizes(storage_token: str, prefix: str) -> dict[str, int]:
+    url = (
+        f"https://onelake.dfs.fabric.microsoft.com/{WORKSPACE_ID}"
+        f"?resource=filesystem&recursive=true"
+        f"&directory={LAKEHOUSE_ID}/Tables&maxResults=10000"
+    )
+    r = requests.get(url, headers={"Authorization": f"Bearer {storage_token}"}, timeout=30)
+    r.raise_for_status()
+    sizes: dict[str, int] = {}
+    for p in r.json().get("paths", []):
+        name = p.get("name", "")
+        parts = name.split("/")
+        if len(parts) >= 3 and parts[2].startswith(prefix) and p.get("isDirectory") != "true":
+            sizes[parts[2]] = sizes.get(parts[2], 0) + int(p.get("contentLength", 0))
+    return sizes
+
+
+def poll_one(api_token: str, notebook_item_id: str, fabric_run_id: str, domain: str) -> dict:
+    url = (
+        f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
+        f"/notebooks/{notebook_item_id}/livySessions"
+    )
+    headers = {"Authorization": f"Bearer {api_token}"}
+    start = time.time()
+    last_state = None
+    while time.time() - start < POLL_TIMEOUT_SEC:
+        r = requests.get(url, headers=headers, timeout=30)
+        if r.status_code != 200:
+            time.sleep(POLL_INTERVAL_SEC)
+            continue
+        for s in r.json().get("value", []):
+            if s.get("jobInstanceId") == fabric_run_id:
+                state = s.get("state")
+                running = s.get("runningDuration", {}).get("value", 0)
+                if state != last_state:
+                    log(f"  [{domain}] state={state} running={running}s")
+                    last_state = state
+                if state in ("Succeeded", "Failed", "Cancelled", "Dead", "Error"):
+                    return {
+                        "state": state, "running_sec": running,
+                        "spark_app_id": s.get("sparkApplicationId"),
+                    }
+                break
+        time.sleep(POLL_INTERVAL_SEC)
+    return {"state": "TIMEOUT", "running_sec": int(time.time() - start)}
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
 def main() -> int:
+    # Pre-flight: clean OneLake
     storage_token = get_token("https://storage.azure.com")
     log("pre-flight: deleting any spindle_* tables...")
     n = delete_prefix(storage_token, "spindle_")
     log(f"  removed {n}")
 
-    # Warmup: synchronous submit of retail. This creates the notebook item
-    # and starts retail's run. We track it alongside the parallel batch.
-    warmup = precreate_notebook()
-    submit_results = {"retail": warmup}
-
-    # Parallel submit for the remaining 12 domains. Cap at 6 concurrent — OneLake
-    # DFS rate-limits writes to the same lakehouse and returned connection
-    # timeouts on 13-way parallel uploads. With retry+backoff in
-    # _upload_schema, 6-way is the safe ceiling.
-    remaining = [d for d in DOMAINS if d != "retail"]
-    SUBMIT_CONCURRENCY = 4
-    log(f"submitting {len(remaining)} more domains in parallel "
-        f"(max_workers={SUBMIT_CONCURRENCY})...")
-    with ThreadPoolExecutor(max_workers=SUBMIT_CONCURRENCY) as pool:
-        futures = {pool.submit(submit_domain, d): d for d in remaining}
-        for fut in as_completed(futures):
-            d = futures[fut]
-            res = fut.result()
-            submit_results[d] = res
-            if res.get("submit_failed"):
-                log(f"  [{d}] SUBMIT FAILED ({res.get('submit_elapsed_sec',0)}s): "
-                    f"{res.get('error','')[-150:]}")
-            else:
-                log(f"  [{d}] submitted ({res['submit_elapsed_sec']}s) "
-                    f"run={res['fabric_run_id'][:8]}")
-
-    submit_phase_sec = int(time.time() - T_START)
-    succeeded_submits = [d for d, r in submit_results.items() if not r.get("submit_failed")]
-    log(f"submit phase done: {len(succeeded_submits)}/{len(DOMAINS)} OK at "
-        f"+{submit_phase_sec}s")
-
-    # Poll all in parallel
-    log(f"polling {len(succeeded_submits)} domains in parallel...")
+    # Load connection + acquire token once
+    conn = _load_connection()
     api_token = get_token("https://api.fabric.microsoft.com")
 
-    def poll_domain(d: str) -> tuple[str, dict]:
-        sub = submit_results[d]
-        if sub.get("submit_failed"):
-            return d, {"state": "SubmitFailed"}
-        return d, poll_one(api_token, sub["notebook_item_id"], sub["fabric_run_id"], d)
+    from sqllocks_spindle.engine.spark_router import FabricSparkRouter
 
-    poll_results = {}
+    # ------------------------------------------------------------------
+    # Phase A — prepare() at controlled concurrency (4-way)
+    # Each call: static-gen + OneLake upload + notebook find/create
+    # ------------------------------------------------------------------
+    log(f"Phase A: prepare all {len(DOMAINS)} domains (max_workers={PREPARE_CONCURRENCY})...")
+
+    prepare_results: dict[str, dict | Exception] = {}
+
+    def do_prepare(domain: str) -> tuple[str, dict | Exception]:
+        t0 = time.time()
+        try:
+            schema_dict, scale_label = _build_schema(domain)
+            table_prefix = f"spindle_{domain}_{scale_label}_"
+            router = FabricSparkRouter(
+                workspace_id=conn.workspace_id,
+                lakehouse_id=conn.lakehouse_id,
+                token=api_token,
+                sinks=["lakehouse"],
+                sink_config={
+                    "workspace_id": conn.workspace_id,
+                    "lakehouse_id": conn.lakehouse_id,
+                    "token": api_token,
+                },
+                chunk_size=500_000,
+                table_prefix=table_prefix,
+            )
+            prepared = router.prepare(schema_dict, total_rows=ROWS, seed=SEED)
+            elapsed = int(time.time() - t0)
+            log(f"  [{domain}] prepare OK ({elapsed}s) path={prepared['schema_path']}")
+            prepared["_router"] = router
+            prepared["_domain"] = domain
+            return domain, prepared
+        except Exception as exc:
+            elapsed = int(time.time() - t0)
+            log(f"  [{domain}] prepare FAILED ({elapsed}s): {exc}")
+            return domain, exc
+
+    with ThreadPoolExecutor(max_workers=PREPARE_CONCURRENCY) as pool:
+        futures = {pool.submit(do_prepare, d): d for d in DOMAINS}
+        for fut in as_completed(futures):
+            d, result = fut.result()
+            prepare_results[d] = result
+
+    prepare_phase_sec = int(time.time() - T_START)
+    ok_prepares = [d for d, r in prepare_results.items() if not isinstance(r, Exception)]
+    log(f"Phase A done: {len(ok_prepares)}/{len(DOMAINS)} OK at +{prepare_phase_sec}s")
+
+    # ------------------------------------------------------------------
+    # Phase B — submit_run() fully parallel (one REST call per domain)
+    # ------------------------------------------------------------------
+    log(f"Phase B: submit_run all {len(ok_prepares)} domains in parallel...")
+
+    submit_results: dict[str, dict | Exception] = {}
+
+    def do_submit(domain: str) -> tuple[str, dict | Exception]:
+        prepared = prepare_results[domain]
+        router: FabricSparkRouter = prepared["_router"]
+        t0 = time.time()
+        try:
+            job = router.submit_run(prepared)
+            elapsed = int(time.time() - t0)
+            log(f"  [{domain}] submit_run OK ({elapsed}s) run={job.fabric_run_id[:8]}")
+            return domain, {
+                "job": job,
+                "fabric_run_id": job.fabric_run_id,
+                "notebook_item_id": job.notebook_item_id,
+            }
+        except Exception as exc:
+            elapsed = int(time.time() - t0)
+            log(f"  [{domain}] submit_run FAILED ({elapsed}s): {exc}")
+            return domain, exc
+
     with ThreadPoolExecutor(max_workers=len(DOMAINS)) as pool:
-        futures = [pool.submit(poll_domain, d) for d in succeeded_submits]
+        futures = {pool.submit(do_submit, d): d for d in ok_prepares}
+        for fut in as_completed(futures):
+            d, result = fut.result()
+            submit_results[d] = result
+
+    submit_phase_sec = int(time.time() - T_START) - prepare_phase_sec
+    ok_submits = [d for d, r in submit_results.items() if not isinstance(r, Exception)]
+    log(f"Phase B done: {len(ok_submits)}/{len(DOMAINS)} OK at +{int(time.time()-T_START)}s")
+
+    # ------------------------------------------------------------------
+    # Phase C — poll all in parallel
+    # ------------------------------------------------------------------
+    log(f"Phase C: polling {len(ok_submits)} domains in parallel...")
+
+    poll_results: dict[str, dict] = {}
+
+    def do_poll(domain: str) -> tuple[str, dict]:
+        sr = submit_results[domain]
+        return domain, poll_one(
+            api_token,
+            sr["notebook_item_id"],
+            sr["fabric_run_id"],
+            domain,
+        )
+
+    with ThreadPoolExecutor(max_workers=len(DOMAINS)) as pool:
+        futures = [pool.submit(do_poll, d) for d in ok_submits]
         for fut in as_completed(futures):
             d, p = fut.result()
             poll_results[d] = p
 
-    poll_phase_sec = int(time.time() - T_START) - submit_phase_sec
     total_sec = int(time.time() - T_START)
 
+    # ------------------------------------------------------------------
+    # Table size check
+    # ------------------------------------------------------------------
     log("reading table sizes...")
     storage_token = get_token("https://storage.azure.com")
 
     full_results = []
     for d in DOMAINS:
-        sub = submit_results.get(d, {})
+        prep = prepare_results.get(d)
+        sub = submit_results.get(d)
         poll = poll_results.get(d, {})
-        prefix = f"spindle_{d}_medium_"
-        sizes = get_table_sizes(storage_token, prefix) if not sub.get("submit_failed") else {}
+
+        prep_failed = isinstance(prep, Exception)
+        sub_failed = not prep_failed and isinstance(sub, Exception)
+
+        scale_label = "medium"  # ROWS=50k → medium
+        prefix = f"spindle_{d}_{scale_label}_"
+        sizes = get_table_sizes(storage_token, prefix) if not prep_failed and not sub_failed else {}
+
+        state = poll.get("state", "PrepFailed" if prep_failed else "SubmitFailed")
         full_results.append({
             "domain": d,
-            "submit_failed": sub.get("submit_failed", False),
-            "submit_error": sub.get("error"),
-            "state": poll.get("state", "?"),
+            "prepare_failed": prep_failed,
+            "submit_failed": sub_failed,
+            "prepare_error": str(prep) if prep_failed else None,
+            "submit_error": str(sub) if sub_failed else None,
+            "state": state,
             "running_sec": poll.get("running_sec", 0),
             "spark_app_id": poll.get("spark_app_id"),
-            "session_id": sub.get("session_id"),
-            "fabric_run_id": sub.get("fabric_run_id"),
+            "fabric_run_id": sub["fabric_run_id"] if not sub_failed and not prep_failed else None,
             "table_count": len(sizes),
             "total_bytes": sum(sizes.values()),
             "tables": sizes,
@@ -267,9 +366,9 @@ def main() -> int:
     print("=== SUMMARY ===", flush=True)
     print(f"Succeeded: {succeeded}/{len(full_results)}", flush=True)
     print(f"Failed:    {failed}/{len(full_results)}", flush=True)
-    print(f"Submit phase: {submit_phase_sec}s", flush=True)
-    print(f"Poll  phase:  {poll_phase_sec}s", flush=True)
-    print(f"Total wall:   {total_sec}s", flush=True)
+    print(f"Prepare phase: {prepare_phase_sec}s", flush=True)
+    print(f"Submit  phase: {submit_phase_sec}s", flush=True)
+    print(f"Total   wall:  {total_sec}s", flush=True)
     print()
     print(f"{'Domain':<20} {'State':<14} {'Running':>10} {'Tables':>7} {'Bytes':>14}",
           flush=True)

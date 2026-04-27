@@ -424,6 +424,126 @@ def test_submit_creates_notebook_when_missing_async():
 
 
 # ---------------------------------------------------------------------------
+# prepare() + submit_run() split-phase tests
+# ---------------------------------------------------------------------------
+
+
+def test_prepare_returns_expected_keys():
+    """prepare() returns dict with run_id, schema_path, notebook_item_id, total_rows, seed."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        prepared = router.prepare(schema, total_rows=1000, seed=99)
+
+    assert "run_id" in prepared
+    assert "schema_path" in prepared
+    assert "notebook_item_id" in prepared
+    assert prepared["total_rows"] == 1000
+    assert prepared["seed"] == 99
+    assert prepared["notebook_item_id"] == "nb-789"
+    assert prepared["schema_path"].startswith("spindle_temp/")
+
+
+def test_submit_run_returns_job_record():
+    """submit_run() returns a valid JobRecord given a prepared dict (no OneLake calls)."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    _, post_m, _, _ = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+    get_m, _, put_m, patch_m = _mock_http_for_submit()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        prepared = router.prepare(schema, total_rows=500, seed=7)
+
+    # Phase B: submit_run — only POST should fire (no PUT/PATCH for OneLake)
+    post_m2 = MagicMock()
+    post_m2.return_value.status_code = 202
+    post_m2.return_value.headers = {"Location": ".../run-phase-b-001"}
+
+    with patch.object(sr_mod.requests, "post", post_m2):
+        record = router.submit_run(prepared)
+
+    assert record.job_id.startswith("spindle-")
+    assert record.fabric_run_id == "run-phase-b-001"
+    assert record.workspace_id == "ws-123"
+    assert record.notebook_item_id == "nb-789"
+    assert post_m2.call_count == 1  # only the job submit POST, no notebook create
+
+
+def test_prepare_then_submit_run_equivalent_to_submit():
+    """prepare() + submit_run() produces a JobRecord equivalent to submit() in one call."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    schema_a = _minimal_schema_dict_dynamic()
+    schema_b = _minimal_schema_dict_dynamic()
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        record_direct = router.submit(schema_a, total_rows=1000, seed=42)
+
+    get_m2, post_m2, put_m2, patch_m2 = _mock_http_for_submit()
+    with patch.object(sr_mod.requests, "get", get_m2), \
+         patch.object(sr_mod.requests, "post", post_m2), \
+         patch.object(sr_mod.requests, "put", put_m2), \
+         patch.object(sr_mod.requests, "patch", patch_m2):
+        router2 = _make_router()
+        prepared = router2.prepare(schema_b, total_rows=1000, seed=42)
+        record_split = router2.submit_run(prepared)
+
+    assert record_direct.workspace_id == record_split.workspace_id
+    assert record_direct.notebook_item_id == record_split.notebook_item_id
+    assert record_direct.lakehouse_id == record_split.lakehouse_id
+    assert record_direct.fabric_run_id == record_split.fabric_run_id
+
+
+def test_submit_run_only_posts_once():
+    """submit_run() makes exactly one POST call (the notebook job submit) — no OneLake I/O."""
+    import sqllocks_spindle.engine.spark_router as sr_mod
+
+    get_m, post_m, put_m, patch_m = _mock_http_for_submit()
+    schema = _minimal_schema_dict_dynamic()
+
+    with patch.object(sr_mod.requests, "get", get_m), \
+         patch.object(sr_mod.requests, "post", post_m), \
+         patch.object(sr_mod.requests, "put", put_m), \
+         patch.object(sr_mod.requests, "patch", patch_m):
+        router = _make_router()
+        prepared = router.prepare(schema, total_rows=1000, seed=42)
+
+    # Reset counters — submit_run should add exactly one more POST, zero PUT/PATCH
+    post_m2 = MagicMock()
+    post_m2.return_value.status_code = 202
+    post_m2.return_value.headers = {"Location": ".../run-only-001"}
+    put_m2 = MagicMock()
+    patch_m2 = MagicMock()
+
+    with patch.object(sr_mod.requests, "post", post_m2), \
+         patch.object(sr_mod.requests, "put", put_m2), \
+         patch.object(sr_mod.requests, "patch", patch_m2):
+        router.submit_run(prepared)
+
+    assert post_m2.call_count == 1
+    assert put_m2.call_count == 0   # no OneLake create
+    assert patch_m2.call_count == 0  # no OneLake append/flush
+
+
+# ---------------------------------------------------------------------------
 # MCP bridge command tests
 # ---------------------------------------------------------------------------
 
