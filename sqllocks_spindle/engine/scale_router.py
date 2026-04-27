@@ -31,9 +31,14 @@ class _SpindleJSONEncoder(json.JSONEncoder):
         import numpy as np
         try:
             import pandas as pd
+            # NaT, NaN, NA — treat as null. Must come BEFORE Timestamp check
+            # because pd.isna(NaT) returns True but NaT also isinstance Timestamp.
+            if pd.isna(o):
+                return None
             if isinstance(o, pd.Timestamp):
                 return o.isoformat()
-        except ImportError:
+        except (ImportError, TypeError, ValueError):
+            # pd.isna() can raise on certain types (arrays, dicts) — fall through
             pass
         if isinstance(o, np.integer):
             return int(o)
@@ -151,6 +156,16 @@ def _generate_static_tables(
     rng = np.random.default_rng(seed)
     id_manager = IDManager(rng)
     table_gen = TableGenerator(registry, id_manager)
+
+    # Pre-register synthetic PK pools for dynamic tables so static tables that
+    # FK against a dynamic parent can resolve their FKs at static-gen time.
+    # Dynamic tables haven't been generated yet, but their sequence-based PKs
+    # are deterministic (1..N), so a RangePKPool perfectly matches what the
+    # chunk workers will produce.
+    dynamic_set = set(schema_counts.keys()) - static_tables
+    for _dt in dynamic_set:
+        if _dt in schema.tables:
+            id_manager.register_range(_dt, start=1, count=schema_counts[_dt])
 
     model_config: dict = {
         "locale": schema.model.locale,
