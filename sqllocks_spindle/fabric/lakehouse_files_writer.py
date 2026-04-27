@@ -129,7 +129,15 @@ class LakehouseFilesWriter:
 
         for table_name, df in tables.items():
             try:
-                dest_dir = Path(self._paths.base) / table_name
+                base = self._paths.base
+                # Don't wrap abfss:// or wasbs:// URIs in Path() — Path normalizes
+                # the double slash to a single one, breaking the URL scheme.
+                if isinstance(base, str) and (
+                    base.startswith("abfss://") or base.startswith("wasbs://")
+                ):
+                    dest_dir = base.rstrip("/") + "/" + table_name
+                else:
+                    dest_dir = Path(base) / table_name
                 self.write_partition(df, dest_dir, format=fmt, **kwargs)
                 result.per_table[table_name] = len(df)
                 result.rows_written += len(df)
