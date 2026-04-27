@@ -230,6 +230,8 @@ class FabricSparkRouter:
         ``_submit_notebook_run``; falls back to ``current_run.json`` for
         backward compat.
         """
+        import time as _time
+
         data: bytes = json.dumps(schema_dict, cls=_SpindleJSONEncoder).encode()
         rel_path = f"spindle_temp/{run_id}.json"
         # OneLake DFS path: /<workspace>/<lakehouse_id>/Files/<path> — capital F is required.
@@ -237,24 +239,52 @@ class FabricSparkRouter:
             f"{_ONELAKE_DFS}/{self._workspace_id}/{self._lakehouse_id}/Files/{rel_path}"
         )
 
-        requests.put(
-            f"{base_url}?resource=file",
-            headers=self._storage_headers(),
-            timeout=30,
-        ).raise_for_status()
+        def _put_create() -> None:
+            requests.put(
+                f"{base_url}?resource=file",
+                headers=self._storage_headers(),
+                timeout=30,
+            ).raise_for_status()
 
-        requests.patch(
-            f"{base_url}?action=append&position=0",
-            headers={**self._storage_headers(), "Content-Length": str(len(data))},
-            data=data,
-            timeout=120,
-        ).raise_for_status()
+        def _patch_append() -> None:
+            requests.patch(
+                f"{base_url}?action=append&position=0",
+                headers={**self._storage_headers(), "Content-Length": str(len(data))},
+                data=data,
+                timeout=120,
+            ).raise_for_status()
 
-        requests.patch(
-            f"{base_url}?action=flush&position={len(data)}",
-            headers=self._storage_headers(),
-            timeout=30,
-        ).raise_for_status()
+        def _patch_flush() -> None:
+            requests.patch(
+                f"{base_url}?action=flush&position={len(data)}",
+                headers=self._storage_headers(),
+                timeout=30,
+            ).raise_for_status()
+
+        # Retry each step with exponential backoff. OneLake DFS rate-limits
+        # concurrent writes to the same lakehouse and returns connection
+        # timeouts under load (observed during 13-way parallel smoke test).
+        for step_name, step_fn in [
+            ("create", _put_create),
+            ("append", _patch_append),
+            ("flush", _patch_flush),
+        ]:
+            for attempt in range(4):
+                try:
+                    step_fn()
+                    break
+                except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as exc:
+                    if attempt == 3:
+                        logger.error(
+                            "OneLake schema %s failed after 4 attempts: %s", step_name, exc,
+                        )
+                        raise
+                    backoff = 2 ** attempt + (0.1 * attempt)
+                    logger.warning(
+                        "OneLake schema %s attempt %d failed (%s) — retrying in %.1fs",
+                        step_name, attempt + 1, type(exc).__name__, backoff,
+                    )
+                    _time.sleep(backoff)
 
         logger.info("Schema uploaded to OneLake: %s", rel_path)
         return rel_path

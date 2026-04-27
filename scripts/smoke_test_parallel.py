@@ -5,6 +5,9 @@ Submits every domain concurrently (each uses spindle_<domain>_<scale>_*
 table prefix and spindle_temp/<run_id>.json schema path so they don't
 collide). Polls all run-IDs concurrently. Wall-clock should be ~max(
 domain run time) instead of sum.
+
+Pre-creates the spindle_spark_worker notebook synchronously before the
+parallel phase to avoid concurrent create-item 409 races.
 """
 from __future__ import annotations
 
@@ -13,6 +16,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -30,7 +34,19 @@ DOMAINS = [
 ]
 
 POLL_INTERVAL_SEC = 15
-POLL_TIMEOUT_SEC = 900  # 15 min ceiling per domain
+POLL_TIMEOUT_SEC = 900
+
+T_START = time.time()
+
+
+def ts() -> str:
+    """Wall-clock HH:MM:SS plus elapsed since script start."""
+    elapsed = int(time.time() - T_START)
+    return f"{datetime.now().strftime('%H:%M:%S')} +{elapsed:>4}s"
+
+
+def log(msg: str) -> None:
+    print(f"[{ts()}] {msg}", flush=True)
 
 
 def get_token(resource: str) -> str:
@@ -40,8 +56,20 @@ def get_token(resource: str) -> str:
     ).strip()
 
 
-def submit_domain(domain: str) -> dict:
-    """Submit one domain run via the demo CLI; return manifest fields."""
+def precreate_notebook() -> None:
+    """Run a single submit synchronously so the spindle_spark_worker notebook
+    exists before parallel submits start. Avoids concurrent 409 create races."""
+    log("warmup: pre-creating spindle_spark_worker notebook...")
+    res = submit_domain("retail", quiet=True)
+    if res.get("submit_failed"):
+        log(f"warmup: FAILED — {res.get('error','')[-200:]}")
+        sys.exit(1)
+    log(f"warmup: notebook ready, run={res['fabric_run_id'][:8]} "
+        f"(this submission is part of the smoke test, count it once)")
+    return res
+
+
+def submit_domain(domain: str, quiet: bool = False) -> dict:
     cmd = [
         ".venv-mac/bin/python", "-m", "sqllocks_spindle.cli", "demo", "run", "retail",
         "--mode", "seeding", "--scale-mode", "spark",
@@ -50,6 +78,8 @@ def submit_domain(domain: str) -> dict:
     ]
     cwd = Path(__file__).parent.parent
     t0 = time.time()
+    if not quiet:
+        log(f"  [{domain}] submit START")
     try:
         proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired as e:
@@ -57,10 +87,10 @@ def submit_domain(domain: str) -> dict:
     if proc.returncode != 0:
         return {
             "domain": domain, "submit_failed": True,
+            "submit_elapsed_sec": int(time.time() - t0),
             "error": proc.stderr[-400:],
         }
     sessions_dir = Path.home() / ".spindle" / "sessions"
-    # Pick latest manifest matching this domain's submission time
     candidates = [p for p in sessions_dir.glob("demo-*.json") if p.stat().st_mtime >= t0]
     if not candidates:
         return {"domain": domain, "submit_failed": True, "error": "no fresh manifest"}
@@ -75,13 +105,14 @@ def submit_domain(domain: str) -> dict:
     }
 
 
-def poll_one(api_token: str, notebook_item_id: str, fabric_run_id: str) -> dict:
+def poll_one(api_token: str, notebook_item_id: str, fabric_run_id: str, domain: str) -> dict:
     url = (
         f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
         f"/notebooks/{notebook_item_id}/livySessions"
     )
     headers = {"Authorization": f"Bearer {api_token}"}
     start = time.time()
+    last_state = None
     while time.time() - start < POLL_TIMEOUT_SEC:
         r = requests.get(url, headers=headers, timeout=30)
         if r.status_code != 200:
@@ -89,10 +120,13 @@ def poll_one(api_token: str, notebook_item_id: str, fabric_run_id: str) -> dict:
         for s in r.json().get("value", []):
             if s.get("jobInstanceId") == fabric_run_id:
                 state = s.get("state")
+                running = s.get("runningDuration", {}).get("value", 0)
+                if state != last_state:
+                    log(f"  [{domain}] state={state} running={running}s")
+                    last_state = state
                 if state in ("Succeeded", "Failed", "Cancelled", "Dead", "Error"):
                     return {
-                        "state": state,
-                        "running_sec": s.get("runningDuration", {}).get("value", 0),
+                        "state": state, "running_sec": running,
                         "spark_app_id": s.get("sparkApplicationId"),
                     }
                 break
@@ -118,7 +152,6 @@ def get_table_sizes(storage_token: str, prefix: str) -> dict[str, int]:
 
 
 def delete_prefix(storage_token: str, prefix: str) -> int:
-    """Delete every Tables/<prefix>* directory."""
     url = (
         f"https://onelake.dfs.fabric.microsoft.com/{WORKSPACE_ID}"
         f"?resource=filesystem&recursive=false"
@@ -143,42 +176,50 @@ def delete_prefix(storage_token: str, prefix: str) -> int:
 
 def main() -> int:
     storage_token = get_token("https://storage.azure.com")
-    print(f"Pre-flight: deleting any spindle_* tables...", flush=True)
+    log("pre-flight: deleting any spindle_* tables...")
     n = delete_prefix(storage_token, "spindle_")
-    print(f"  removed {n}", flush=True)
+    log(f"  removed {n}")
 
-    overall_start = time.time()
+    # Warmup: synchronous submit of retail. This creates the notebook item
+    # and starts retail's run. We track it alongside the parallel batch.
+    warmup = precreate_notebook()
+    submit_results = {"retail": warmup}
 
-    # Submit all 13 in parallel
-    print(f"\nSubmitting {len(DOMAINS)} domains in parallel...", flush=True)
-    submit_results = {}
-    with ThreadPoolExecutor(max_workers=len(DOMAINS)) as pool:
-        futures = {pool.submit(submit_domain, d): d for d in DOMAINS}
+    # Parallel submit for the remaining 12 domains. Cap at 6 concurrent — OneLake
+    # DFS rate-limits writes to the same lakehouse and returned connection
+    # timeouts on 13-way parallel uploads. With retry+backoff in
+    # _upload_schema, 6-way is the safe ceiling.
+    remaining = [d for d in DOMAINS if d != "retail"]
+    SUBMIT_CONCURRENCY = 6
+    log(f"submitting {len(remaining)} more domains in parallel "
+        f"(max_workers={SUBMIT_CONCURRENCY})...")
+    with ThreadPoolExecutor(max_workers=SUBMIT_CONCURRENCY) as pool:
+        futures = {pool.submit(submit_domain, d): d for d in remaining}
         for fut in as_completed(futures):
             d = futures[fut]
             res = fut.result()
             submit_results[d] = res
             if res.get("submit_failed"):
-                print(f"  [{d}] SUBMIT FAILED ({res.get('submit_elapsed_sec',0)}s): "
-                      f"{res.get('error','')[-150:]}", flush=True)
+                log(f"  [{d}] SUBMIT FAILED ({res.get('submit_elapsed_sec',0)}s): "
+                    f"{res.get('error','')[-150:]}")
             else:
-                print(f"  [{d}] submitted ({res['submit_elapsed_sec']}s) "
-                      f"run={res['fabric_run_id'][:8]}...", flush=True)
+                log(f"  [{d}] submitted ({res['submit_elapsed_sec']}s) "
+                    f"run={res['fabric_run_id'][:8]}")
 
-    submit_phase_sec = int(time.time() - overall_start)
+    submit_phase_sec = int(time.time() - T_START)
     succeeded_submits = [d for d, r in submit_results.items() if not r.get("submit_failed")]
-    print(f"\nSubmit phase: {len(succeeded_submits)}/{len(DOMAINS)} OK in {submit_phase_sec}s",
-          flush=True)
+    log(f"submit phase done: {len(succeeded_submits)}/{len(DOMAINS)} OK at "
+        f"+{submit_phase_sec}s")
 
     # Poll all in parallel
-    print(f"\nPolling {len(succeeded_submits)} domains in parallel...", flush=True)
+    log(f"polling {len(succeeded_submits)} domains in parallel...")
     api_token = get_token("https://api.fabric.microsoft.com")
 
     def poll_domain(d: str) -> tuple[str, dict]:
         sub = submit_results[d]
         if sub.get("submit_failed"):
             return d, {"state": "SubmitFailed"}
-        return d, poll_one(api_token, sub["notebook_item_id"], sub["fabric_run_id"])
+        return d, poll_one(api_token, sub["notebook_item_id"], sub["fabric_run_id"], d)
 
     poll_results = {}
     with ThreadPoolExecutor(max_workers=len(DOMAINS)) as pool:
@@ -186,21 +227,18 @@ def main() -> int:
         for fut in as_completed(futures):
             d, p = fut.result()
             poll_results[d] = p
-            print(f"  [{d}] state={p.get('state')} running={p.get('running_sec',0)}s",
-                  flush=True)
 
-    poll_phase_sec = int(time.time() - overall_start) - submit_phase_sec
-    total_sec = int(time.time() - overall_start)
+    poll_phase_sec = int(time.time() - T_START) - submit_phase_sec
+    total_sec = int(time.time() - T_START)
 
-    # Tally per-domain table sizes
-    print(f"\nReading table sizes...", flush=True)
+    log("reading table sizes...")
     storage_token = get_token("https://storage.azure.com")
 
     full_results = []
     for d in DOMAINS:
         sub = submit_results.get(d, {})
         poll = poll_results.get(d, {})
-        prefix = f"spindle_{d}_medium_"  # _rows_to_scale(50_000) = "medium"
+        prefix = f"spindle_{d}_medium_"
         sizes = get_table_sizes(storage_token, prefix) if not sub.get("submit_failed") else {}
         full_results.append({
             "domain": d,
@@ -216,19 +254,20 @@ def main() -> int:
             "tables": sizes,
         })
 
-    # Summary
     out = Path("/tmp/smoke_test_parallel_results.json")
     out.write_text(json.dumps(full_results, indent=2))
-    print(f"\nResults: {out}", flush=True)
+    log(f"results: {out}")
 
-    print("\n=== SUMMARY ===", flush=True)
     succeeded = sum(1 for r in full_results if r["state"] == "Succeeded")
     failed = len(full_results) - succeeded
+
+    print()
+    print("=== SUMMARY ===", flush=True)
     print(f"Succeeded: {succeeded}/{len(full_results)}", flush=True)
     print(f"Failed:    {failed}/{len(full_results)}", flush=True)
-    print(f"Submit phase:  {submit_phase_sec}s", flush=True)
-    print(f"Poll  phase:   {poll_phase_sec}s", flush=True)
-    print(f"Total wall:    {total_sec}s", flush=True)
+    print(f"Submit phase: {submit_phase_sec}s", flush=True)
+    print(f"Poll  phase:  {poll_phase_sec}s", flush=True)
+    print(f"Total wall:   {total_sec}s", flush=True)
     print()
     print(f"{'Domain':<20} {'State':<14} {'Running':>10} {'Tables':>7} {'Bytes':>14}",
           flush=True)

@@ -2,7 +2,7 @@
 
 import importlib as _importlib
 
-__version__ = "2.7.4"
+__version__ = "2.7.5"
 
 from sqllocks_spindle.engine.generator import Spindle
 from sqllocks_spindle.engine.chunked_generator import ChunkedSpindle, ChunkedGenerationResult
