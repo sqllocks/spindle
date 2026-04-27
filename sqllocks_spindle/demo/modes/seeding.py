@@ -326,6 +326,10 @@ class SeedingDemoMode:
         from sqllocks_spindle.engine.generator import Spindle
         sp = Spindle()
         parsed = sp._resolve_schema(domain, None)
+        # Set scale based on requested rows — same as _run_local. Without this,
+        # the schema stays at its default cardinality and the Spark path never
+        # generates the row counts the user asked for.
+        parsed.generation.scale = _rows_to_scale(self._params.rows)
         if self._params.seed is not None:
             parsed.model.seed = self._params.seed
         schema_dict = dataclasses.asdict(parsed)
