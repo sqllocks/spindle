@@ -1,0 +1,88 @@
+{
+  "run_id": "20260425_211527_retail_fabric_demo_s99",
+  "spec_hash": "",
+  "pack_id": "fd_schema_drift",
+  "domain": "retail",
+  "scale": "fabric_demo",
+  "seed": 99,
+  "engine_version": "2.6.0",
+  "outputs": {},
+  "tables": {
+    "customer": {
+      "rows": 200,
+      "columns": 8,
+      "file_paths": [
+        "pack_output_drift/Files/landing/retail/customer.csv"
+      ]
+    },
+    "product_category": {
+      "rows": 50,
+      "columns": 4,
+      "file_paths": []
+    },
+    "promotion": {
+      "rows": 200,
+      "columns": 6,
+      "file_paths": []
+    },
+    "store": {
+      "rows": 150,
+      "columns": 5,
+      "file_paths": [
+        "pack_output_drift/Files/landing/retail/store.csv"
+      ]
+    },
+    "address": {
+      "rows": 300,
+      "columns": 10,
+      "file_paths": []
+    },
+    "product": {
+      "rows": 100,
+      "columns": 6,
+      "file_paths": [
+        "pack_output_drift/Files/landing/retail/product.csv"
+      ]
+    },
+    "order": {
+      "rows": 1000,
+      "columns": 8,
+      "file_paths": [
+        "pack_output_drift/Files/landing/retail/order.csv",
+        "pack_output_drift/Files/landing/retail/order_line.csv"
+      ]
+    },
+    "order_line": {
+      "rows": 2500,
+      "columns": 8,
+      "file_paths": [
+        "pack_output_drift/Files/landing/retail/order_line.csv"
+      ]
+    },
+    "return": {
+      "rows": 170,
+      "columns": 5,
+      "file_paths": []
+    }
+  },
+  "validation": {
+    "schema_conformance": true,
+    "referential_integrity": true
+  },
+  "chaos": {},
+  "timestamps": {
+    "started": "2026-04-25T21:15:27.266957+00:00",
+    "finished": "2026-04-25T21:15:27.307763+00:00",
+    "elapsed_seconds": 0.04
+  },
+  "workspace_id": "",
+  "lakehouse_id": "",
+  "sbom": {
+    "sqllocks-spindle": "2.6.0",
+    "pandas": "3.0.2",
+    "numpy": "2.4.4",
+    "faker": "40.15.0",
+    "pyarrow": "24.0.0",
+    "scipy": "1.17.1"
+  }
+}

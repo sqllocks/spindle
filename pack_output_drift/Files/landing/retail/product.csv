@@ -1,0 +1,101 @@
+product_id,category_id,product_name,unit_price,product_status,cost
+1,39,Mechanical Keyboard,16.94,active,7.93
+2,19,Egyptian Cotton Sheets,26.86,active,15.67
+3,6,Dried Mango Slices,63.43,active,23.96
+4,34,Sticky Notes Assorted,16.33,active,10.15
+5,41,Ballpoint Pen Set,131.73,active,89.63
+6,41,Sleeping Bag 20°F,68.1,discontinued,46.85
+7,45,USB-C Hub 7-in-1,53.88,active,26.29
+8,13,Protein Bars Variety,10.19,discontinued,3.89
+9,47,Cotton Dress Socks,9.27,active,4.3
+10,50,Play-Doh Mega Set,12.18,active,3.67
+11,10,Hiking Backpack 40L,42.88,discontinued,22.04
+12,30,All-Purpose Cleaner,6.65,introduced,2.25
+13,24,Portable Bluetooth Speaker,28.88,active,19.85
+14,45,Bamboo Cutting Board,38.72,active,22.39
+15,8,LEGO Architecture Set,28.69,discontinued,13.17
+16,26,Bamboo Cutting Board,10.28,introduced,3.98
+17,21,History Documentary DVD,45.19,introduced,22.3
+18,46,Yoga Mat Premium,5.96,active,3.9
+19,44,Car Wash Kit,10.57,active,3.19
+20,25,Resistance Band Set,64.55,active,34.72
+21,44,Resistance Band Set,67.47,introduced,31.15
+22,41,USB-C Hub 7-in-1,80.06,active,50.52
+23,3,Sparkling Water 12-Pack,4.45,discontinued,2.86
+24,19,Resistance Band Set,6.84,active,3.82
+25,39,4K Webcam Pro,21.92,active,15.07
+26,1,Cookbook Mediterranean,50.64,active,20.07
+27,16,Noise-Cancelling Headphones,18.39,active,9.01
+28,37,Plant Pot Ceramic,39.7,active,21.02
+29,33,Casual Sneakers,32.39,discontinued,20.24
+30,6,Cookbook Mediterranean,30.11,discontinued,19.26
+31,12,Hiking Boots,36.9,discontinued,22.65
+32,48,Mechanical Keyboard,16.28,active,10.42
+33,24,Wall Clock Modern,42.57,introduced,15.4
+34,29,Classic Cotton T-Shirt,22.14,active,13.14
+35,30,Whole Bean Coffee Premium,11.43,active,4.42
+36,19,Fleece Hoodie,26.42,active,8.49
+37,30,Garden Hose 50ft,89.18,active,55.64
+38,39,Best-Selling Novel,4.3,discontinued,1.84
+39,49,Yoga Mat Premium,59.2,active,41.39
+40,48,Egyptian Cotton Sheets,83.64,active,33.49
+41,38,Premium Wireless Earbuds,21.92,active,12.64
+42,21,Mechanical Keyboard,15.19,active,6.13
+43,46,BBQ Grill Cover,9.94,active,3.82
+44,36,Daily Multivitamin,6.31,active,3.78
+45,18,Coffee Maker 12-Cup,28.14,active,14.36
+46,22,Cat Litter Clumping,11.78,active,7.68
+47,33,Noise-Cancelling Headphones,54.99,active,36.1
+48,7,Phone Screen Protector,10.15,active,5.35
+49,25,Dark Chocolate Bar 72%,22.26,active,7.42
+50,9,Foam Roller 18-inch,11.38,active,3.53
+51,23,Denim Jacket,4.59,discontinued,2.16
+52,43,Denim Jacket,9.06,active,3.25
+53,34,Wine Glass Set of 4,16.88,active,8.2
+54,23,Winter Beanie,13.87,active,5.1
+55,20,Jump Rope Speed,11.28,active,7.26
+56,18,Hand Sanitizer 8oz,12.41,active,8.66
+57,9,Foam Roller 18-inch,25.0,active,15.34
+58,17,Fish Oil Omega-3,36.09,active,19.85
+59,11,Shampoo Volumizing,42.25,active,23.86
+60,18,Egyptian Cotton Sheets,11.6,active,7.63
+61,4,Dish Soap Natural,62.17,active,37.76
+62,15,Phone Screen Protector,25.52,active,8.93
+63,41,Premium Wireless Earbuds,9.12,discontinued,6.01
+64,40,Quinoa Organic 2lb,28.78,discontinued,9.3
+65,32,Batteries AA 24-Pack,27.72,active,15.93
+66,36,Wireless Charging Pad,68.3,active,45.49
+67,1,USB-C Hub 7-in-1,70.68,active,31.38
+68,30,Foam Roller 18-inch,24.11,active,12.11
+69,38,Leather Belt,16.17,discontinued,5.01
+70,40,Phone Mount for Car,20.75,active,14.14
+71,49,Motor Oil 5W-30,41.69,active,17.12
+72,6,Best-Selling Novel,30.67,active,18.13
+73,26,Noise-Cancelling Headphones,24.95,active,14.03
+74,42,Trash Bags Heavy Duty,23.37,active,12.49
+75,2,Jump Rope Speed,2.44,introduced,1.54
+76,13,Athletic Shorts,15.33,introduced,8.95
+77,5,Organic Granola,145.5,active,83.86
+78,6,Blender Pro 1000W,5.84,active,3.36
+79,3,Athletic Shorts,53.68,discontinued,23.07
+80,27,Almond Butter Natural,62.88,discontinued,29.27
+81,32,Fish Oil Omega-3,69.62,active,47.67
+82,19,Non-Stick Frying Pan,29.52,active,13.1
+83,7,Garden Hose 50ft,27.68,introduced,10.98
+84,36,Hand Sanitizer 8oz,45.07,active,30.01
+85,14,Sleeping Bag 20°F,6.85,active,2.15
+86,38,Ballpoint Pen Set,15.22,active,7.96
+87,16,Tablet Protective Case,9.37,active,3.95
+88,43,Organic Granola,7.81,active,2.78
+89,25,Air Fryer XL,52.27,active,22.47
+90,10,Wine Glass Set of 4,8.73,active,5.52
+91,8,History Documentary DVD,81.37,active,56.46
+92,33,Dog Food Premium 30lb,5.76,active,2.63
+93,46,Quinoa Organic 2lb,11.46,active,5.27
+94,18,Pet Bed Orthopedic,48.26,active,16.79
+95,40,Organic Trail Mix,5.61,active,2.37
+96,34,History Documentary DVD,18.58,active,6.15
+97,22,Ultra-Slim Laptop Stand,3.12,active,1.26
+98,37,Premium Wireless Earbuds,6.07,active,3.71
+99,33,Gaming Mouse RGB,22.88,active,7.27
+100,42,Smart LED Desk Lamp,46.77,discontinued,21.47

@@ -1,0 +1,151 @@
+store_id,store_name,store_type,city,state
+1,Store #0001,physical,Santa Ana,NH
+2,Store #0002,warehouse,Tucson,GA
+3,Store #0003,physical,Oakland,UT
+4,Store #0004,physical,Dallas,LA
+5,Store #0005,physical,Tulsa,AR
+6,Store #0006,physical,Norfolk,WY
+7,Store #0007,physical,Portland,VA
+8,Store #0008,physical,Columbus,CO
+9,Store #0009,physical,Irving,VA
+10,Store #0010,physical,Nashville,UT
+11,Store #0011,physical,Long Beach,MD
+12,Store #0012,online,Santa Ana,UT
+13,Store #0013,physical,Lubbock,NH
+14,Store #0014,physical,Fremont,SD
+15,Store #0015,physical,Sacramento,RI
+16,Store #0016,physical,Fort Worth,AL
+17,Store #0017,physical,Columbus,NV
+18,Store #0018,physical,Charlotte,TX
+19,Store #0019,online,Raleigh,IA
+20,Store #0020,physical,Madison,CT
+21,Store #0021,physical,Houston,TN
+22,Store #0022,physical,Chandler,WA
+23,Store #0023,physical,Richmond,CA
+24,Store #0024,warehouse,Scottsdale,GA
+25,Store #0025,online,Chicago,HI
+26,Store #0026,physical,Chicago,VT
+27,Store #0027,online,Honolulu,KY
+28,Store #0028,physical,North Las Vegas,IA
+29,Store #0029,physical,Glendale,SD
+30,Store #0030,physical,Lincoln,MO
+31,Store #0031,physical,Louisville,NJ
+32,Store #0032,physical,Miami,KS
+33,Store #0033,physical,Fort Worth,OR
+34,Store #0034,physical,Dallas,SD
+35,Store #0035,physical,Lexington,RI
+36,Store #0036,online,Los Angeles,IL
+37,Store #0037,physical,Henderson,UT
+38,Store #0038,physical,Laredo,MA
+39,Store #0039,physical,Colorado Springs,DE
+40,Store #0040,physical,Boise,CA
+41,Store #0041,physical,Durham,MA
+42,Store #0042,physical,Albuquerque,KY
+43,Store #0043,physical,Fort Worth,ND
+44,Store #0044,physical,Henderson,WV
+45,Store #0045,physical,Durham,LA
+46,Store #0046,physical,St. Petersburg,MD
+47,Store #0047,physical,Milwaukee,PA
+48,Store #0048,physical,St. Petersburg,KY
+49,Store #0049,physical,Boston,KS
+50,Store #0050,physical,Fort Wayne,PA
+51,Store #0051,physical,Lexington,TX
+52,Store #0052,physical,Cincinnati,ID
+53,Store #0053,online,Plano,VA
+54,Store #0054,physical,Phoenix,OH
+55,Store #0055,physical,Corpus Christi,NM
+56,Store #0056,physical,New Orleans,OK
+57,Store #0057,physical,Honolulu,CO
+58,Store #0058,online,Gilbert,OH
+59,Store #0059,physical,Los Angeles,RI
+60,Store #0060,physical,Newark,GA
+61,Store #0061,online,Newark,MI
+62,Store #0062,physical,Lincoln,CA
+63,Store #0063,online,Gilbert,WY
+64,Store #0064,physical,Laredo,SD
+65,Store #0065,physical,Philadelphia,NH
+66,Store #0066,physical,Laredo,KY
+67,Store #0067,physical,Chula Vista,AR
+68,Store #0068,physical,Virginia Beach,OH
+69,Store #0069,physical,Irving,NY
+70,Store #0070,physical,Oakland,AR
+71,Store #0071,physical,New York,MD
+72,Store #0072,warehouse,Corpus Christi,MO
+73,Store #0073,online,Bakersfield,AK
+74,Store #0074,physical,Memphis,MT
+75,Store #0075,physical,Newark,FL
+76,Store #0076,physical,Greensboro,CT
+77,Store #0077,online,Cleveland,VA
+78,Store #0078,physical,Winston-Salem,IN
+79,Store #0079,physical,Tampa,OK
+80,Store #0080,physical,Norfolk,NE
+81,Store #0081,online,Los Angeles,NV
+82,Store #0082,physical,Oakland,LA
+83,Store #0083,physical,Charlotte,ND
+84,Store #0084,physical,Denver,OK
+85,Store #0085,online,Phoenix,NY
+86,Store #0086,physical,Winston-Salem,NC
+87,Store #0087,physical,Fresno,LA
+88,Store #0088,physical,Lexington,VA
+89,Store #0089,physical,Jersey City,NH
+90,Store #0090,physical,Santa Ana,RI
+91,Store #0091,physical,Chandler,TX
+92,Store #0092,physical,New York,SD
+93,Store #0093,physical,Long Beach,NE
+94,Store #0094,physical,Honolulu,IN
+95,Store #0095,physical,Garland,WA
+96,Store #0096,physical,San Jose,WY
+97,Store #0097,warehouse,Madison,PA
+98,Store #0098,physical,Minneapolis,TN
+99,Store #0099,physical,Honolulu,MD
+100,Store #0100,physical,New York,AR
+101,Store #0101,physical,Oklahoma City,MA
+102,Store #0102,physical,Miami,CA
+103,Store #0103,physical,Houston,MA
+104,Store #0104,physical,Raleigh,VT
+105,Store #0105,physical,Plano,ND
+106,Store #0106,physical,Columbus,DE
+107,Store #0107,online,Kansas City,CA
+108,Store #0108,online,Winston-Salem,AK
+109,Store #0109,physical,Toledo,MI
+110,Store #0110,warehouse,Baton Rouge,RI
+111,Store #0111,physical,Los Angeles,SD
+112,Store #0112,physical,Lubbock,MN
+113,Store #0113,physical,Lubbock,DE
+114,Store #0114,physical,Riverside,AK
+115,Store #0115,physical,Denver,FL
+116,Store #0116,physical,Tulsa,NM
+117,Store #0117,physical,Norfolk,OK
+118,Store #0118,physical,Raleigh,WV
+119,Store #0119,physical,Baltimore,AL
+120,Store #0120,physical,Boise,UT
+121,Store #0121,physical,Columbus,CO
+122,Store #0122,physical,San Diego,GA
+123,Store #0123,physical,Wichita,NE
+124,Store #0124,warehouse,Tampa,NY
+125,Store #0125,online,Irvine,IL
+126,Store #0126,physical,Colorado Springs,TN
+127,Store #0127,physical,Norfolk,AL
+128,Store #0128,physical,Boston,NC
+129,Store #0129,physical,Tampa,IN
+130,Store #0130,warehouse,Anchorage,TN
+131,Store #0131,online,Long Beach,OR
+132,Store #0132,physical,Dallas,ID
+133,Store #0133,physical,Reno,VA
+134,Store #0134,online,St. Louis,FL
+135,Store #0135,physical,Indianapolis,CA
+136,Store #0136,physical,Anchorage,NE
+137,Store #0137,physical,Irving,NY
+138,Store #0138,physical,Cleveland,NV
+139,Store #0139,physical,Dallas,RI
+140,Store #0140,physical,Sacramento,NY
+141,Store #0141,physical,Toledo,IN
+142,Store #0142,physical,Louisville,CT
+143,Store #0143,warehouse,Indianapolis,WY
+144,Store #0144,physical,Boston,NY
+145,Store #0145,physical,Nashville,KS
+146,Store #0146,physical,Louisville,WY
+147,Store #0147,physical,Sacramento,LA
+148,Store #0148,physical,Norfolk,IA
+149,Store #0149,warehouse,Richmond,MO
+150,Store #0150,physical,Baltimore,PA

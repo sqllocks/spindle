@@ -36,6 +36,20 @@ def _load_dataset(dataset_name: str, domain_path: Path | list[Path] | None = Non
     data_dir = Path(__file__).parent.parent.parent / "data"
     search_paths.append(data_dir / f"{dataset_name}.json")
 
+    # Last-resort fallback: walk every installed domain's reference_data/.
+    # Needed when domain_path was set to a local path that doesn't exist on the
+    # cluster (e.g. /Users/x/... from a Mac, in a Linux Spark notebook). The
+    # installed package contains all domain reference data, so we can find it
+    # without knowing which domain we're in.
+    domains_root = Path(__file__).parent.parent.parent / "domains"
+    if domains_root.exists():
+        for entry in domains_root.iterdir():
+            if not entry.is_dir() or entry.name.startswith("_") or entry.name.startswith("."):
+                continue
+            candidate = entry / "reference_data" / f"{dataset_name}.json"
+            if candidate not in search_paths:
+                search_paths.append(candidate)
+
     for path in search_paths:
         if path.exists():
             with open(path, "r", encoding="utf-8") as f:

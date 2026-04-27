@@ -178,20 +178,52 @@ def _generate_static_tables(
     gen_order = DependencyResolver().resolve(schema)
     result_dfs: dict[str, pd.DataFrame] = {}
 
+    # Walk the dependency graph in order. For each table:
+    #   • static  → generate fully and add to result_dfs (returned to caller)
+    #   • dynamic → generate a small sample (capped at DYNAMIC_SAMPLE_SIZE) and
+    #     register column data with the IDManager so subsequent static tables
+    #     that LookupStrategy/CorrelatedStrategy against this dynamic parent
+    #     can resolve. Then re-register the synthetic full-range PK pool so FK
+    #     lookups still see all N possible PKs (chunk workers will produce them).
+    # The sample is NOT included in result_dfs — chunk workers generate the
+    # full dynamic data and write it to sinks.
+    DYNAMIC_SAMPLE_SIZE = 1000
     for table_name in gen_order:
-        if table_name not in static_tables or table_name not in schema.tables:
+        if table_name not in schema.tables:
             continue
+        is_static = table_name in static_tables
         natural_count = schema_counts.get(table_name, 100)
+        row_count = natural_count if is_static else min(DYNAMIC_SAMPLE_SIZE, natural_count)
         child_rng = np.random.default_rng(seed ^ (hash(table_name) & 0xFFFF_FFFF))
-        df = table_gen.generate(
-            table=schema.tables[table_name],
-            row_count=natural_count,
-            rng=child_rng,
-            model_config=model_config,
-            schema=schema,
-            sequence_offset=0,
-        )
-        result_dfs[table_name] = df
+        try:
+            df = table_gen.generate(
+                table=schema.tables[table_name],
+                row_count=row_count,
+                rng=child_rng,
+                model_config=model_config,
+                schema=schema,
+                sequence_offset=0,
+            )
+        except Exception as exc:
+            if is_static:
+                raise
+            logger.warning(
+                "Could not pre-sample dynamic table '%s': %s. Static tables "
+                "that look up against it may fail.", table_name, exc,
+            )
+            continue
+
+        if is_static:
+            result_dfs[table_name] = df
+        else:
+            # Dynamic sample — register table data for downstream lookups,
+            # then restore the synthetic full-range PK pool.
+            pk_cols = list(schema.tables[table_name].primary_key or [])
+            if pk_cols:
+                id_manager.register_table(table_name, df, pk_cols)
+                id_manager.register_range(
+                    table_name, start=1, count=natural_count,
+                )
 
     apply_compute_phase(result_dfs, schema)
 
