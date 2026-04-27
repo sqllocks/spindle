@@ -109,7 +109,20 @@ class FabricSparkRouter:
 
         from sqllocks_spindle.notebooks import SPARK_WORKER_IPYNB
 
-        notebook_b64 = base64.b64encode(json.dumps(SPARK_WORKER_IPYNB).encode()).decode()
+        # Substitute baked-in workspace_id and lakehouse_id placeholders in the
+        # notebook source. Fabric does NOT inject Job Scheduler API parameters
+        # into notebook parameters cells (silently ignored), so we hard-code
+        # workspace and lakehouse IDs at notebook creation time. Runtime values
+        # (chunk_size, seed, total_rows, sinks, sink_config) live inside the
+        # schema JSON at a fixed OneLake path.
+        notebook_json_str = json.dumps(SPARK_WORKER_IPYNB)
+        notebook_json_str = notebook_json_str.replace(
+            "__SPINDLE_WORKSPACE_ID__", self._workspace_id,
+        )
+        notebook_json_str = notebook_json_str.replace(
+            "__SPINDLE_LAKEHOUSE_ID__", self._lakehouse_id,
+        )
+        notebook_b64 = base64.b64encode(notebook_json_str.encode()).decode()
         # Fabric requires a .platform JSON part alongside the notebook content.
         # Without it, the notebook fails at runtime with "Job instance failed
         # without detail error" after the Spark cluster spins up.
@@ -208,10 +221,14 @@ class FabricSparkRouter:
         """Upload augmented schema JSON to OneLake Files via the ADLS Gen2 DFS API.
 
         Three-step protocol: create → append → flush.
-        Returns the OneLake-relative file path.
+
+        Always uploads to a fixed path (``spindle_temp/current_run.json``) — the
+        notebook reads from this fixed path. Concurrent submissions to the same
+        notebook will race on this file (acceptable for the demo flow; serialize
+        if you need parallel runs).
         """
         data: bytes = json.dumps(schema_dict, cls=_SpindleJSONEncoder).encode()
-        rel_path = f"spindle_temp/{run_id}_schema.json"
+        rel_path = "spindle_temp/current_run.json"
         # OneLake DFS path: /<workspace>/<lakehouse_id>/Files/<path> — capital F is required.
         base_url = (
             f"{_ONELAKE_DFS}/{self._workspace_id}/{self._lakehouse_id}/Files/{rel_path}"
@@ -246,34 +263,17 @@ class FabricSparkRouter:
         total_rows: int,
         seed: int,
     ) -> str:
-        """Submit a Fabric notebook run and return the Fabric run ID."""
+        """Submit a Fabric notebook run and return the Fabric run ID.
+
+        Sends an empty body — runtime values are embedded in the schema JSON
+        and read by the notebook itself (Fabric's parameter injection via the
+        Job Scheduler API is silently ignored for RunNotebook).
+        """
         url = (
             f"{_FABRIC_API}/workspaces/{self._workspace_id}"
             f"/items/{notebook_item_id}/jobs/instances?jobType=RunNotebook"
         )
-        # Fabric Job Scheduler API parameter format: top-level "parameters" array,
-        # NOT nested in executionData. Each entry: {name, value, type}.
-        # Valid types (PascalCase): Text | Number | Integer | Boolean | DateTime | Guid.
-        # (The `executionData.parameters` dict format is silently accepted but
-        # ignored — caught in live testing 2026-04-26.)
-        body = {
-            "parameters": [
-                {"name": "schema_path", "value": schema_path, "type": "Text"},
-                {"name": "chunk_size", "value": self._chunk_size, "type": "Integer"},
-                {"name": "seed", "value": seed, "type": "Integer"},
-                {"name": "total_rows", "value": total_rows, "type": "Integer"},
-                {
-                    "name": "sinks_json",
-                    "value": json.dumps(
-                        {"sinks": self._sinks, "sink_config": self._sink_config}
-                    ),
-                    "type": "Text",
-                },
-                {"name": "workspace_id", "value": self._workspace_id, "type": "Text"},
-                {"name": "lakehouse_id", "value": self._lakehouse_id, "type": "Text"},
-            ]
-        }
-        resp = requests.post(url, headers=self._json_headers(), json=body, timeout=30)
+        resp = requests.post(url, headers=self._json_headers(), json={}, timeout=30)
         if resp.status_code == 202:
             location = resp.headers.get("Location", "")
             return location.rstrip("/").split("/")[-1]
@@ -313,6 +313,16 @@ class FabricSparkRouter:
             schema_dict["_schema_counts"] = schema_counts
 
         schema_dict["_base_seed"] = seed
+        # Runtime block — read by the notebook (parameter injection via the Jobs
+        # API doesn't work for RunNotebook). Everything the notebook needs at
+        # runtime lives in the schema JSON.
+        schema_dict["_runtime"] = {
+            "chunk_size": self._chunk_size,
+            "seed": seed,
+            "total_rows": total_rows,
+            "sinks": self._sinks,
+            "sink_config": self._sink_config,
+        }
 
         run_id = uuid.uuid4().hex
         schema_path = self._upload_schema(schema_dict, run_id)
