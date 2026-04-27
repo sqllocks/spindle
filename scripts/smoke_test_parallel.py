@@ -74,8 +74,8 @@ def get_token(resource: str) -> str:
 
 def _load_connection():
     """Load the fabric-demo connection profile."""
-    from sqllocks_spindle.demo.connections import get_connection
-    return get_connection(CONNECTION)
+    from sqllocks_spindle.demo.connections import ConnectionRegistry
+    return ConnectionRegistry().load(CONNECTION)
 
 
 def _build_schema(domain_name: str) -> dict:
