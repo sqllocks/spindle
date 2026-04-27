@@ -81,7 +81,9 @@ def submit_domain(domain: str, quiet: bool = False) -> dict:
     if not quiet:
         log(f"  [{domain}] submit START")
     try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=180)
+        # 360s ceiling: under contention the OneLake retry backoff can take
+        # ~45s per submit, plus the static-gen + notebook submit roundtrip.
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=360)
     except subprocess.TimeoutExpired as e:
         return {"domain": domain, "submit_failed": True, "error": f"submit timeout: {e}"}
     if proc.returncode != 0:
@@ -190,7 +192,7 @@ def main() -> int:
     # timeouts on 13-way parallel uploads. With retry+backoff in
     # _upload_schema, 6-way is the safe ceiling.
     remaining = [d for d in DOMAINS if d != "retail"]
-    SUBMIT_CONCURRENCY = 6
+    SUBMIT_CONCURRENCY = 4
     log(f"submitting {len(remaining)} more domains in parallel "
         f"(max_workers={SUBMIT_CONCURRENCY})...")
     with ThreadPoolExecutor(max_workers=SUBMIT_CONCURRENCY) as pool:
