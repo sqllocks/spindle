@@ -45,7 +45,7 @@ DOMAINS = [
     "manufacturing", "telecom", "capital_markets",
 ]
 
-PREPARE_CONCURRENCY = 4   # OneLake DFS throttle ceiling
+PREPARE_CONCURRENCY = 2   # OneLake DFS throttle ceiling (4-way caused timeouts)
 POLL_INTERVAL_SEC = 15
 POLL_TIMEOUT_SEC = 900
 
@@ -268,7 +268,16 @@ def main() -> int:
 
     # ------------------------------------------------------------------
     # Phase B — submit_run() fully parallel (one REST call per domain)
+    # Refresh the API token first — Phase A can take 10+ minutes and the
+    # token acquired at startup may have expired.
     # ------------------------------------------------------------------
+    log("refreshing API token before Phase B...")
+    api_token = get_token("https://api.fabric.microsoft.com")
+    for d in ok_prepares:
+        prep = prepare_results[d]
+        if not isinstance(prep, Exception):
+            prep["_router"]._token = api_token
+
     log(f"Phase B: submit_run all {len(ok_prepares)} domains in parallel...")
 
     submit_results: dict[str, dict | Exception] = {}

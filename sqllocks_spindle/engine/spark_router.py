@@ -247,11 +247,14 @@ class FabricSparkRouter:
             ).raise_for_status()
 
         def _patch_append() -> None:
+            # timeout=(connect, read/write): 30s to connect, 600s for the upload.
+            # Large schemas (financial/healthcare with embedded static PK data) can
+            # exceed 120s on a throttled OneLake endpoint — seen in smoke-test.
             requests.patch(
                 f"{base_url}?action=append&position=0",
                 headers={**self._storage_headers(), "Content-Length": str(len(data))},
                 data=data,
-                timeout=120,
+                timeout=(30, 600),
             ).raise_for_status()
 
         def _patch_flush() -> None:
