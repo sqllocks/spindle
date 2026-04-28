@@ -184,6 +184,53 @@ class TestDataProfiler:
         emp = dataset.tables["employee"]
         assert "department_id" in emp.detected_fks
 
+    def test_quantiles_captured(self):
+        profiler = DataProfiler()
+        df = pd.DataFrame({"score": np.random.default_rng(42).normal(50, 10, 500)})
+        profile = profiler.profile_dataframe(df)
+        col = profile.columns["score"]
+        assert col.quantiles is not None
+        assert set(col.quantiles.keys()) == {"p1", "p5", "p10", "p25", "p50", "p75", "p90", "p95", "p99"}
+        assert col.quantiles["p50"] == pytest.approx(df["score"].median(), abs=2.0)
+
+    def test_outlier_rate_captured(self):
+        profiler = DataProfiler()
+        rng = np.random.default_rng(42)
+        values = np.concatenate([rng.normal(50, 5, 95), [200.0, 210.0, 220.0, 230.0, 240.0]])
+        df = pd.DataFrame({"val": values})
+        profile = profiler.profile_dataframe(df)
+        col = profile.columns["val"]
+        assert col.outlier_rate is not None
+        assert 0.0 <= col.outlier_rate <= 1.0
+
+    def test_value_counts_ext_captured(self):
+        profiler = DataProfiler()
+        df = pd.DataFrame({"cat": ["A"] * 60 + ["B"] * 30 + ["C"] * 10})
+        profile = profiler.profile_dataframe(df)
+        col = profile.columns["cat"]
+        assert col.value_counts_ext is not None
+        assert abs(col.value_counts_ext["A"] - 0.6) < 0.01
+
+    def test_string_length_captured(self):
+        profiler = DataProfiler()
+        # range(10, 10000): "user_10" (7 chars) .. "user_9999" (9 chars) → min=7, max=9
+        df = pd.DataFrame({"name": [f"user_{i}" for i in range(10, 10000)]})
+        profile = profiler.profile_dataframe(df)
+        col = profile.columns["name"]
+        assert col.string_length is not None
+        assert col.string_length["min"] == 7
+        assert col.string_length["max"] == 9
+
+    def test_fit_score_captured(self):
+        profiler = DataProfiler()
+        df = pd.DataFrame({"val": np.random.default_rng(42).normal(0, 1, 200)})
+        profile = profiler.profile_dataframe(df)
+        col = profile.columns["val"]
+        # fit_score is None when scipy not available, or a float in [0, 1]
+        if HAS_SCIPY:
+            assert col.fit_score is not None
+            assert 0.0 <= col.fit_score <= 1.0
+
 
 # ---------------------------------------------------------------------------
 # TestSchemaBuilder

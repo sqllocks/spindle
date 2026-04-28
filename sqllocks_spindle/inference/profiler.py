@@ -71,6 +71,15 @@ class ColumnProfile:
     is_foreign_key: bool
     fk_ref_table: str | None
 
+    # --- Phase 3B: extended statistical fields (all optional for backward compat) ---
+    quantiles: dict[str, float] | None = None          # P1,P5,P10,P25,P50,P75,P90,P95,P99
+    hour_histogram: list[float] | None = None           # 24-bin normalized hour distribution
+    dow_histogram: list[float] | None = None            # 7-bin normalized day-of-week distribution
+    string_length: dict[str, float] | None = None       # min, mean, max, p95 of len(value)
+    outlier_rate: float | None = None                   # fraction outside 1.5×IQR fence
+    value_counts_ext: dict[str, float] | None = None   # value→proportion (top N)
+    fit_score: float | None = None                      # 1 - KS_statistic from best-fit dist
+
 
 @dataclass
 class TableProfile:
@@ -81,6 +90,7 @@ class TableProfile:
     columns: dict[str, ColumnProfile]
     primary_key: list[str]
     detected_fks: dict[str, str]  # col_name -> parent_table
+    correlation_matrix: dict[str, dict[str, float]] | None = None  # Pearson between numeric cols
 
 
 @dataclass
@@ -98,6 +108,18 @@ class DatasetProfile:
 
 class DataProfiler:
     """Analyse one or more DataFrames and produce profiles."""
+
+    def __init__(
+        self,
+        fit_threshold: float = 0.80,
+        top_n_values: int = 500,
+        outlier_iqr_factor: float = 1.5,
+        sample_rows: int | None = None,
+    ):
+        self.fit_threshold = fit_threshold
+        self.top_n_values = top_n_values
+        self.outlier_iqr_factor = outlier_iqr_factor
+        self.sample_rows = sample_rows
 
     # ----- public API -----
 
@@ -145,6 +167,9 @@ class DataProfiler:
         all_tables: dict[str, pd.DataFrame],
     ) -> TableProfile:
         row_count = len(df)
+        if self.sample_rows is not None and len(df) > self.sample_rows:
+            df = df.sample(n=self.sample_rows, random_state=42)
+            row_count = len(df)
         pk_cols = self._detect_primary_key(df)
         fk_map = self._detect_foreign_keys(table_name, df, all_tables)
 
@@ -206,6 +231,51 @@ class DataProfiler:
             is_fk = col in fk_map
             fk_ref = fk_map.get(col)
 
+            # --- Phase 3B extended stats ---
+            quantiles: dict[str, float] | None = None
+            outlier_rate_val: float | None = None
+            value_counts_ext: dict[str, float] | None = None
+            string_length_val: dict[str, float] | None = None
+            hour_histogram_val: list[float] | None = None
+            dow_histogram_val: list[float] | None = None
+            fit_score_val: float | None = None
+
+            if spindle_type in ("integer", "float") and len(non_null) >= 4:
+                numeric_series = pd.to_numeric(non_null, errors="coerce").dropna()
+                if len(numeric_series) >= 4:
+                    quantiles = self._compute_quantiles(numeric_series)
+                    outlier_rate_val = self._compute_outlier_rate(numeric_series)
+
+            if spindle_type == "string" and len(non_null) > 0:
+                string_length_val = self._compute_string_length(non_null)
+
+            if len(non_null) > 0 and cardinality <= self.top_n_values:
+                value_counts_ext = self._compute_value_counts_ext(non_null)
+
+            if spindle_type in ("date", "datetime") and len(non_null) > 0:
+                hour_histogram_val = self._compute_hour_histogram(non_null)
+                dow_histogram_val = self._compute_dow_histogram(non_null)
+
+            # fit_score: 1 - ks_stat from best-fit distribution
+            if dist_name is not None and dist_params is not None and HAS_SCIPY:
+                numeric_for_fit = pd.to_numeric(non_null, errors="coerce").dropna()
+                if len(numeric_for_fit) >= 20:
+                    from scipy import stats as _sp
+                    dist_map = {
+                        "normal": _sp.norm, "uniform": _sp.uniform,
+                        "exponential": _sp.expon, "lognormal": _sp.lognorm,
+                    }
+                    dist_obj = dist_map.get(dist_name)
+                    if dist_obj is not None:
+                        try:
+                            params = dist_obj.fit(numeric_for_fit.values.astype(float))
+                            ks_stat, _ = _sp.kstest(
+                                numeric_for_fit.values.astype(float), dist_obj.name, args=params
+                            )
+                            fit_score_val = round(1.0 - float(ks_stat), 4)
+                        except Exception:
+                            pass
+
             columns[col] = ColumnProfile(
                 name=col,
                 dtype=spindle_type,
@@ -226,7 +296,16 @@ class DataProfiler:
                 is_primary_key=is_pk,
                 is_foreign_key=is_fk,
                 fk_ref_table=fk_ref,
+                quantiles=quantiles,
+                hour_histogram=hour_histogram_val,
+                dow_histogram=dow_histogram_val,
+                string_length=string_length_val,
+                outlier_rate=outlier_rate_val,
+                value_counts_ext=value_counts_ext,
+                fit_score=fit_score_val,
             )
+
+        corr_matrix = self._compute_correlation_matrix(df)
 
         return TableProfile(
             name=table_name,
@@ -234,6 +313,7 @@ class DataProfiler:
             columns=columns,
             primary_key=pk_cols,
             detected_fks=fk_map,
+            correlation_matrix=corr_matrix if corr_matrix else None,
         )
 
     # ----- type inference -----
@@ -296,6 +376,78 @@ class DataProfiler:
             return "string"
 
         return "string"
+
+    # ----- Phase 3B helper methods -----
+
+    def _compute_quantiles(self, numeric: pd.Series) -> dict[str, float]:
+        """Compute quantile fingerprint at fixed percentiles."""
+        percs = [1, 5, 10, 25, 50, 75, 90, 95, 99]
+        vals = np.percentile(numeric.values.astype(float), percs)
+        return {f"p{p}": round(float(v), 6) for p, v in zip(percs, vals)}
+
+    def _compute_outlier_rate(self, numeric: pd.Series) -> float:
+        """Fraction of values outside 1.5×IQR fence."""
+        if len(numeric) < 4:
+            return 0.0
+        arr = numeric.values.astype(float)
+        q1, q3 = np.percentile(arr, [25, 75])
+        iqr = q3 - q1
+        if iqr == 0:
+            return 0.0
+        fence_lo = q1 - self.outlier_iqr_factor * iqr
+        fence_hi = q3 + self.outlier_iqr_factor * iqr
+        n_outliers = int(((arr < fence_lo) | (arr > fence_hi)).sum())
+        return round(n_outliers / len(arr), 6)
+
+    def _compute_value_counts_ext(self, non_null: pd.Series) -> dict[str, float]:
+        """Top-N value frequencies as proportions."""
+        counts = non_null.value_counts(normalize=True)
+        if len(counts) > self.top_n_values:
+            counts = counts.head(self.top_n_values)
+        return {str(k): round(float(v), 6) for k, v in counts.items()}
+
+    def _compute_string_length(self, non_null: pd.Series) -> dict[str, float]:
+        """String length statistics: min, mean, max, p95."""
+        lengths = non_null.astype(str).str.len()
+        return {
+            "min": float(lengths.min()),
+            "mean": round(float(lengths.mean()), 2),
+            "max": float(lengths.max()),
+            "p95": float(np.percentile(lengths.values, 95)),
+        }
+
+    def _compute_hour_histogram(self, dt_series: pd.Series) -> list[float]:
+        """24-bin normalized hour-of-day histogram."""
+        hours = pd.to_datetime(dt_series, errors="coerce").dropna().dt.hour
+        if len(hours) == 0:
+            return [1.0 / 24] * 24
+        counts = np.bincount(hours.values, minlength=24).astype(float)
+        total = counts.sum()
+        return [round(float(v / total), 6) for v in counts]
+
+    def _compute_dow_histogram(self, dt_series: pd.Series) -> list[float]:
+        """7-bin normalized day-of-week histogram (Mon=0, Sun=6)."""
+        dows = pd.to_datetime(dt_series, errors="coerce").dropna().dt.dayofweek
+        if len(dows) == 0:
+            return [1.0 / 7] * 7
+        counts = np.bincount(dows.values, minlength=7).astype(float)
+        total = counts.sum()
+        return [round(float(v / total), 6) for v in counts]
+
+    def _compute_correlation_matrix(self, df: pd.DataFrame) -> dict[str, dict[str, float]]:
+        """Pearson correlation matrix for all numeric columns."""
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if len(numeric_cols) < 2:
+            return {}
+        corr = df[numeric_cols].corr(method="pearson")
+        result: dict[str, dict[str, float]] = {}
+        for col_a in numeric_cols:
+            for col_b in numeric_cols:
+                if col_a != col_b:
+                    v = corr.loc[col_a, col_b]
+                    if not np.isnan(v):
+                        result.setdefault(col_a, {})[col_b] = round(float(v), 4)
+        return result
 
     # ----- distribution fitting -----
 
