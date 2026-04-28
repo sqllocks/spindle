@@ -5,6 +5,44 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-04-28
+
+### Added — Phase 3B: Inference Depth
+
+Spindle generated data now statistically matches real source data across all fidelity dimensions: distribution shape, cardinality, null rates, temporal patterns, string formats, outlier rates, and column correlations.
+
+#### New Classes
+
+- **`EmpiricalStrategy`** (`engine/strategies/empirical.py`) — Quantile-fingerprint interpolation for numeric columns when parametric distribution fit is poor. Requires a `quantiles` dict (keys `p1`–`p99`). Supports `"linear"` (default, NumPy) and `"cubic"` (scipy, optional) interpolation.
+- **`GaussianCopula`** (`engine/correlation.py`) — Post-generation correlation enforcement. Reorders column values to achieve target Pearson correlations without changing any column's marginal distribution. Algorithm: Cholesky decompose → draw correlated normals → re-rank values. Pure NumPy, no scipy.
+- **`LakehouseProfiler`** (`inference/lakehouse_profiler.py`) — Fabric-native Delta table profiler. Reads tables over ABFSS via `deltalake`. Returns the same `DatasetProfile`/`TableProfile` as the other entry points. Requires `[fabric-inference]` extra.
+- **`FidelityReport`** — Extended with `.score()` classmethod, `.failing_columns()`, `.to_dict()`, `.to_dataframe()`. Enables inline fidelity measurement during generation via new `fidelity_profile=` kwarg on `Spindle.generate()`.
+
+#### Enhanced Classes
+
+- **`DataProfiler`** — New constructor kwargs: `fit_threshold`, `top_n_values`, `outlier_iqr_factor`, `sample_rows`. New `profile()` alias (same as `profile_dataset()`). New `from_csv()` classmethod. Extended string pattern detection: `ssn`, `ip_address` (IPv4 + IPv6), `mac_address`, `iban`, `currency_code`, `language_code`, `postal_code`.
+- **`ColumnProfile`** — New optional fields: `quantiles` (dict), `hour_histogram`, `dow_histogram`, `string_length`, `outlier_rate`, `value_counts_ext`, `fit_score`.
+- **`TableProfile`** — New `correlation_matrix: dict[str, dict[str, float]] | None` field.
+- **`SchemaBuilder.build()`** — New kwargs: `fit_threshold`, `correlation_threshold`, `include_anomaly_registry`. Returns `(SpindleSchema, AnomalyRegistry)` tuple when `include_anomaly_registry=True`. Extended priority tree (13 levels) with empirical fallback when KS fit < `fit_threshold`, temporal histogram routing, and correlation detection.
+- **`Spindle.generate()`** — New kwargs: `enforce_correlations=True` (auto-applies `GaussianCopula` when schema contains `correlated_columns`) and `fidelity_profile=None` (returns `(GenerationResult, FidelityReport)` tuple when supplied).
+
+#### New Extras
+
+```bash
+pip install sqllocks-spindle[inference]          # scipy for FidelityReport + empirical strategies
+pip install sqllocks-spindle[fabric-inference]   # scipy + deltalake + pyarrow for LakehouseProfiler
+```
+
+#### New String Patterns in Engine
+
+`ssn`, `ip_address` (IPv4 + IPv6), `mac_address`, `iban`, `currency_code`, `language_code`, `postal_code`
+
+### Changed
+
+- Test count: 1,946 → 1,973 (+27 Phase 3B tests across `test_empirical_strategy.py`, `test_correlation.py`, `test_fidelity_report_v2.py`, `test_lakehouse_profiler.py`, and additions to `test_inference.py` and `test_e2e_generation.py`)
+
+---
+
 ## [2.7.1] - 2026-04-27
 
 ### Changed

@@ -142,8 +142,59 @@ GateRunner.register_gate("my_custom_check", MyCustomGate)
 
 ---
 
+## Fidelity Scoring
+
+Validation gates check structural correctness (FK integrity, nulls, uniqueness). **Fidelity scoring** checks statistical similarity — how closely generated data matches the source data's distribution, cardinality, null rate, and patterns.
+
+### Quick Start
+
+```python
+from sqllocks_spindle.inference.comparator import FidelityReport
+
+# Score generated df against real df
+report = FidelityReport.score(real_df, synthetic_df, table_name="orders")
+
+report.summary()                 # print per-column score table to stdout
+failing = report.failing_columns(threshold=85.0)  # [(table, column, score), ...]
+df_scores = report.to_dataframe()                 # pandas DataFrame
+report_dict = report.to_dict()                    # serializable dict
+```
+
+### Score Breakdown (per column)
+
+| Metric | Applies To | Score |
+| --- | --- | --- |
+| dtype match | All | Pass / fail |
+| Null rate delta | All | `1 - abs(real_null_rate - synth_null_rate)` |
+| Cardinality ratio | All | `min(synth_unique / real_unique, 1.0)` |
+| Mean delta | Numeric | Normalized deviation |
+| Std ratio | Numeric | Ratio of standard deviations |
+| KS statistic | Numeric | Kolmogorov-Smirnov test |
+| Value overlap | Categorical | Fraction of real values present in synthetic |
+| Chi-squared | Categorical | Distribution shape similarity |
+
+Column composite score = weighted average (equal weights by default). Overall table score = average of column scores.
+
+### Inline Scoring During Generation
+
+```python
+from sqllocks_spindle import Spindle
+from sqllocks_spindle.inference import SchemaBuilder, ProfileIO
+
+profile = ProfileIO.load("orders_profile.json")
+schema = SchemaBuilder().build(profile)
+result, fidelity = Spindle().generate(schema, fidelity_profile=profile)
+
+fidelity.summary()
+```
+
+When `fidelity_profile` is supplied, `Spindle.generate()` returns a `(GenerationResult, FidelityReport)` tuple. Without it, the original single-return signature is unchanged.
+
+---
+
 ## See Also
 
+- **Guide:** [Schema Learning](schema-learning.md) — profile real data, infer schema, compare fidelity
 - **Tutorial:** [08: Validation Gates](../tutorials/intermediate/08-validation-gates.md) — step-by-step walkthrough
 - **Tutorial:** [13: Medallion](../tutorials/fabric/13-medallion.md) — step-by-step walkthrough
 - **Example script:** [`18_validation_gates.py`](https://github.com/sqllocks/spindle/blob/main/examples/scenarios/18_validation_gates.py)

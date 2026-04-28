@@ -30,6 +30,15 @@ pip install sqllocks-spindle[fabric]
 # Streaming sinks — Event Hub + Kafka (azure-eventhub, kafka-python)
 pip install sqllocks-spindle[streaming]
 
+# Inference: FidelityReport + EmpiricalStrategy (scipy)
+pip install sqllocks-spindle[inference]
+
+# Fabric Inference: LakehouseProfiler — profile Delta tables directly (scipy + deltalake + pyarrow)
+pip install sqllocks-spindle[fabric-inference]
+
+# Fabric SQL Database writer (pyodbc + azure-identity)
+pip install sqllocks-spindle[fabric-sql]
+
 # Everything
 pip install sqllocks-spindle[all]
 

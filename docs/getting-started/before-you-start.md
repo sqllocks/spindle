@@ -34,7 +34,7 @@ Most synthetic data tools either generate random noise (Faker) or train ML model
 | Term | Definition |
 |------|-----------|
 | **Domain** | A pre-built industry schema (e.g., Retail, Healthcare). Spindle ships 13 domains. |
-| **Strategy** | A column-level generation rule (e.g., `faker_name`, `weighted_enum`, `pareto_fk`). Spindle has 21 strategies. |
+| **Strategy** | A column-level generation rule (e.g., `faker_name`, `weighted_enum`, `pareto_fk`). Spindle has 22 strategies. |
 | **Scale preset** | A named size configuration (`fabric_demo`, `small`, `medium`, `large`, `warehouse`, `xlarge`). |
 | **Schema** | A `.spindle.json` file defining tables, columns, strategies, relationships, and constraints. |
 | **Chaos Engine** | A module that intentionally corrupts generated data to test pipeline resilience. |
@@ -43,6 +43,12 @@ Most synthetic data tools either generate random noise (Faker) or train ML model
 | **CDM** | Common Data Model — a Microsoft standard folder structure for data interchange. |
 | **GSL** | Generation Spec Language — a declarative YAML format that ties together schema, chaos, and output settings. |
 | **Composite Domain** | Multi-domain generation with shared entities and cross-domain FK relationships. |
+| **DataProfiler** | Profiles a real DataFrame or CSV to capture distributions, null rates, patterns, quantiles, and correlations. |
+| **SchemaBuilder** | Converts a profiled dataset into a `.spindle.json` schema, auto-selecting the best strategy per column. |
+| **Empirical Strategy** | A generation strategy that interpolates the source data's quantile fingerprint instead of fitting a parametric distribution. Used automatically when parametric fit is poor. |
+| **FidelityReport** | Per-column statistical scoring (0–100) comparing generated data to source statistics. Measures distribution shape, null rates, cardinality, and patterns. |
+| **LakehouseProfiler** | Fabric-native profiler that reads Delta tables over ABFSS and returns the same `DatasetProfile` as `DataProfiler`. Requires `[fabric-inference]` extra. |
+| **GaussianCopula** | A post-generation pass that reorders column values to enforce target Pearson correlations without changing any column's marginal distribution. |
 
 ## Learning Paths
 
@@ -59,6 +65,13 @@ Most synthetic data tools either generate random noise (Faker) or train ML model
 3. [Fabric Lakehouse Guide](../guides/fabric-lakehouse.md) — write to Delta tables
 4. [Fabric Notebooks Guide](../guides/fabric-notebook.md) — run in Fabric notebooks
 5. [Star Schema Export](../guides/star-schema.md) — build dimensional models
+
+### Path 4: "I want to mirror real data statistically"
+
+1. [Installation](installation.md) — install `[inference]` or `[fabric-inference]` extra
+2. [Schema Learning](../guides/schema-learning.md) — profile real data, infer schema
+3. [Lakehouse Profiling](../guides/lakehouse-profiling.md) — profile Fabric Delta tables directly
+4. [Fidelity Scoring](../guides/fidelity-scoring.md) — measure how closely synthetic matches real
 
 ### Path 3: "I want to understand everything"
 

@@ -39,6 +39,7 @@ Real-world data engineering patterns. Requires completing the Beginner track (or
 | 07 | [Chaos Engineering](intermediate/07-chaos-engineering.md) | Inject realistic data quality issues to test pipeline resilience | 20 min |
 | 08 | [Validation Gates](intermediate/08-validation-gates.md) | Run quality checks and quarantine bad records | 15 min |
 | 09 | [Composite Domains](intermediate/09-composite-domains.md) | Generate multi-domain datasets with cross-domain FK relationships | 20 min |
+| 18 | [Fidelity Reporting](intermediate/18-fidelity-reporting.md) | Profile real data, infer a schema, generate synthetic, and measure statistical fidelity | 20 min |
 
 **Prerequisites:** Beginner track, familiarity with data pipelines
 
@@ -52,6 +53,7 @@ Microsoft Fabric workflows. Write to Lakehouse, Warehouse, SQL Database, and Eve
 | 11 | [Fabric Warehouse](fabric/11-fabric-warehouse.md) | Generate DDL and load a Fabric Data Warehouse | 15 min |
 | 12 | [Fabric Streaming](fabric/12-fabric-streaming.md) | Stream events to Fabric Eventstream with anomaly injection | 20 min |
 | 13 | [Medallion Architecture](fabric/13-medallion.md) | Build a Bronze/Silver/Gold pipeline with chaos and validation | 25 min |
+| 14 | [Lakehouse Profiling](fabric/14-lakehouse-profiling.md) | Profile Fabric Delta tables, infer schema, generate synthetic, measure fidelity | 25 min |
 
 **Prerequisites:** Intermediate track, Fabric workspace with a Lakehouse
 
@@ -61,12 +63,12 @@ Automation, declarative pipelines, and Day 2 operations.
 
 | # | Tutorial | What you'll learn | Time |
 |---|---------|-------------------|------|
-| 14 | [Scenario Packs](advanced/14-scenario-packs.md) | Run pre-built YAML scenario packs for end-to-end workflows | 20 min |
-| 15 | [GSL Specs](advanced/15-gsl-specs.md) | Write declarative YAML specs that orchestrate generation, chaos, and validation | 15 min |
-| 16 | [Day 2 Operations](advanced/16-day2-operations.md) | Incremental generation, time-travel snapshots, PII masking | 25 min |
-| 17 | [CI Integration](advanced/17-ci-integration.md) | Automate data generation in CI/CD pipelines | 15 min |
+| 15 | [Scenario Packs](advanced/14-scenario-packs.md) | Run pre-built YAML scenario packs for end-to-end workflows | 20 min |
+| 16 | [GSL Specs](advanced/15-gsl-specs.md) | Write declarative YAML specs that orchestrate generation, chaos, and validation | 15 min |
+| 17 | [Day 2 Operations](advanced/16-day2-operations.md) | Incremental generation, time-travel snapshots, PII masking | 25 min |
+| 18 | [CI Integration](advanced/17-ci-integration.md) | Automate data generation in CI/CD pipelines | 15 min |
 
-**Prerequisites:** Intermediate track, CI/CD experience (for tutorial 17)
+**Prerequisites:** Intermediate track, CI/CD experience (for tutorial 18)
 
 ---
 

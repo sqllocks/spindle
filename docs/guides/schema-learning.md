@@ -36,14 +36,42 @@ spindle learn ./real_data/ --format csv --output inferred.spindle.json --domain 
 from sqllocks_spindle.inference import DataProfiler, SchemaBuilder
 import pandas as pd
 
+# Option A: profile a dict of DataFrames
 profiler = DataProfiler()
 profile = profiler.profile_dataset({
     "customer": pd.read_csv("customer.csv"),
     "order": pd.read_csv("order.csv"),
 })
 
+# Option B: profile a single DataFrame (alias for profile_dataset)
+profile = profiler.profile({"orders": orders_df})
+
+# Option C: convenience classmethod for CSV files
+profile = DataProfiler.from_csv("orders.csv")
+profile = DataProfiler.from_csv("orders.csv", sample_rows=50_000)
+
 builder = SchemaBuilder()
 schema = builder.build(profile, domain_name="my_retail")
+
+# Build with correlation detection and an auto-suggested AnomalyRegistry
+schema, suggested_registry = SchemaBuilder().build(
+    profile,
+    domain_name="my_retail",
+    fit_threshold=0.80,          # columns with KS fit < 0.80 → empirical strategy
+    correlation_threshold=0.5,   # pairs with |r| >= 0.5 → included in copula config
+    include_anomaly_registry=True,
+)
+```
+
+### DataProfiler Configuration
+
+```python
+DataProfiler(
+    fit_threshold=0.80,      # KS fit score below this → use empirical strategy instead of parametric
+    top_n_values=500,        # max cardinality tracked in value_counts for enum detection
+    outlier_iqr_factor=1.5,  # IQR multiplier for outlier detection (standard = 1.5)
+    sample_rows=None,        # None = full scan; int = random sample
+)
 ```
 
 ### What Gets Detected
@@ -56,7 +84,12 @@ schema = builder.build(profile, domain_name="my_retail")
 | **Foreign keys** | Naming convention (`*_id`) + 90% value overlap with parent PK | Cross-table |
 | **Enums** | Cardinality < 50 or ratio < 5% | With weighted probabilities |
 | **Distributions** | KS test (scipy): normal, uniform, exponential, lognormal | p-value > 0.05 |
-| **String patterns** | Regex: email, UUID, phone, date | 90% match rate |
+| **Quantile fingerprint** | P1/P5/P10/P25/P50/P75/P90/P95/P99 | Empirical fallback when KS fit < threshold |
+| **Outlier rate** | IQR method (1.5× IQR) | Calibrates AnomalyRegistry |
+| **String length** | min/mean/max/p95 | Bounds string generation |
+| **Temporal histograms** | 24-bin hour + 7-bin day-of-week | Drives temporal strategy profiles |
+| **Column correlations** | Pearson (numeric columns only) | Gaussian copula post-pass |
+| **String patterns** | Regex: email, UUID, phone, date, SSN, IP (v4+v6), MAC, IBAN, currency code, language code, postal code | 90% match rate |
 
 ### CLI Reference
 
@@ -84,8 +117,16 @@ spindle compare ./real_data/ ./synthetic_data/ --format csv --output report.md
 ```
 
 ```python
-from sqllocks_spindle.inference.comparator import FidelityComparator
+from sqllocks_spindle.inference.comparator import FidelityComparator, FidelityReport
 
+# Option A: compare two DataFrames directly
+report = FidelityReport.score(real_df, synthetic_df, table_name="orders")
+report.summary()                       # prints per-column score table
+failing = report.failing_columns()     # list of (table, column, score) tuples below threshold
+df_scores = report.to_dataframe()      # pandas DataFrame for downstream analysis
+report_dict = report.to_dict()         # serializable dict
+
+# Option B: compare full datasets (multi-table)
 comp = FidelityComparator()
 report = comp.compare(
     real={"customer": real_df, "order": real_order_df},
@@ -94,6 +135,27 @@ report = comp.compare(
 
 print(f"Overall fidelity: {report.overall_score:.1f}/100")
 print(report.to_markdown())
+```
+
+### Inline Fidelity During Generation
+
+Pass `fidelity_profile` to `Spindle.generate()` to get a `FidelityReport` in the same call:
+
+```python
+from sqllocks_spindle import Spindle
+from sqllocks_spindle.inference import DataProfiler, SchemaBuilder, ProfileIO
+
+# Profile real data once and save
+profiler = DataProfiler()
+profile = profiler.profile_dataset({"orders": real_df})
+ProfileIO.save(profile, "orders_profile.json")
+
+# Later: generate and score in one step
+profile = ProfileIO.load("orders_profile.json")
+schema = SchemaBuilder().build(profile)
+result, fidelity = Spindle().generate(schema, seed=42, fidelity_profile=profile)
+
+fidelity.summary()
 ```
 
 ### Scoring Breakdown
