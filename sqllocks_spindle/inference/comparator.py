@@ -115,6 +115,93 @@ class FidelityReport:
             lines.append("")
         return "\n".join(lines)
 
+    def failing_columns(self, threshold: float = 85.0) -> list[tuple[str, str, float]]:
+        """Return (table, column, score) tuples for columns below threshold.
+
+        Args:
+            threshold: Score threshold (0-100). Columns with score < threshold are included.
+
+        Returns:
+            List of (table_name, column_name, score) tuples, sorted by score (lowest first).
+        """
+        failing = []
+        for table_name, tf in self.tables.items():
+            for col_name, cf in tf.columns.items():
+                if cf.score < threshold:
+                    failing.append((table_name, col_name, cf.score))
+        return sorted(failing, key=lambda x: x[2])  # lowest score first
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable dict representation."""
+        return {
+            "overall_score": round(self.overall_score, 2),
+            "tables": {
+                tname: {
+                    "score": round(tf.score, 2),
+                    "row_count_real": tf.row_count_real,
+                    "row_count_synth": tf.row_count_synth,
+                    "columns": {
+                        cname: {
+                            "score": round(cf.score, 2),
+                            "dtype_match": cf.dtype_match,
+                            "null_rate_delta": round(cf.null_rate_delta, 4),
+                            "cardinality_ratio": round(cf.cardinality_ratio, 4),
+                            "ks_statistic": round(cf.ks_statistic, 4) if cf.ks_statistic is not None else None,
+                            "chi2_statistic": round(cf.chi2_statistic, 4) if cf.chi2_statistic is not None else None,
+                            "value_overlap": round(cf.value_overlap, 4) if cf.value_overlap is not None else None,
+                        }
+                        for cname, cf in tf.columns.items()
+                    },
+                }
+                for tname, tf in self.tables.items()
+            },
+        }
+
+    def to_dataframe(self) -> "pd.DataFrame":
+        """Return a flat pandas DataFrame with one row per column."""
+        rows = []
+        for tname, tf in self.tables.items():
+            for cname, cf in tf.columns.items():
+                rows.append({
+                    "table": tname,
+                    "column": cname,
+                    "score": round(cf.score, 2),
+                    "dtype_match": cf.dtype_match,
+                    "null_rate_delta": round(cf.null_rate_delta, 4),
+                    "cardinality_ratio": round(cf.cardinality_ratio, 4),
+                    "ks_statistic": cf.ks_statistic,
+                    "chi2_statistic": cf.chi2_statistic,
+                    "value_overlap": cf.value_overlap,
+                })
+        return pd.DataFrame(rows)
+
+    @classmethod
+    def score(
+        cls,
+        real: "pd.DataFrame",
+        synthetic: "pd.DataFrame",
+        table_name: str = "table",
+        threshold: float = 85.0,
+    ) -> "FidelityReport":
+        """Compare two DataFrames and return a FidelityReport.
+
+        Convenience classmethod for single-table comparison.
+
+        Args:
+            real: Real data DataFrame.
+            synthetic: Synthetic data DataFrame to compare.
+            table_name: Name for the table in the report (default: "table").
+            threshold: Score threshold for failing_columns() (default: 85.0).
+
+        Returns:
+            FidelityReport comparing the two DataFrames.
+        """
+        comparator = FidelityComparator()
+        return comparator.compare(
+            {table_name: real},
+            {table_name: synthetic},
+        )
+
 
 # ---------------------------------------------------------------------------
 # Type classification helpers
