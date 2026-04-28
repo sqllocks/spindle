@@ -172,33 +172,49 @@ def get_table_sizes(storage_token: str, prefix: str) -> dict[str, int]:
 
 
 def poll_one(api_token: str, notebook_item_id: str, fabric_run_id: str, domain: str) -> dict:
+    """Poll via the Fabric job instances API.
+
+    Uses GET /workspaces/{ws}/items/{nb}/jobs/instances/{runId} which:
+    - Immediately reports 430-TooManyRequestsForCapacity failures (no Livy session needed)
+    - Always has the correct terminal state regardless of livySessions pagination
+    - Avoids the 900s timeout for capacity-rejected jobs
+    """
     url = (
         f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}"
-        f"/notebooks/{notebook_item_id}/livySessions"
+        f"/items/{notebook_item_id}/jobs/instances/{fabric_run_id}"
     )
     headers = {"Authorization": f"Bearer {api_token}"}
     start = time.time()
-    last_state = None
+    last_status = None
     while time.time() - start < POLL_TIMEOUT_SEC:
         r = requests.get(url, headers=headers, timeout=30)
-        if r.status_code != 200:
-            time.sleep(POLL_INTERVAL_SEC)
-            continue
-        for s in r.json().get("value", []):
-            if s.get("jobInstanceId") == fabric_run_id:
-                state = s.get("state")
-                running = s.get("runningDuration", {}).get("value", 0)
-                if state != last_state:
-                    log(f"  [{domain}] state={state} running={running}s")
-                    last_state = state
-                if state in ("Succeeded", "Failed", "Cancelled", "Dead", "Error"):
-                    return {
-                        "state": state, "running_sec": running,
-                        "spark_app_id": s.get("sparkApplicationId"),
-                    }
-                break
+        if r.status_code == 200:
+            body = r.json()
+            status = body.get("status", "")
+            if status != last_status:
+                log(f"  [{domain}] status={status}")
+                last_status = status
+            if status in ("Completed", "Failed", "Cancelled"):
+                failure = body.get("failureReason") or {}
+                msg = failure.get("message", "")
+                capacity_rejected = "TooManyRequestsForCapacity" in msg
+                # Compute running seconds from timestamps
+                try:
+                    from datetime import datetime, timezone
+                    s_t = body.get("startTimeUtc", "").rstrip("Z")
+                    e_t = body.get("endTimeUtc", "").rstrip("Z")
+                    fmt = "%Y-%m-%dT%H:%M:%S.%f"
+                    running = int((datetime.fromisoformat(e_t) - datetime.fromisoformat(s_t)).total_seconds())
+                except Exception:
+                    running = 0
+                return {
+                    "state": "Succeeded" if status == "Completed" else status,
+                    "running_sec": running,
+                    "capacity_rejected": capacity_rejected,
+                    "failure_message": msg[:300] if status == "Failed" else None,
+                }
         time.sleep(POLL_INTERVAL_SEC)
-    return {"state": "TIMEOUT", "running_sec": int(time.time() - start)}
+    return {"state": "TIMEOUT", "running_sec": int(time.time() - start), "capacity_rejected": False}
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +347,58 @@ def main() -> int:
         for fut in as_completed(futures):
             d, p = fut.result()
             poll_results[d] = p
+
+    # ------------------------------------------------------------------
+    # Phase D — retry capacity-rejected jobs (HTTP 430 TooManyRequestsForCapacity)
+    # The Fabric capacity SKU limits concurrent Spark sessions (~8 for F2/F4).
+    # Jobs rejected at session-creation time fail immediately with 430. After
+    # the first batch finishes, cluster slots free up — retry those domains.
+    # ------------------------------------------------------------------
+    cap_rejected = [d for d, p in poll_results.items() if p.get("capacity_rejected")]
+    if cap_rejected:
+        log(f"Phase D: retrying {len(cap_rejected)} capacity-rejected domains: {cap_rejected}")
+        api_token = get_token("https://api.fabric.microsoft.com")
+        for d in cap_rejected:
+            prep = prepare_results[d]
+            if not isinstance(prep, Exception):
+                prep["_router"]._token = api_token
+
+        retry_submit: dict[str, dict | Exception] = {}
+        for d in cap_rejected:
+            prep = prepare_results[d]
+            router: FabricSparkRouter = prep["_router"]
+            t0 = time.time()
+            try:
+                job = router.submit_run(prep)
+                elapsed = int(time.time() - t0)
+                log(f"  [{d}] retry submit OK ({elapsed}s) run={job.fabric_run_id[:8]}")
+                retry_submit[d] = {
+                    "job": job,
+                    "fabric_run_id": job.fabric_run_id,
+                    "notebook_item_id": job.notebook_item_id,
+                }
+            except Exception as exc:
+                elapsed = int(time.time() - t0)
+                log(f"  [{d}] retry submit FAILED ({elapsed}s): {exc}")
+                retry_submit[d] = exc
+
+        retry_ok = [d for d, r in retry_submit.items() if not isinstance(r, Exception)]
+        log(f"Phase D poll: {len(retry_ok)} retried domains...")
+
+        def do_retry_poll(d: str) -> tuple[str, dict]:
+            sr = retry_submit[d]
+            return d, poll_one(api_token, sr["notebook_item_id"], sr["fabric_run_id"], d)
+
+        with ThreadPoolExecutor(max_workers=len(retry_ok)) as pool:
+            futures = [pool.submit(do_retry_poll, d) for d in retry_ok]
+            for fut in as_completed(futures):
+                d, p = fut.result()
+                poll_results[d] = p
+                submit_results[d] = retry_submit[d]
+
+        for d in cap_rejected:
+            if isinstance(retry_submit.get(d), Exception):
+                poll_results[d] = {"state": "SubmitFailed", "running_sec": 0}
 
     total_sec = int(time.time() - T_START)
 
