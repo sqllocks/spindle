@@ -88,12 +88,22 @@ def generate(
     """Generate synthetic data for a domain.
 
     Example: spindle generate retail --scale small --seed 42
+    Example: spindle generate /path/to/schema.spindle.json --format csv --output /tmp/out/
     """
+    import os
     from sqllocks_spindle.engine.generator import Spindle
     from sqllocks_spindle.schema.dependency import DependencyResolver
 
-    # Resolve domain
-    domain = _resolve_domain(domain_name, mode)
+    # Allow domain_name to be a path to a .spindle.json (or .json) schema file
+    _schema_file: str | None = None
+    if domain_name.endswith(".spindle.json") or (domain_name.endswith(".json") and os.sep in domain_name):
+        if not os.path.exists(domain_name):
+            raise click.BadParameter(f"Schema file not found: {domain_name}", param_hint="domain_name")
+        _schema_file = domain_name
+        domain = None
+    else:
+        # Resolve domain
+        domain = _resolve_domain(domain_name, mode)
 
     click.echo(f"Spindle v{__version__} — {'[DRY RUN] ' if dry_run else ''}Generating {domain_name} ({mode}) at scale '{scale}'")
     click.echo(f"Seed: {seed}")
@@ -101,7 +111,7 @@ def generate(
     if dry_run:
         # Parse schema and show planned row counts without generating
         spindle = Spindle()
-        schema = spindle.describe(domain=domain)
+        schema = spindle.describe(domain=domain, schema=_schema_file)
         schema.generation.scale = scale
         row_counts = spindle._calculate_row_counts(schema)
         resolver = DependencyResolver()
@@ -118,7 +128,10 @@ def generate(
         click.echo(f"  {'-' * 37}")
         click.echo(f"  {'TOTAL':<25} {total:>12,}")
         click.echo()
-        click.echo(f"  Profile: {domain.profile_name}")
+        if domain is not None:
+            click.echo(f"  Profile: {domain.profile_name}")
+        else:
+            click.echo(f"  Profile: {_schema_file} (custom schema)")
         click.echo(f"  Output format: {fmt}")
         if output:
             click.echo(f"  Output directory: {output}")
@@ -129,7 +142,7 @@ def generate(
     click.echo()
 
     spindle = Spindle()
-    result = spindle.generate(domain=domain, scale=scale, seed=seed)
+    result = spindle.generate(domain=domain, schema=_schema_file, scale=scale, seed=seed)
 
     click.echo()
     click.echo(result.summary())
@@ -1334,7 +1347,7 @@ def _schema_to_dict(schema) -> dict:
 @click.option("--seed", default=42, type=int, help="Random seed")
 @click.option("--mode", "-m", default="3nf", help="Schema mode: 3nf, star")
 @click.option("--target", "-t", required=True,
-              type=click.Choice(["lakehouse", "eventhouse", "sql-database"]),
+              type=click.Choice(["lakehouse", "eventhouse", "sql-database", "warehouse"]),
               help="Fabric target to publish to")
 @click.option("--workspace-id", default=None, envvar="SPINDLE_WORKSPACE_ID",
               help="Fabric workspace ID")
@@ -1570,6 +1583,37 @@ def publish(
 
         click.echo(f"Publishing to Eventhouse ({database})...")
         write_result = eh_writer.write(result)
+        click.echo(write_result.summary())
+        if write_result.errors:
+            sys.exit(1)
+
+    elif target == "warehouse":
+        if not actual_connection:
+            click.echo(
+                "Error: --connection-string or SPINDLE_SQL_CONNECTION is required for warehouse target",
+                err=True,
+            )
+            sys.exit(1)
+        if not base_path:
+            click.echo(
+                "Error: --base-path or SPINDLE_LAKEHOUSE_PATH is required for warehouse target "
+                "(abfss:// OneLake staging path)",
+                err=True,
+            )
+            sys.exit(1)
+
+        from sqllocks_spindle.fabric.warehouse_bulk_writer import WarehouseBulkWriter
+
+        wh_writer = WarehouseBulkWriter(
+            connection_string=actual_connection,
+            staging_lakehouse_path=base_path,
+            auth_method=auth_method,
+        )
+
+        click.echo(f"Publishing to Warehouse (auth={auth_method})...")
+        write_result = wh_writer.write_all(result.tables)
+        for tname, info in write_result.per_table.items():
+            click.echo(f"  {tname}: {info.get('rows', 0):,} rows")
         click.echo(write_result.summary())
         if write_result.errors:
             sys.exit(1)

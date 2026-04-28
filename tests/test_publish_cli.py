@@ -179,3 +179,34 @@ class TestPublishEventhouse:
             "--connection-string", "https://test.kusto.fabric.microsoft.com",
         ])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Warehouse target
+# ---------------------------------------------------------------------------
+
+class TestPublishWarehouse:
+    def test_warehouse_in_help_output(self, runner):
+        """publish --target warehouse must appear in the help text."""
+        result = runner.invoke(main, ["publish", "--help"])
+        assert result.exit_code == 0
+        assert "warehouse" in result.output
+
+    def test_warehouse_missing_connection_string(self, runner):
+        """warehouse target without --connection-string must fail with a helpful error."""
+        result = runner.invoke(main, [
+            "publish", "retail",
+            "--target", "warehouse",
+        ])
+        assert result.exit_code != 0
+        assert "connection-string" in result.output.lower() or "required" in result.output.lower()
+
+    def test_warehouse_missing_base_path(self, runner):
+        """warehouse target without --base-path must fail with a helpful error."""
+        result = runner.invoke(main, [
+            "publish", "retail",
+            "--target", "warehouse",
+            "--connection-string", "Driver={ODBC Driver 18 for SQL Server};Server=test",
+        ])
+        assert result.exit_code != 0
+        assert "base-path" in result.output.lower() or "required" in result.output.lower()
