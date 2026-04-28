@@ -474,16 +474,44 @@ Day 2 INSERT orders referencing `customer_id`: **0 orphan FKs** — all new orde
 
 ## Area 7 — SCD2 Strategy + Data Masker
 
-**Status:** —
+**Status:** ⚠️ Partial
 
 ### SCD2 test results
-_fill in_
+
+**11 passed, 0 failed** — `tests/test_scd2_strategy.py`.
+
+Tests cover: effective dates sorted per business key, end dates match next effective date, last version has null end date, `is_current` exactly one per BK, sequential versioning, single-version BK, min gap respected, missing/empty business key raises, unknown role raises, result row counts.
 
 ### Masker test results
-_fill in_
+
+**18 passed, 0 failed** — `tests/test_masker.py` (12 tests) + `tests/test_e2e_masking.py` (6 tests).
+
+Tests cover: email/phone/name columns masked, nulls preserved, exclude columns respected, explicit PII overrides, ID columns not masked, row count preserved, summary output, seed reproducibility, multi-table masking, shape preservation, healthcare name masking.
+
+Note: 59 `RuntimeWarning` messages from scipy during masker statistical fitting (overflow/log) — cosmetic, do not affect correctness.
+
+### SCD2 strategy audit
+
+- **Registry**: `scd2` registered at `generator.py:311` via `Spindle._build_registry()`. Not exported from `strategies/__init__.py` `__all__` (missing), but this does not affect runtime since `generator.py` imports it directly.
+- **Invocation model**: SCD2 is a **column-level** strategy. Each column that participates in SCD2 must individually declare `"generator": {"strategy": "scd2", "role": "<role>", "business_key": "<col>"}`. Roles: `effective_date`, `end_date`, `is_current`, `version`.
+- **Temporal columns verified** (smoke test, Python 3.12, seed=42): With correct `generator:` nesting, all four SCD2 columns generate valid data — effective dates produced per BK, end date is next version's effective − gap (None for current), `is_current` True only for latest version, version numbers sequential from 1.
+- **Silent no-op gap**: Setting `strategy: scd2` at the column's top level (outside `generator:`) is silently ignored — the schema parser only reads `col_raw.get("generator", {})`. No validation error or warning is emitted. This is a latent user confusion risk.
+
+### Data Masker audit
+
+- **CLI wiring**: `spindle mask <input_path> --output <dir>` is fully wired (`cli.py:1116`). Accepts `--format csv|parquet`, `--seed`, `--exclude`. Reads individual files or entire directories.
+- **API signature**: `DataMasker.mask()` accepts `dict[str, pd.DataFrame]` (table name → DataFrame), returns `MaskResult` with `.tables`, `.columns_masked`, `.stats`, `.summary()`. The signature is not documented — passing a bare DataFrame triggers an opaque `AttributeError: 'Series' object has no attribute 'columns'` deep in the profiler.
+- **PII detection**: Column-name heuristics cover email, phone, name, first/last name, address, city, state, zip, SSN, credit card, IP, username, DOB. `id`-pattern columns are excluded.
+- **Shape preservation verified** (smoke test, seed=42, 3-row CSV): name "Alice Smith" → "Allison Hill"; email changed; salary 75000 preserved in distribution (±20k); 3/5 columns masked (name, email, phone); id and salary untouched. Row and column counts preserved.
 
 ### Findings
-_fill in_
+
+| ID | Severity | Description |
+|----|----------|-------------|
+| 7-1 | Low | `SCD2Strategy` missing from `strategies/__init__.py` `__all__`; direct import works but public API surface is incomplete |
+| 7-2 | Low | Table-level `strategy: scd2` (or flat-key column config without `generator:` nesting) silently no-ops; no validation error emitted — same root cause as similar issue in other strategies |
+| 7-3 | Low | `DataMasker.mask()` docstring omits input type requirement (`dict[str, DataFrame]`); bare DataFrame input gives opaque `AttributeError` deep in profiler |
+| 7-4 | Info | 59 scipy `RuntimeWarning` (overflow/log) during masker statistical fitting; cosmetic but noisy in CI |
 
 ---
 
