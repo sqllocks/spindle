@@ -11,9 +11,9 @@ Before I could write documentation, I realized I needed to know what was actuall
 
 So I started what I'm calling a Discovery Sprint — a systematic audit of every feature in the codebase to determine what is ship-ready, what is partially implemented, and what exists but isn't wired up yet.
 
-Things I've found so far:
+Things I've found:
 
-A warehouse bulk writer that is 610 lines long and not connected to the publish command.
+A warehouse bulk writer that is 610 lines long and not connected to the publish command. No tests either.
 
 A Capital Markets domain — real S&P 500 tickers, OHLCV daily pricing, insider transactions, tick-level trade simulation. I apparently built this. It works. I had not thought about it in two months.
 
