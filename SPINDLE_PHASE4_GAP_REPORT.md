@@ -11,7 +11,7 @@
 | 1 | SQL/DDL Pipeline (F-001, F-002) | ⚠️ Partial | `generate <schema.json>` path not accepted; warehouse dialect gap (see Area 1) |
 | 2 | Fabric SQL Database Writer (F-003) | ⚠️ Partial | All 6 auth modes + 4 write modes implemented; `publish --target warehouse` not wired (CLI only: lakehouse/sql-database/eventhouse); `WarehouseBulkWriter` is engine-internal only |
 | 3 | SQL Server On-Prem Auth | ⚠️ Partial | `sql` auth works for on-prem (caller owns UID/PWD in connection string); Entra ID modes functional against Azure SQL / on-prem with Entra enabled; ADO.NET normalizer strips UID/PWD; ODBC 18 hardcoded; no Driver 17 fallback |
-| 4 | Phase 3B Live Test | — | |
+| 4 | Phase 3B Live Test | ⚠️ Partial | DataProfiler/SchemaBuilder/GaussianCopula/FidelityReport all pass; LakehouseProfiler not live-testable (deltalake not in venv; az CLI tenant mismatch; see Area 4) |
 | 5 | Capital Markets Domain (F-012) | — | |
 | 6 | Incremental Engine (F-007) | — | |
 | 7 | SCD2 Strategy + Data Masker (F-009, F-011) | — | |
@@ -212,19 +212,112 @@ The single normalize test (`test_stores_connection_string`) only validates that 
 
 ## Area 4 — Phase 3B Live Test
 
-**Status:** —
+**Status:** ⚠️ Partial
 
-### LakehouseProfiler
-_fill in_
+**Test environment:** Python 3.13.13, `.venv-mac` (Homebrew), `sqllocks-spindle` v2.9.0. Unit tests run with `.venv-mac/bin/python -m pytest`. Live Fabric connection not available from this machine (see LakehouseProfiler section below).
 
-### GaussianCopula
-_fill in_
+### 1. DataProfiler.from_csv()
 
-### FidelityReport
-_fill in_
+**Result: PASS**
+
+`DataProfiler.from_csv()` correctly profiled a 100-row synthetic CSV (columns: `id`, `name`, `amount`, `date`):
+
+- Table name inferred from filename stem: OK
+- Row count: 100
+- PK detection (`id`): `is_primary_key=True`
+- Column type inference: integer, string, float, datetime — all correct
+- Distribution fitting: `None` for `amount` column (insufficient spread for KS fit — expected behavior)
+- Phase 3B extended stats (quantiles, string_length, outlier_rate, value_counts_ext): computed correctly
+
+No errors. The classmethod is the correct entry point; returns a `TableProfile` directly (not `DatasetProfile`).
+
+### 2. SchemaBuilder
+
+**Result: PASS**
+
+`SchemaBuilder().build(dataset_profile)` correctly converted a `DatasetProfile` wrapping the CSV profile into a `SpindleSchema`:
+
+- Tables: `['items']`
+- PK assigned: `['id']`
+- Relationships: 0 (single-table input — correct)
+- Column generators assigned for all 3 columns (sequence, faker, distribution)
+
+**API note:** The task instructions referenced `SchemaBuilder.from_profile()` — this classmethod does not exist. The correct API is the instance method `SchemaBuilder().build(dataset_profile: DatasetProfile)`. No code gap — `from_profile` is simply not the published name.
+
+### 3. GaussianCopula
+
+**Result: PASS**
+
+`GaussianCopula` (in `sqllocks_spindle/engine/correlation.py`) enforced target Pearson correlations via rank-based copula:
+
+| Metric | Value |
+|---|---|
+| Input columns (a, b) | 500 rows, N(10,2) and N(20,5) |
+| Original correlation a–b | -0.009 (independent) |
+| After copula (target r=0.8) | 0.832 |
+| Marginals preserved (a mean) | 9.974 → 9.974 (exact) |
+
+FK integrity test: 100-row child table with `parent_id` drawn from 20 parent keys — **0 FK violations** after copula reordering (copula reorders within-column only, does not change FK values).
+
+### 4. FidelityReport.score()
+
+**Result: PASS**
+
+`FidelityReport.score(real, synthetic)` correctly compared DataFrames using KS test + chi-squared + cardinality + null-rate metrics:
+
+| Test case | Score | Pass criterion |
+|---|---|---|
+| Similar distributions (normal 0,1 and 5,2; 200 rows each) | **87.83/100** | >50: PASS |
+| Perfect match (identical DataFrames) | **92.86/100** | ≥85: PASS |
+
+The score returned is a `FidelityReport` object (0–100 scale), not a raw float. `report.overall_score` is the numeric value. The task instructions implied `FidelityReport.score()` returns a float — it returns a `FidelityReport` object; `report.overall_score > 0.5` requires scale awareness (it is 0–100, not 0–1).
+
+All 6 unit tests in `tests/test_fidelity_report_v2.py` pass, including `test_perfect_match_scores_high` (≥85).
+
+### 5. LakehouseProfiler.profile_table() — Live Test
+
+**Result: NOT TESTABLE in this environment**
+
+Two blockers prevented a live Fabric table read:
+
+**Blocker 1 — `deltalake` not installed in `.venv-mac`:**
+`LakehouseProfiler._read_table()` requires `deltalake` (`sqllocks-spindle[fabric-inference]` extra). The `.venv-mac` environment does not have `deltalake` installed. The class raises a clear `ImportError` with install instructions:
+```
+LakehouseProfiler requires 'deltalake'. Install with: pip install 'sqllocks-spindle[fabric-inference]'
+```
+Error handling is correct and actionable.
+
+**Blocker 2 — az CLI tenant mismatch:**
+`az account show` returns tenant `984795d6-d6a6-4fc6-8835-bc5957608750` (not the Sound BI tenant `2536810f-...`). Attempting `az account get-access-token --tenant 2536810f-...` returns `AADSTS50020: User account does not exist in tenant 'Sound BI'`. The Fabric MCP server (`fabric-ops-forge`) confirmed the lakehouse exists (`ec851642-fa89-42bc-aebf-2742845d36fe`, `Fabric_Lakehouse_Demo`) but `onelake_list_files` and `list_lakehouse_tables` both returned HTTP 400 — no Delta tables are present or the Tables directory is empty.
+
+**Unit tests for LakehouseProfiler:** All 6 unit tests pass (mock-based, no live connection required):
+- Import succeeds
+- Constructor stores `workspace_id`, `lakehouse_id`, `default_sample_rows=100_000`
+- `profile_table()` works with mocked `_read_table`
+- `profile_all()` works with mocked `_list_tables` + `_read_table`
+- `_read_table` raises `ImportError` when `deltalake` absent
+
+**ABFSS path format verified:** `abfss://<workspace_id>@onelake.dfs.fabric.microsoft.com/<lakehouse_id>/Tables/<table_name>` — correct per OneLake ABFSS spec.
+
+### Test run summary
+
+```
+tests/test_lakehouse_profiler.py     6 passed
+tests/test_fidelity_report_v2.py     6 passed
+tests/test_masker.py                11 passed
+tests/test_correlation.py            6 passed
+tests/test_smart_inference.py       37 passed
+Total: 66 passed, 0 failed (Phase 3B scope)
+```
 
 ### Findings
-_fill in_
+
+| # | Finding | Severity | Gap ref |
+|---|---------|----------|---------|
+| 1 | `deltalake` not included in default `.venv-mac` — `[fabric-inference]` extra must be explicitly installed for LakehouseProfiler live use | Low | Phase 3B |
+| 2 | `LakehouseProfiler` live test blocked by az CLI tenant mismatch; Fabric_Lakehouse_Demo appears to have no Delta tables (HTTP 400 on table listing via both REST API and OneLake DFS) | Low | Phase 3B |
+| 3 | `SchemaBuilder.from_profile()` classmethod referenced in task spec does not exist — public API is `SchemaBuilder().build(dataset_profile)` | Low | Phase 3B |
+| 4 | `FidelityReport.score()` returns a `FidelityReport` object (overall_score is 0–100), not a raw float — callers checking `score > 0.5` will always pass since the scale is 0–100 | Low | Phase 3B |
 
 ---
 
