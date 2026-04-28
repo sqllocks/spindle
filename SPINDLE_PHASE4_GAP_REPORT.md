@@ -8,7 +8,7 @@
 
 | # | Area | Status | Notes |
 |---|---|---|---|
-| 1 | SQL/DDL Pipeline (F-001, F-002) | ⚠️ Partial | `generate <schema.json>` **fixed**; remaining: `tsql-fabric-warehouse` dialect omits `DISTRIBUTION`/`CLUSTERED COLUMNSTORE INDEX` (deferred by scope) |
+| 1 | SQL/DDL Pipeline (F-001, F-002) | ✅ Ship-ready *(fixed during Phase 4)* | `generate <schema.json>` **fixed**; `tsql-fabric-warehouse` now emits `WITH (DISTRIBUTION = ROUND_ROBIN, CLUSTERED COLUMNSTORE INDEX)`; `--sql-dialect` visible in `generate --help` |
 | 2 | Fabric SQL Database Writer (F-003) | ✅ Ship-ready | All 6 auth modes + 4 write modes implemented; `publish --target warehouse` **wired**; minor deferred items (hardcoded create_insert mode in publish, fabric auth in CLI help) |
 | 3 | SQL Server On-Prem Auth | ✅ Ship-ready | ADO.NET UID/PWD stripping **fixed**; `odbc_driver` param **added**; `sql` auth works for on-prem; Entra ID modes functional |
 | 4 | Phase 3B Live Test | ⚠️ Partial | DataProfiler/SchemaBuilder/GaussianCopula/FidelityReport all pass (87.83/100 fidelity); LakehouseProfiler **not live-testable** — az CLI account is wrong tenant (environment blocker, not a code defect) |
@@ -23,11 +23,11 @@ Legend: ✅ Ship-ready | ⚠️ Partial | ❌ Broken/stub
 
 ## Area 1 — SQL/DDL Pipeline
 
-**Status:** ⚠️ Partial
+**Status:** ✅ Ship-ready *(fixed during Phase 4)*
 
 ### Test results
 
-**29 passed, 0 failed** (1.51s) — `tests/test_ddl_parser.py` (21 tests) + `tests/test_e2e_ddl_pipeline.py` (8 tests).
+**31 passed, 0 failed** — `tests/test_ddl_parser.py` (21 tests) + `tests/test_e2e_ddl_pipeline.py` (10 tests, +2 Fabric Warehouse DDL tests added during Phase 4).
 
 All coverage categories green: table detection, column parsing, PK/FK detection, strategy inference (sequence/faker/temporal/distribution/weighted-enum), scale generation, and end-to-end data generation from parsed DDL.
 
@@ -80,11 +80,11 @@ The `generate` command's first positional argument is treated as a domain name, 
 
 ### Findings
 
-| # | Finding | Severity | Gap ref |
-|---|---------|----------|---------|
-| 1 | `spindle generate <schema.json>` not accepted — "Unknown domain" error | Medium | F-002 |
-| 2 | `tsql-fabric-warehouse` dialect omits `DISTRIBUTION` / `CLUSTERED COLUMNSTORE INDEX` — minimal diff from standard T-SQL | Low | F-001 |
-| 3 | `--sql-dialect` not listed in `spindle generate --help` output (undiscoverable) | Low | F-001 |
+| # | Finding | Severity | Gap ref | Resolution |
+|---|---------|----------|---------|------------|
+| 1 | `spindle generate <schema.json>` not accepted — "Unknown domain" error | Medium | F-002 | ✅ Fixed (Phase 4) |
+| 2 | `tsql-fabric-warehouse` dialect omits `DISTRIBUTION` / `CLUSTERED COLUMNSTORE INDEX` — minimal diff from standard T-SQL | Low | F-001 | ✅ Fixed (Phase 4) — `WITH (DISTRIBUTION = ROUND_ROBIN, CLUSTERED COLUMNSTORE INDEX)` added to DDL output |
+| 3 | `--sql-dialect` not listed in `spindle generate --help` output (undiscoverable) | Low | F-001 | ✅ Confirmed already visible — no change needed |
 
 ---
 

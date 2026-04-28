@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from sqllocks_spindle import Spindle
 from sqllocks_spindle.schema.ddl_parser import DdlParser
+from sqllocks_spindle.output.pandas_writer import PandasWriter
+from sqllocks_spindle.domains.retail import RetailDomain
 
 
 SQL_SERVER_DDL = """\
@@ -128,3 +133,58 @@ class TestDdlToGeneration:
         # status should get weighted_enum
         status_gen = schema.tables["order"].columns["status"].generator
         assert status_gen["strategy"] == "weighted_enum"
+
+
+class TestFabricWarehouseDDL:
+    """Verify tsql-fabric-warehouse dialect emits correct Warehouse DDL syntax."""
+
+    def test_fabric_warehouse_with_clause_present(self):
+        """Generated SQL must include DISTRIBUTION and CLUSTERED COLUMNSTORE INDEX."""
+        schema = RetailDomain(schema_mode="3nf").get_schema()
+        result = Spindle().generate(schema=schema, scale="small", seed=42)
+        writer = PandasWriter()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            written = writer.to_sql_inserts(
+                tables=result.tables,
+                output_dir=tmpdir,
+                sql_dialect="tsql-fabric-warehouse",
+                include_ddl=True,
+                include_drop=True,
+                include_go=True,
+            )
+            assert written, "No SQL files were written"
+            all_sql = "\n".join(Path(p).read_text() for p in written)
+        assert "DISTRIBUTION = ROUND_ROBIN" in all_sql, (
+            "Expected 'DISTRIBUTION = ROUND_ROBIN' in Fabric Warehouse DDL output"
+        )
+        assert "CLUSTERED COLUMNSTORE INDEX" in all_sql, (
+            "Expected 'CLUSTERED COLUMNSTORE INDEX' in Fabric Warehouse DDL output"
+        )
+
+    def test_fabric_warehouse_no_pk_constraint(self):
+        """Fabric Warehouse DDL must not emit CONSTRAINT PK_... PRIMARY KEY.
+        When primary_keys are supplied, a disclaimer comment appears instead."""
+        import pandas as pd
+
+        df = pd.DataFrame({"customer_id": [1, 2], "name": ["Alice", "Bob"]})
+        writer = PandasWriter()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            written = writer.to_sql_inserts(
+                tables={"customer": df},
+                output_dir=tmpdir,
+                sql_dialect="tsql-fabric-warehouse",
+                include_ddl=True,
+                include_drop=True,
+                include_go=True,
+                primary_keys={"customer": ["customer_id"]},
+            )
+            all_sql = Path(written[0]).read_text()
+        assert "CONSTRAINT PK_" not in all_sql, (
+            "Fabric Warehouse DDL must not emit PRIMARY KEY constraints"
+        )
+        assert "Fabric Warehouse does not enforce PRIMARY KEY" in all_sql, (
+            "Expected PK disclaimer comment in Fabric Warehouse DDL"
+        )
+        assert "WITH (DISTRIBUTION = ROUND_ROBIN, CLUSTERED COLUMNSTORE INDEX)" in all_sql, (
+            "WITH clause must still be present when PK is provided"
+        )

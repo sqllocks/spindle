@@ -172,7 +172,11 @@ def _generate_create_table_ddl(
             col_defs.append(f"    CONSTRAINT PK_{table_name} PRIMARY KEY ({pk_cols})")
 
     lines.append(",\n".join(col_defs))
-    lines.append(");")
+    if is_fabric_warehouse:
+        lines.append(")")
+        lines.append("WITH (DISTRIBUTION = ROUND_ROBIN, CLUSTERED COLUMNSTORE INDEX);")
+    else:
+        lines.append(");")
     lines.append(go.rstrip())
 
     return "\n".join(lines)
