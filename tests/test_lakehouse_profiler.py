@@ -1,18 +1,17 @@
 """Tests for LakehouseProfiler.
 
-Unit tests (mock-based, always run) and live integration tests (skipped unless
-Sound BI az account is active and a Delta table exists in Fabric_Lakehouse_Demo).
+Unit tests (mock-based, always run) and live integration tests that require
+a Delta table in Fabric_Lakehouse_Demo and Sound BI credentials.
 
 To run the live tests:
-    1. az account set --subscription "Microsoft Azure Sponsorship"
-    2. Ensure a Delta table exists in Fabric_Lakehouse_Demo (e.g. write one via
-       the Spindle Demo Engine: spindle demo run retail --mode seeding --scale-mode spark)
-    3. pytest tests/test_lakehouse_profiler.py -m live -v
+    1. Ensure a Delta table exists in Fabric_Lakehouse_Demo (write via seed script
+       or: spindle demo run retail --mode seeding)
+    2. pytest tests/test_lakehouse_profiler.py -m live -v
+       (browser prompt fires once for Sound BI auth)
 """
 
 from __future__ import annotations
 
-import subprocess
 import pandas as pd
 import pytest
 from unittest.mock import MagicMock, patch
@@ -112,64 +111,37 @@ class TestLakehouseProfilerUnit:
 # Live integration tests — skipped unless explicitly marked
 # ---------------------------------------------------------------------------
 
+_SOUND_BI_TENANT = "2536810f-20e1-4911-a453-4409fd96db8a"
+
+# Module-level credential — cached across tests so browser prompt fires once.
+_browser_cred: object | None = None
+
+
 def _get_storage_token() -> str | None:
-    """Acquire an Azure storage token via az CLI. Returns None if not available."""
+    """Acquire an Azure storage token via InteractiveBrowserCredential."""
+    global _browser_cred
     try:
-        result = subprocess.run(
-            ["az", "account", "get-access-token",
-             "--resource", "https://storage.azure.com/",
-             "--query", "accessToken", "-o", "tsv"],
-            capture_output=True, text=True, timeout=15,
-        )
-        token = result.stdout.strip()
-        return token if token else None
+        from azure.identity import InteractiveBrowserCredential
+        if _browser_cred is None:
+            _browser_cred = InteractiveBrowserCredential(tenant_id=_SOUND_BI_TENANT)
+        token = _browser_cred.get_token("https://storage.azure.com/.default")
+        return token.token if token else None
     except Exception:
         return None
 
 
-def _check_sound_bi_tenant() -> bool:
-    """Return True if the active az account is the Sound BI tenant."""
-    try:
-        result = subprocess.run(
-            ["az", "account", "show", "--query", "tenantId", "-o", "tsv"],
-            capture_output=True, text=True, timeout=10,
-        )
-        return result.stdout.strip() == "2536810f-20e1-4911-a453-4409fd96db8a"
-    except Exception:
-        return False
-
-
 @pytest.mark.live
-@pytest.mark.skip(
-    reason=(
-        "Live test — requires Sound BI az login and a Delta table in Fabric_Lakehouse_Demo. "
-        "To enable: (1) az account set --subscription 'Microsoft Azure Sponsorship', "
-        "(2) write a table via: spindle demo run retail --mode seeding --scale-mode spark, "
-        "(3) run: pytest tests/test_lakehouse_profiler.py -m live -v --no-header"
-    )
-)
 class TestLakehouseProfilerLive:
     """Live integration tests for LakehouseProfiler against Fabric_Lakehouse_Demo.
 
-    These tests require:
-    - Sound BI tenant active: az account set --subscription "Microsoft Azure Sponsorship"
-    - deltalake installed: pip install 'sqllocks-spindle[fabric-inference]'
-    - At least one Delta table in Fabric_Lakehouse_Demo (write via Spindle Demo Engine)
-
-    Verified environment (2026-04-28):
-    - Storage token: acquired from Sound BI tenant (len=1940) -- auth WORKS
-    - OneLake connection: DeltaTable constructor reaches the lakehouse (no auth errors)
-    - Blocker: lakehouse currently empty (spindle_* tables cleaned up after Phase 2 smoke tests)
-    - All non-network code paths verified passing in the same session
+    Requires a Delta table in Fabric_Lakehouse_Demo.  Auth via InteractiveBrowserCredential
+    — browser prompt fires once per session, token is cached for all tests.
     """
 
     def setup_method(self):
-        """Acquire storage token once per test."""
-        assert _check_sound_bi_tenant(), (
-            "Wrong az tenant. Run: az account set --subscription 'Microsoft Azure Sponsorship'"
-        )
+        """Acquire storage token once per test (cached after first browser login)."""
         self.token = _get_storage_token()
-        assert self.token, "Could not acquire storage token — check az login"
+        assert self.token, "Could not acquire storage token via InteractiveBrowserCredential"
 
         from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
         self.profiler = LakehouseProfiler(
@@ -188,52 +160,28 @@ class TestLakehouseProfilerLive:
         """profile_table should return a TableProfile with row_count and columns."""
         from sqllocks_spindle.inference.profiler import TableProfile
 
-        # First check if the table exists
-        tables = self.profiler._list_tables()
-        table_name = _LIVE_TABLE if _LIVE_TABLE in tables else (tables[0] if tables else None)
-        assert table_name is not None, (
-            f"No tables found in Fabric_Lakehouse_Demo. "
-            f"Write one with: spindle demo run retail --mode seeding --scale-mode spark"
-        )
-
-        profile = self.profiler.profile_table(table_name)
+        profile = self.profiler.profile_table(_LIVE_TABLE)
         assert isinstance(profile, TableProfile)
-        assert profile.name == table_name
+        assert profile.name == _LIVE_TABLE
         assert profile.row_count > 0
         assert len(profile.columns) > 0
-        print(f"\nTable: {table_name}")
+        print(f"\nTable: {_LIVE_TABLE}")
         print(f"Rows: {profile.row_count}")
         print(f"Columns: {list(profile.columns.keys())}")
 
-    def test_profile_table_fidelity_score(self):
-        """Profile a live table, generate synthetic data, compute fidelity score."""
-        import pandas as pd
-        from sqllocks_spindle.inference.profiler import TableProfile
-        from sqllocks_spindle.inference.fidelity import FidelityReport
-
-        tables = self.profiler._list_tables()
-        table_name = _LIVE_TABLE if _LIVE_TABLE in tables else (tables[0] if tables else None)
-        assert table_name is not None, "No tables in lakehouse — write data first"
-
-        # Profile the real table
-        profile = self.profiler.profile_table(table_name, sample_rows=1000)
+    def test_profile_table_column_stats(self):
+        """profile_table returns column profiles with expected dtypes for known columns."""
+        profile = self.profiler.profile_table(_LIVE_TABLE, sample_rows=500)
         assert profile.row_count > 0
 
-        # Build a synthetic DataFrame matching the profile's column types
-        n = min(profile.row_count, 200)
-        synth_data: dict = {}
-        for col_name, col_profile in profile.columns.items():
-            if col_profile.dtype == "integer":
-                synth_data[col_name] = range(n)
-            elif col_profile.dtype == "float":
-                synth_data[col_name] = [float(i) * 1.1 for i in range(n)]
-            else:
-                synth_data[col_name] = [f"val_{i}" for i in range(n)]
-        synth_df = pd.DataFrame(synth_data)
+        # Known columns from the seed script
+        assert "customer_id" in profile.columns
+        assert "segment" in profile.columns
+        assert "annual_revenue" in profile.columns
 
-        # Read back the real data as a DataFrame for fidelity comparison
-        real_df = self.profiler._read_table(table_name, sample_rows=200)
-        report = FidelityReport.score(real_df, synth_df)
-        print(f"\nFidelity score ({table_name}): {report.overall_score:.2f}/100")
-        assert report.overall_score >= 0
-        assert report.overall_score <= 100
+        id_col = profile.columns["customer_id"]
+        rev_col = profile.columns["annual_revenue"]
+        assert id_col.dtype in ("integer", "int64", "int32")
+        assert rev_col.dtype in ("float", "float64")
+        print(f"\ncustomer_id dtype: {id_col.dtype}")
+        print(f"annual_revenue dtype: {rev_col.dtype}")

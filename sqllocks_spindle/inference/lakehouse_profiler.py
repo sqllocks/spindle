@@ -120,10 +120,9 @@ class LakehouseProfiler:
 
         try:
             dt = _deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            df = dt.to_pandas()
             if sample_rows is not None:
-                df = dt.to_pandas(limit=sample_rows)
-            else:
-                df = dt.to_pandas()
+                df = df.head(sample_rows)
             return df
         except Exception as exc:
             raise RuntimeError(
@@ -144,9 +143,10 @@ class LakehouseProfiler:
 
         try:
             from pyarrow import fs as _fs
-            account = f"{self.workspace_id}@onelake.dfs.fabric.microsoft.com"
-            token = self._get_token()
-            az_fs = _fs.AzureFileSystem(account=account, credential=token)
+            az_fs = _fs.AzureFileSystem(
+                self.workspace_id,
+                dfs_storage_authority="onelake.dfs.fabric.microsoft.com",
+            )
             file_info = az_fs.get_file_info(
                 _fs.FileSelector(f"{self.lakehouse_id}/Tables", recursive=False)
             )
