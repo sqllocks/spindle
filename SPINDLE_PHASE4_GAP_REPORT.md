@@ -9,7 +9,7 @@
 | # | Area | Status | Notes |
 |---|---|---|---|
 | 1 | SQL/DDL Pipeline (F-001, F-002) | ⚠️ Partial | `generate <schema.json>` path not accepted; warehouse dialect gap (see Area 1) |
-| 2 | Fabric SQL Database Writer (F-003) | — | |
+| 2 | Fabric SQL Database Writer (F-003) | ⚠️ Partial | All 6 auth modes + 4 write modes implemented; `publish --target warehouse` not wired (CLI only: lakehouse/sql-database/eventhouse); `WarehouseBulkWriter` is engine-internal only |
 | 3 | SQL Server On-Prem Auth | — | |
 | 4 | Phase 3B Live Test | — | |
 | 5 | Capital Markets Domain (F-012) | — | |
@@ -90,19 +90,61 @@ The `generate` command's first positional argument is treated as a domain name, 
 
 ## Area 2 — Fabric SQL Database Writer
 
-**Status:** —
-
-### Auth mode review
-_fill in_
-
-### Warehouse target gap
-_fill in_
+**Status:** ⚠️ Partial
 
 ### Test results
-_fill in_
+
+**22 passed, 0 failed** (1.93s) — `tests/test_sql_database_writer.py` (10 tests) + `tests/test_publish_cli.py` (12 tests).
+
+Coverage: DDL generation, INSERT SQL building, write-to-mock-connection, publish CLI help/validation, lakehouse publish, dry-run, SQL missing connection string, eventhouse missing params.
+
+### Auth mode review
+
+All 6 declared auth modes are **fully implemented** in `fabric/sql_database_writer.py` — no `NotImplementedError` stubs found.
+
+| Auth method | Implementation | Notes |
+|---|---|---|
+| `cli` | ✅ | `AzureCliCredential` (azure.identity) |
+| `msi` | ✅ | Tries mssparkutils first, falls back to `ManagedIdentityCredential` |
+| `spn` | ✅ | `ClientSecretCredential` — requires client_id, client_secret, tenant_id |
+| `sql` | ✅ | Direct pyodbc with connection string, no token injection |
+| `device-code` | ✅ | `DeviceCodeCredential` with prompt callback |
+| `fabric` | ✅ | mssparkutils only, raises `RuntimeError` if not in Fabric Notebook |
+
+**Minor gap:** `publish --auth` CLI option (`cli.py:1348`) exposes only 5 choices: `cli, msi, spn, sql, device-code`. The `fabric` auth method is not exposed via `publish` (intended for Notebook use only, but not documented as such).
+
+### Write mode coverage
+
+All 4 write modes are implemented in `FabricSqlDatabaseWriter.write()` (`sql_database_writer.py:150-174`) and exposed via `generate --write-mode` (`cli.py:78`):
+
+| Mode | Behavior |
+|---|---|
+| `create_insert` | DROP + CREATE + INSERT (full reset) |
+| `insert_only` | INSERT only (no DDL) |
+| `truncate_insert` | TRUNCATE + INSERT (keep schema, reset data) |
+| `append` | INSERT without truncating (Day 2 loads) |
+
+`publish --target sql-database` hardcodes `mode="create_insert"` (`cli.py:1548`). The `--write-mode` flag is only wired into `generate`, not `publish`. Minor usability gap — `publish` cannot do append or truncate modes.
+
+### Warehouse target gap
+
+`publish --target` (`cli.py:1337`) accepts only `["lakehouse", "eventhouse", "sql-database"]`. **`warehouse` is not a valid publish target.**
+
+`WarehouseBulkWriter` (`fabric/warehouse_bulk_writer.py`, 610 lines) is **not** orphaned — it is wired into the engine sinks layer:
+- `engine/sinks/warehouse.py` instantiates it for chunked generation
+- `fabric/multi_writer.py` uses it in multi-target writes
+- `output/multi_store_writer.py` wraps it as a composable writer
+- `fabric/__init__.py` exports it as a public API symbol
+
+However, `publish --target warehouse` is not exposed, so users cannot trigger a warehouse bulk load via the CLI `publish` command. The gap is specifically in `cli.py:1337` — one additional `Choice` value and a handler branch (similar to the `sql-database` branch at `cli.py:1528`).
 
 ### Findings
-_fill in_
+
+| # | Finding | Severity | Gap ref |
+|---|---------|----------|---------|
+| 1 | `publish --target warehouse` not wired — CLI only exposes lakehouse/sql-database/eventhouse | High | F-003 |
+| 2 | `publish --target sql-database` hardcodes `mode="create_insert"` — no way to do append/truncate via `publish` | Low | F-003 |
+| 3 | `fabric` auth method not exposed in `publish --auth` choices — undocumented restriction | Low | F-003 |
 
 ---
 
