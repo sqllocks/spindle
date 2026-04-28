@@ -239,57 +239,63 @@ class FabricSparkRouter:
             f"{_ONELAKE_DFS}/{self._workspace_id}/{self._lakehouse_id}/Files/{rel_path}"
         )
 
-        def _put_create() -> None:
-            requests.put(
-                f"{base_url}?resource=file",
-                headers=self._storage_headers(),
-                timeout=30,
-            ).raise_for_status()
+        # OneLake DFS write: create → chunked append → flush.
+        # One large PATCH times out at ~120s (server-side limit observed in
+        # smoke tests). Split into 1MB chunks so each individual request
+        # completes well under the server deadline.
+        _CHUNK = 1024 * 1024  # 1 MB
 
-        def _patch_append() -> None:
-            # timeout=(connect, read/write): 30s to connect, 600s for the upload.
-            # Large schemas (financial/healthcare with embedded static PK data) can
-            # exceed 120s on a throttled OneLake endpoint — seen in smoke-test.
-            requests.patch(
-                f"{base_url}?action=append&position=0",
-                headers={**self._storage_headers(), "Content-Length": str(len(data))},
-                data=data,
-                timeout=(30, 600),
-            ).raise_for_status()
-
-        def _patch_flush() -> None:
-            requests.patch(
-                f"{base_url}?action=flush&position={len(data)}",
-                headers=self._storage_headers(),
-                timeout=30,
-            ).raise_for_status()
-
-        # Retry each step with exponential backoff. OneLake DFS rate-limits
-        # concurrent writes to the same lakehouse and returns connection
-        # timeouts under load (observed during 13-way parallel smoke test).
-        for step_name, step_fn in [
-            ("create", _put_create),
-            ("append", _patch_append),
-            ("flush", _patch_flush),
-        ]:
-            for attempt in range(4):
+        def _upload_with_retry(step_name: str, fn) -> None:
+            for attempt in range(6):
                 try:
-                    step_fn()
-                    break
+                    fn()
+                    return
                 except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as exc:
-                    if attempt == 3:
+                    if attempt == 5:
                         logger.error(
-                            "OneLake schema %s failed after 4 attempts: %s", step_name, exc,
+                            "OneLake schema %s failed after 6 attempts: %s", step_name, exc,
                         )
                         raise
-                    backoff = 2 ** attempt + (0.1 * attempt)
+                    backoff = min(2 ** attempt + (0.5 * attempt), 60)
                     logger.warning(
                         "OneLake schema %s attempt %d failed (%s) — retrying in %.1fs",
                         step_name, attempt + 1, type(exc).__name__, backoff,
                     )
                     _time.sleep(backoff)
 
-        logger.info("Schema uploaded to OneLake: %s", rel_path)
+        _upload_with_retry("create", lambda: requests.put(
+            f"{base_url}?resource=file",
+            headers=self._storage_headers(),
+            timeout=30,
+        ).raise_for_status())
+
+        position = 0
+        chunk_num = 0
+        while position < len(data):
+            chunk = data[position: position + _CHUNK]
+            chunk_len = len(chunk)
+            pos = position  # capture for lambda
+
+            def _append_chunk(c=chunk, cl=chunk_len, p=pos) -> None:
+                requests.patch(
+                    f"{base_url}?action=append&position={p}",
+                    headers={**self._storage_headers(), "Content-Length": str(cl)},
+                    data=c,
+                    timeout=(30, 90),
+                ).raise_for_status()
+
+            _upload_with_retry(f"append[{chunk_num}]", _append_chunk)
+            position += chunk_len
+            chunk_num += 1
+
+        _upload_with_retry("flush", lambda: requests.patch(
+            f"{base_url}?action=flush&position={len(data)}",
+            headers=self._storage_headers(),
+            timeout=30,
+        ).raise_for_status())
+
+        logger.info("Schema uploaded to OneLake (%d bytes, %d chunks): %s",
+                    len(data), chunk_num, rel_path)
         return rel_path
 
     def _submit_notebook_run(
