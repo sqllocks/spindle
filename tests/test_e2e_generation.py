@@ -239,3 +239,76 @@ class TestOutputFormats:
         for name, df in aw_result.tables.items():
             loaded = pd.read_csv(tmp_path / "rt" / f"{name}.csv")
             assert len(loaded) == len(df), f"{name}: {len(loaded)} != {len(df)}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3B: enforce_correlations and fidelity_profile kwargs
+# ---------------------------------------------------------------------------
+
+class TestGeneratePhase3BIntegration:
+    """Phase 3B: enforce_correlations and fidelity_profile kwargs."""
+
+    def _simple_schema(self) -> dict:
+        return {
+            "model": {"name": "test", "domain": "test"},
+            "tables": {
+                "t": {
+                    "columns": {
+                        "id": {"type": "integer", "generator": {"strategy": "sequence", "start": 1}},
+                        "val": {"type": "decimal", "generator": {"strategy": "distribution", "type": "normal", "params": {"loc": 0.0, "scale": 1.0}}},
+                    },
+                    "primary_key": ["id"],
+                }
+            },
+            "generation": {"scale": "small", "scales": {"small": {"t": 100}}},
+        }
+
+    def test_generate_enforce_correlations_false_still_works(self):
+        from sqllocks_spindle import Spindle
+        s = Spindle()
+        result = s.generate(schema=self._simple_schema(), enforce_correlations=False)
+        assert "t" in result.tables
+        assert len(result.tables["t"]) == 100
+
+    def test_generate_fidelity_profile_none_returns_result(self):
+        from sqllocks_spindle import Spindle
+        from sqllocks_spindle.engine.generator import GenerationResult
+        s = Spindle()
+        result = s.generate(schema=self._simple_schema(), fidelity_profile=None)
+        assert isinstance(result, GenerationResult)
+
+    def test_generate_with_fidelity_profile_returns_tuple(self):
+        import numpy as np
+        from sqllocks_spindle import Spindle
+        from sqllocks_spindle.inference.comparator import FidelityReport
+        from sqllocks_spindle.inference.profiler import (
+            ColumnProfile, TableProfile, DatasetProfile
+        )
+        # Build a minimal DatasetProfile for table "t"
+        col_id = ColumnProfile(
+            name="id", dtype="integer",
+            null_count=0, null_rate=0.0, cardinality=100, cardinality_ratio=1.0,
+            is_unique=True, is_enum=False, enum_values=None,
+            min_value=1, max_value=100, mean=50.0, std=28.9,
+            distribution=None, distribution_params=None, pattern=None,
+            is_primary_key=True, is_foreign_key=False, fk_ref_table=None,
+        )
+        col_val = ColumnProfile(
+            name="val", dtype="float",
+            null_count=0, null_rate=0.0, cardinality=100, cardinality_ratio=1.0,
+            is_unique=False, is_enum=False, enum_values=None,
+            min_value=-3.0, max_value=3.0, mean=0.0, std=1.0,
+            distribution="normal", distribution_params={"loc": 0.0, "scale": 1.0},
+            pattern=None, is_primary_key=False, is_foreign_key=False, fk_ref_table=None,
+        )
+        table = TableProfile(name="t", row_count=100,
+                             columns={"id": col_id, "val": col_val},
+                             primary_key=["id"], detected_fks={})
+        fidelity_profile = DatasetProfile(tables={"t": table})
+
+        s = Spindle()
+        result = s.generate(schema=self._simple_schema(), fidelity_profile=fidelity_profile)
+        assert isinstance(result, tuple)
+        generation_result, report = result
+        assert isinstance(report, FidelityReport)
+        assert "t" in report.tables

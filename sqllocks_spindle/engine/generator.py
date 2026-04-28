@@ -43,6 +43,7 @@ from sqllocks_spindle.engine.strategies.composite_foreign_key import (
 )
 from sqllocks_spindle.engine.strategies.temporal import TemporalStrategy
 from sqllocks_spindle.engine.strategies.uuid_strategy import UUIDStrategy
+from sqllocks_spindle.engine.correlation import GaussianCopula
 from sqllocks_spindle.engine.table_generator import TableGenerator
 from sqllocks_spindle.schema.dependency import DependencyResolver
 from sqllocks_spindle.schema.parser import SchemaParser, SpindleSchema
@@ -359,7 +360,9 @@ class Spindle:
         scale_overrides: dict[str, int] | None = None,
         seed: int | None = None,
         on_progress: Callable[[str, int, int], None] | None = None,
-    ) -> GenerationResult:
+        enforce_correlations: bool = True,
+        fidelity_profile=None,
+    ) -> "GenerationResult | tuple[GenerationResult, Any]":
         """Generate synthetic data.
 
         Args:
@@ -467,7 +470,7 @@ class Spindle:
 
         elapsed = time.time() - start_time
 
-        return GenerationResult(
+        result = GenerationResult(
             tables=tables,
             schema=parsed,
             generation_order=gen_order,
@@ -475,6 +478,82 @@ class Spindle:
             row_counts={name: len(df) for name, df in tables.items()},
             lineage=lineage,
         )
+
+        # Apply correlation enforcement if schema has correlated_columns metadata
+        if enforce_correlations:
+            corr_data = {}
+            if hasattr(result.schema, "correlated_columns") and result.schema.correlated_columns:
+                corr_data = result.schema.correlated_columns
+            elif (hasattr(result.schema, "model") and
+                  hasattr(result.schema.model, "extra") and
+                  result.schema.model.extra):
+                corr_data = result.schema.model.extra.get("correlated_columns", {})
+            for tname, pairs in corr_data.items():
+                if tname in result.tables and pairs:
+                    corr_matrix: dict[str, dict[str, float]] = {}
+                    for pair in pairs:
+                        col_a, col_b, r = pair[0], pair[1], pair[2]
+                        corr_matrix.setdefault(col_a, {})[col_b] = r
+                        corr_matrix.setdefault(col_b, {})[col_a] = r
+                    copula = GaussianCopula(corr_matrix)
+                    result.tables[tname] = copula.apply(result.tables[tname])
+
+        # Return fidelity report if profile provided
+        if fidelity_profile is not None:
+            try:
+                from sqllocks_spindle.inference.comparator import (
+                    FidelityReport, TableFidelity, ColumnFidelity,
+                )
+                tables_fidelity: dict = {}
+                for tname, tprofile in fidelity_profile.tables.items():
+                    if tname not in result.tables:
+                        continue
+                    synth_df = result.tables[tname]
+                    col_fidelities: dict = {}
+                    for cname, col_prof in tprofile.columns.items():
+                        if cname not in synth_df.columns:
+                            continue
+                        synth_col = synth_df[cname]
+                        null_rate = float(synth_col.isna().mean())
+                        null_score = 1.0 - abs(null_rate - col_prof.null_rate)
+                        cardinality = int(synth_col.dropna().nunique())
+                        card_ratio = cardinality / max(col_prof.cardinality, 1)
+                        card_score = max(0.0, 1.0 - abs(1.0 - card_ratio))
+                        score = ((null_score + card_score) / 2.0) * 100.0
+                        col_fidelities[cname] = ColumnFidelity(
+                            column_name=cname,
+                            dtype_match=True,
+                            null_rate_delta=abs(null_rate - col_prof.null_rate),
+                            cardinality_ratio=float(card_ratio),
+                            mean_delta=None, std_ratio=None,
+                            ks_statistic=None, ks_pvalue=None,
+                            chi2_statistic=None, chi2_pvalue=None,
+                            value_overlap=None,
+                            score=float(score),
+                        )
+                    table_score = (
+                        float(np.mean([c.score for c in col_fidelities.values()]))
+                        if col_fidelities else 0.0
+                    )
+                    tables_fidelity[tname] = TableFidelity(
+                        table_name=tname,
+                        row_count_real=tprofile.row_count,
+                        row_count_synth=len(synth_df),
+                        columns=col_fidelities,
+                        score=table_score,
+                    )
+                overall = (
+                    float(np.mean([t.score for t in tables_fidelity.values()]))
+                    if tables_fidelity else 0.0
+                )
+                fidelity_report = FidelityReport(
+                    tables=tables_fidelity, overall_score=overall
+                )
+                return result, fidelity_report
+            except Exception as exc:
+                logger.warning("FidelityReport computation failed: %s", exc)
+
+        return result
 
     def generate_stream(
         self,
