@@ -17,7 +17,19 @@ Then I needed the distributions to be realistic. I tweaked it.
 
 Then I needed a second table. And the foreign keys had to actually match.
 
+Then I needed the row counts to follow something resembling a real distribution, not just random noise.
+
+Then I needed to generate ten million rows without it taking forty minutes.
+
+Then I needed it to write directly to a destination instead of a CSV I'd manually move somewhere.
+
 And it kept going.
+
+---
+
+At some point the 40-line script had a config system, a plugin registry, and a changelog.
+
+That's when I stopped being surprised by what it turned into.
 
 ---
 
