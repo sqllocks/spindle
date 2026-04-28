@@ -108,3 +108,43 @@ class TestCapitalMarketsReproducibility:
         r2 = s.generate(domain=CapitalMarketsDomain(), scale="small", seed=99)
         for table_name in r1.tables:
             assert r1[table_name].equals(r2[table_name]), f"{table_name} not reproducible"
+
+
+class TestCapitalMarketsValueCorrectness:
+    """Regression tests for field-level value correctness (no NaN, no scrambled codes)."""
+
+    def test_sector_name_not_nan(self, result_small):
+        """sector_name must never be NaN — guards against reference_data field extraction bug."""
+        df = result_small["sector"]
+        assert df["sector_name"].notna().all(), (
+            f"sector_name has NaN values: {df[df['sector_name'].isna()]}"
+        )
+
+    def test_sector_code_not_nan(self, result_small):
+        """sector_code must never be NaN."""
+        df = result_small["sector"]
+        assert df["sector_code"].notna().all(), (
+            f"sector_code has NaN values: {df[df['sector_code'].isna()]}"
+        )
+
+    def test_exchange_code_is_short_code(self, result_small):
+        """exchange_code must be a short ticker-style code, not the full exchange name."""
+        df = result_small["exchange"]
+        for code in df["exchange_code"]:
+            assert len(str(code)) <= 10, (
+                f"exchange_code '{code}' is too long — looks like a full name, not a code"
+            )
+
+    def test_exchange_code_overlaps_with_company(self, result_small):
+        """At least some exchange codes in the exchange table must appear in company.exchange_code.
+
+        Guards against the field mapping bug where exchange_code stored the full name
+        ('NASDAQ Stock Market') while company stored short codes ('NASDAQ').
+        """
+        exchange_codes = set(result_small["exchange"]["exchange_code"].dropna())
+        company_codes = set(result_small["company"]["exchange_code"].dropna())
+        overlap = exchange_codes & company_codes
+        assert len(overlap) > 0, (
+            f"No exchange codes overlap between exchange table {exchange_codes} "
+            f"and company table sample {list(company_codes)[:10]}"
+        )

@@ -89,8 +89,22 @@ class ReferenceDataStrategy(Strategy):
             indices = ctx.rng.integers(0, len(data), size=ctx.row_count)
             return data_arr[indices]
 
-        # If data is a list of dicts with "name" and "weight"
+        # If data is a list of dicts, handle both weighted (name/weight keys) and
+        # arbitrary-field datasets (field param required for the latter).
         if isinstance(data, list) and all(isinstance(x, dict) for x in data):
+            field = config.get("field")
+
+            # Arbitrary-field dataset: a specific field was requested.
+            # Use this branch whenever the requested field exists on the records,
+            # which correctly handles datasets like gics_sectors and exchanges that
+            # have domain-specific keys (sector_name, code, etc.) instead of the
+            # generic "name"/"weight" keys.
+            if field and field in data[0]:
+                values = np.array([d.get(field) for d in data], dtype=object)
+                indices = ctx.rng.integers(0, len(data), size=ctx.row_count)
+                return values[indices]
+
+            # Legacy weighted format: list of {"name": ..., "weight": ...} dicts.
             names = np.array([d.get("name", d.get("value", "")) for d in data], dtype=object)
             weights = np.array([d.get("weight", 1.0) for d in data])
             weights = weights / weights.sum()
