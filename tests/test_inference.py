@@ -237,6 +237,43 @@ class TestDataProfiler:
 # ---------------------------------------------------------------------------
 
 
+class TestDataProfilerEntryPoints:
+    def test_profile_alias(self):
+        """profile() is an alias for profile_dataframe()."""
+        profiler = DataProfiler()
+        df = pd.DataFrame({"x": [1, 2, 3]})
+        result = profiler.profile(df, table_name="t")
+        assert result.name == "t"
+        assert "x" in result.columns
+
+    def test_from_csv(self, tmp_path):
+        df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+        csv_path = tmp_path / "test.csv"
+        df.to_csv(csv_path, index=False)
+        profile = DataProfiler.from_csv(str(csv_path))
+        assert profile.name == "test"
+        assert "a" in profile.columns
+        assert "b" in profile.columns
+
+    def test_from_csv_with_sample_rows(self, tmp_path):
+        df = pd.DataFrame({"v": range(1000)})
+        csv_path = tmp_path / "big.csv"
+        df.to_csv(csv_path, index=False)
+        profile = DataProfiler.from_csv(str(csv_path), sample_rows=100)
+        assert profile.row_count == 100
+
+    def test_constructor_kwargs(self):
+        profiler = DataProfiler(fit_threshold=0.9, top_n_values=10, outlier_iqr_factor=2.0)
+        assert profiler.fit_threshold == 0.9
+        assert profiler.top_n_values == 10
+        assert profiler.outlier_iqr_factor == 2.0
+
+
+# ---------------------------------------------------------------------------
+# TestSchemaBuilder
+# ---------------------------------------------------------------------------
+
+
 class TestSchemaBuilder:
     def _make_profile(self) -> DatasetProfile:
         """Build a small DatasetProfile for schema building tests."""

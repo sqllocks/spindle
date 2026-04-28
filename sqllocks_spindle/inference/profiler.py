@@ -158,6 +158,39 @@ class DataProfiler:
 
         return DatasetProfile(tables=profiles, relationships=relationships)
 
+    def profile(
+        self,
+        df: pd.DataFrame,
+        table_name: str = "table",
+    ) -> TableProfile:
+        """Alias for profile_dataframe(). Profile a single DataFrame."""
+        return self.profile_dataframe(df, table_name=table_name)
+
+    @classmethod
+    def from_csv(
+        cls,
+        path: str,
+        table_name: str | None = None,
+        sample_rows: int | None = None,
+        **kwargs,
+    ) -> TableProfile:
+        """Profile a CSV file.
+
+        Args:
+            path: Path to the CSV file.
+            table_name: Name for the table profile. Defaults to the filename stem.
+            sample_rows: If set, sample this many rows before profiling.
+            **kwargs: Passed to DataProfiler constructor (fit_threshold, top_n_values, etc.).
+        """
+        from pathlib import Path as _Path
+        import pandas as _pd
+
+        p = _Path(path)
+        name = table_name or p.stem
+        df = _pd.read_csv(path)
+        profiler = cls(sample_rows=sample_rows, **kwargs)
+        return profiler.profile(df, table_name=name)
+
     # ----- internal helpers -----
 
     def _profile_single(
