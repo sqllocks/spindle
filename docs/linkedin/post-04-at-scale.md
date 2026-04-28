@@ -3,40 +3,24 @@
 
 "Can we test this at scale?"
 
-Four words that changed the architecture.
+That's one of those questions that sounds simple and isn't. Up to that point, everything I'd built was designed for the demo use case: generate enough data to make a dashboard look real, validate a pipeline, run a proof of concept. Tens of thousands of rows, maybe a few hundred thousand. The generation ran in a single process, on a laptop, and finished in a few seconds. That was fine for what I needed it for.
 
----
+The request I was getting now was different. The use case was load testing a data pipeline — validating that it could handle production volumes before it went anywhere near production. The numbers being thrown around were in the hundreds of millions of rows. Single process, on a laptop, was not going to work.
 
-Local generation is fine for demos. It is not fine for 500 million rows.
+The first problem was memory. A naive single-process generator tries to hold the entire dataset in RAM before writing it anywhere. At a few hundred thousand rows that's fine. At a hundred million rows you're asking for somewhere between eight and forty gigabytes of RAM depending on column count and data types, which is more than most laptops have and more than you want to dedicate to a data generation job on a server anyway. The solution is to generate in chunks — produce a fixed number of rows, write them to the destination, discard them from memory, repeat. That's not complicated to implement but it creates a new problem: the foreign key pools.
 
-The single-process generator would take hours. More importantly, it would run out of RAM long before it finished.
+When you generate a table in chunks, you need to make sure that every chunk knows about the primary keys from all the parent tables. If you're generating orders in chunks of one hundred thousand and the customers table has fifty thousand rows, every chunk needs access to all fifty thousand customer IDs so it can sample from them correctly. And the reference tables — the small lookup tables that don't change, product categories and status codes and region mappings — need to be generated exactly once and then shared across all chunks, not regenerated independently by each worker.
 
-So I built a multi-process scale router.
+I also needed multiple workers running in parallel to make the generation fast enough to be useful. That introduced the chunk boundary problem: if you're generating a fact table in parallel across multiple workers, and each worker is responsible for a range of row IDs, you need to make sure the primary key sequences don't overlap and the foreign key references stay consistent. The solution was to assign each worker a sequence offset — worker one generates rows with IDs one through one hundred thousand, worker two generates one hundred thousand through two hundred thousand, and so on — and to pre-generate all the static reference tables before any of the workers start, broadcasting them as shared read-only state.
 
-The schema gets split into chunks. Each chunk runs in a subprocess worker. Workers are RAM-guarded — psutil checks available memory before spawning the next one, capped at 80% to leave headroom. Primary key continuity is maintained across chunk boundaries via sequence offsets, so you get one coherent dataset, not N independent shards.
+I added a RAM guard using psutil to prevent the process from overwhelming the system: check available memory before spawning each worker, and if you're above eighty percent utilization, wait rather than adding another process. That turned out to be important — without it, running too many workers simultaneously on a machine that was also doing other things would cause the whole thing to become unreliable in ways that were annoying to debug.
 
----
+Once I had the scale problem reasonably solved for local generation, the next requirement was destination. Previously the output was always a CSV or a Parquet file that I'd load somewhere manually. That was fine for small datasets. For a hundred million rows it was not practical — you don't want to write a hundred million rows to disk on a laptop and then move them somewhere. You want the generation to write directly to wherever the data is going.
 
-Reference tables were the first complication.
+So I built a set of sink connectors — destinations that the generator could write to as it produced data. A lakehouse sink that wrote Parquet files directly to cloud storage. A warehouse sink that staged data and loaded it in bulk. An eventhouse sink for KQL-based time series stores. A SQL database sink for relational targets. And a fan-out coordinator that could write to multiple destinations simultaneously via a thread pool, because some pipelines needed to validate the same data landing in multiple places at once.
 
-A product category table with 50 rows should not be generated 1,000 times across 1,000 chunks. It should be generated once and broadcast into every worker as a pre-loaded pool. Static tables — those with cardinality less than the chunk size — are generated once. Dynamic tables are chunked. The worker never knows the difference.
+That was working well when someone asked about a billion rows. A billion rows is a different order of magnitude from a hundred million, and it pushes you toward distributed compute rather than parallel local processes. I had access to a cloud-based Spark environment, so I built a router that would, above a certain row count threshold, automatically package up the generation job and submit it to Spark rather than running it locally. The packaging involved uploading the schema definition to cloud storage, auto-creating a Spark notebook if one didn't exist, and submitting the notebook run via API. The generation job returned a job ID immediately and ran asynchronously — you could poll for status while the Spark cluster did the actual work.
 
----
+What I had at this point was a generation system that scaled from ten thousand rows on a laptop to a billion rows on a Spark cluster, wrote to multiple destination types, and handled the relational complexity of multi-table schemas with foreign keys, composite keys, and self-referencing hierarchies. It also, somehow, had a Capital Markets domain with real S&P 500 tickers and OHLCV pricing data, which I had apparently built at some point during all of this and then forgotten about entirely until I ran an audit.
 
-Then it needed to land somewhere.
-
-I added sinks — Lakehouse, Warehouse, KQL Eventhouse, SQL Database. A fan-out coordinator writes to all configured targets simultaneously via a thread pool. One generation run, multiple destinations.
-
-Then someone needed Spark.
-
-Above 500,000 rows with a cloud connection configured, the router automatically submits a Fabric Spark notebook run instead of running locally. The notebook is auto-created if it doesn't exist. The schema gets uploaded to cloud storage. The job returns a job ID immediately. You poll status. You don't wait.
-
-And it kept going.
-
----
-
-At some point I stopped counting what I'd built. So I ran an audit.
-
-That's Post 5.
-
-[ sqllocks-spindle — link in comments ]
+That audit is what Post 5 is about.

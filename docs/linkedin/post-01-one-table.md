@@ -1,44 +1,32 @@
 # Post 1 — "One Table"
 <!-- LinkedIn copy starts below — everything above this line is metadata -->
 
-Every data project hits the same wall: you need data, and you can't use prod.
+A few months ago I needed fake data for a client demo. Not a lot — just enough to make a dashboard look like it was pulling from something real. We were showing a prototype that would eventually connect to the client's production database, but we weren't there yet, and the alternative to fake data was a dashboard full of empty charts and the phrase "imagine this has data in it," which is not a great way to sell a vision.
 
-So you make something up. And it looks made up.
+I had about two hours before the call.
 
----
+So I did what any data person does in that situation. I wrote a quick Python script. Forty lines, maybe. I grabbed a list of first and last names I had lying around from a previous project, generated random numbers in a plausible range for the revenue columns, spread some dates across the last twelve months, and called it done. The script ran in about three seconds and produced a CSV that I loaded into the dashboard. It looked fine. The client nodded in the right places. I closed my laptop and sent a follow-up email about next steps.
 
-I had a client demo in two hours. I needed a customers table.
+That should have been the end of it.
 
-I wrote about 40 lines of Python. Random names. Random numbers. Random dates. It worked. The demo went fine.
+Except I needed the same thing the following week. Different client, different project, same problem: something real built, but no real data to show it working. So I pulled up the script and started copying it. And that's when I noticed something I hadn't paid attention to the first time, because I'd been in a hurry: the data looked fake. Not obviously, catastrophically fake — nobody was going to call me out on it — but fake in the way that you can feel before you can articulate it. Every row felt equally plausible. The revenue numbers were uniformly spread between fifty dollars and five thousand. The dates were evenly distributed across the year. There were no slow months, no big orders, no customers who showed up once and disappeared. Real data has texture. This had none.
 
-Then I needed it again. Different project. I copied the script.
+I told myself I'd fix it quickly and move on.
 
-Then I needed the distributions to be realistic. I tweaked it.
+I fixed the revenue distribution first. Real transaction data tends to be right-skewed — most transactions are small and a few are large — so I swapped the uniform random for something lognormal and that was immediately better. Then I fixed the dates, because real businesses have seasonality and real data has spikes and gaps that reflect things that actually happened in the world. Then I noticed that my customers were ghosts — they existed only as IDs in the transaction table, with no corresponding customer records anywhere, which meant I couldn't do any meaningful customer-level analysis on this supposedly realistic dataset. I needed a second table.
 
-Then I needed a second table. And the foreign keys had to actually match.
+This is where I learned something I probably should have already known: generating fake data for one table is easy, and generating fake data for two tables with a real relationship between them is a completely different problem. The customer IDs in the transactions table have to exist in the customer table. That's the obvious part. The less obvious part is that the distribution of how many transactions each customer has placed also has to reflect how real customers actually behave.
 
-Then I needed the row counts to follow something resembling a real distribution, not just random noise.
+Real customer behavior follows something close to a Pareto distribution. A small number of customers account for a disproportionate share of the transactions. The majority of customers appear once or twice in the data and then never again. If you generate transactions by sampling randomly from your customer list, you end up with a dataset where every customer is equally active — everyone has the same order frequency, the same purchase patterns, the same lifetime value curve. Anyone who has spent real time with customer data will feel immediately that something is off, even if they can't say exactly what. The cohort curves look wrong. The frequency histograms look wrong. Every downstream analysis produces numbers that feel subtly incorrect in a way that's hard to pin down until you think about it.
 
-Then I needed to generate ten million rows without it taking forty minutes.
+So I built a proper ID manager. Weighted sampling — Pareto for heavy-tailed distributions like customers and orders, Zipf for rank-based distributions like product popularity, uniform for cases where equal probability is actually what you want. That solved the customer problem. Then I needed line items within orders, which introduced a three-table schema with two levels of foreign key relationships, and the naive generation approach fell apart in ways that took me longer to debug than I'd like to admit. Self-referencing hierarchies came up next — an employee table where some rows reference a manager who is also in the same table — and that required a different approach entirely.
 
-Then I needed it to write directly to a destination instead of a CSV I'd manually move somewhere.
+Then someone needed ten million rows, which was when I discovered that everything I'd built worked fine at ten thousand rows and did not work at ten million. Not a performance issue exactly — more of a memory issue. I rewrote it to generate data in chunks with parallel workers, then spent a week making sure the foreign key pools stayed consistent across chunk boundaries so you didn't end up with orders referencing customer IDs that only existed in a different worker's chunk.
 
-And it kept going.
+Then I needed it to write directly to the destination rather than a CSV I'd manually move somewhere. Then I needed it to write to multiple destinations simultaneously. Then someone asked about a billion rows and I had a view on what the answer should be, so I built that too. And somewhere in there the forty-line script acquired a configuration system, a plugin registry, a test suite, and a changelog, and I had to accept that I was no longer working on a script.
 
----
+This is how scope creep actually works. It's never a single decision. Nobody sits down and says "I am going to build a synthetic data platform." You just keep solving the problem in front of you, and one day you look up and realize you've been doing this for months and the thing you've built is considerably larger than you intended. Each individual decision made complete sense. The cumulative result is surprising.
 
-At some point the 40-line script had a plugin registry, a config system, and a changelog.
+Over the next few posts I want to walk through what this turned into and some of the decisions along the way, because I think most of them are interesting outside of this specific project. The problems that kept coming up — making fake data feel real, maintaining referential integrity at scale, reproducing the statistical shape of real data without access to the real data — are problems that show up in a lot of contexts. Testing environments. Performance benchmarks. Privacy-safe analytics. Client demos with two hours to go.
 
----
-
-That script is now sqllocks-spindle — a synthetic data engine sitting at v2.9.0 on PyPI.
-
-1,994 passing tests. 13 data domains. A billion-row pipeline. A full inference engine.
-
-I needed one table.
-
----
-
-The foreign key problem is where it got interesting. That's next.
-
-[ pip install sqllocks-spindle — link in comments ]
+The foreign key problem is where it got genuinely interesting. That's next.
