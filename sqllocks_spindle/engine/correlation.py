@@ -5,22 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-
-def _probit(u: np.ndarray) -> np.ndarray:
-    """Inverse normal CDF (probit). Uses rational approximation (Abramowitz & Stegun)."""
-    # Clamp u away from 0 and 1 to avoid -inf/+inf
-    u = np.clip(u, 1e-10, 1 - 1e-10)
-
-    # Rational approximation for probit (Abramowitz & Stegun 26.2.17)
-    # Accurate to ~1e-4 across the full range
-    c = np.array([2.515517, 0.802853, 0.010328])
-    d = np.array([1.432788, 0.189269, 0.001308])
-
-    t = np.sqrt(-2.0 * np.log(np.minimum(u, 1 - u)))
-    num = c[0] + c[1]*t + c[2]*t**2
-    den = 1 + d[0]*t + d[1]*t**2 + d[2]*t**3
-    x = t - num/den
-    return np.where(u < 0.5, -x, x)
+# Optional scipy for improved probit computation
+try:
+    from scipy.stats import norm as _sp_norm
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
 
 
 class GaussianCopula:
@@ -38,15 +28,18 @@ class GaussianCopula:
     Args:
         correlation_matrix: dict of {col_a: {col_b: r}} pairs.
         threshold: Skip pairs where |r| < threshold (default 0.5).
+        seed: Random seed for reproducibility (default None, uses system entropy).
     """
 
     def __init__(
         self,
         correlation_matrix: dict[str, dict[str, float]],
         threshold: float = 0.5,
+        seed: int | None = None,
     ):
         self.correlation_matrix = correlation_matrix
         self.threshold = threshold
+        self._rng = np.random.default_rng(seed)
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply the copula reordering to a DataFrame. Returns a new DataFrame."""
@@ -105,11 +98,8 @@ class GaussianCopula:
             # Map ranks to (0, 1) open interval using (rank + 0.5) / n
             uniform_block[:, idx] = (ranks + 0.5) / n
 
-        # Step 2: probit transform → Gaussian space
-        gaussian_block = _probit(uniform_block)
-
-        # Step 3: apply Cholesky transform to induce target correlations
-        z_raw = np.random.default_rng(42).standard_normal((n, k))
+        # Step 2: apply Cholesky transform to induce target correlations
+        z_raw = self._rng.standard_normal((n, k))
         z_corr = z_raw @ L.T
 
         # Step 4: use the RANK ORDER from z_corr to reorder original column values

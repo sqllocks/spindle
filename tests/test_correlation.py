@@ -55,3 +55,22 @@ class TestGaussianCopula:
         copula = GaussianCopula({})
         result = copula.apply(df)
         pd.testing.assert_frame_equal(df, result)
+
+    def test_seed_produces_reproducible_output(self):
+        """Same seed should produce identical output."""
+        df, _ = _correlated_df(n=200)
+        copula1 = GaussianCopula({"x": {"y": 0.8}, "y": {"x": 0.8}}, seed=0)
+        copula2 = GaussianCopula({"x": {"y": 0.8}, "y": {"x": 0.8}}, seed=0)
+        r1 = copula1.apply(df)
+        r2 = copula2.apply(df)
+        pd.testing.assert_frame_equal(r1, r2)
+
+    def test_different_seeds_produce_different_output(self):
+        """Different seeds should produce different outputs."""
+        df, _ = _correlated_df(n=500)
+        copula1 = GaussianCopula({"x": {"y": 0.8}, "y": {"x": 0.8}}, seed=1)
+        copula2 = GaussianCopula({"x": {"y": 0.8}, "y": {"x": 0.8}}, seed=2)
+        r1 = copula1.apply(df)
+        r2 = copula2.apply(df)
+        # With different seeds, at least some values should differ
+        assert not (r1["x"].values == r2["x"].values).all()
