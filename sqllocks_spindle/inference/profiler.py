@@ -41,6 +41,14 @@ _UUID_RE = re.compile(
 _DATE_RE = re.compile(
     r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$"
 )
+_SSN_RE = re.compile(r"^\d{3}-\d{2}-\d{4}$")
+_IP_V4_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+_IP_V6_RE = re.compile(r"^[0-9a-fA-F]{1,4}(:[0-9a-fA-F]{0,4}){2,7}$")
+_MAC_RE = re.compile(r"^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$")
+_CURRENCY_CODE_RE = re.compile(r"^[A-Z]{3}$")
+_LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
+_IBAN_RE = re.compile(r"^[A-Z]{2}\d{2}[A-Z0-9]{1,30}$")
+_POSTAL_US_RE = re.compile(r"^\d{5}(-\d{4})?$")
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +535,7 @@ class DataProfiler:
     # ----- string pattern detection -----
 
     def _detect_pattern(self, series: pd.Series) -> str | None:
-        """Detect common string patterns (email, phone, uuid, date)."""
+        """Detect common string patterns (email, phone, uuid, date, ssn, ip, mac, etc)."""
         non_null = series.dropna()
         if len(non_null) == 0:
             return None
@@ -541,20 +549,52 @@ class DataProfiler:
         threshold = 0.9  # at least 90% must match
 
         # Email
-        if sample.str.match(_EMAIL_RE.pattern, na=False).sum() / total >= threshold:
+        if sample.str.fullmatch(_EMAIL_RE.pattern, na=False).sum() / total >= threshold:
             return "email"
 
         # UUID
-        if sample.str.match(_UUID_RE.pattern, na=False).sum() / total >= threshold:
+        if sample.str.fullmatch(_UUID_RE.pattern, na=False).sum() / total >= threshold:
             return "uuid"
 
-        # Phone
-        if sample.str.match(_PHONE_RE.pattern, na=False).sum() / total >= threshold:
-            return "phone"
+        # SSN (more specific than phone)
+        if sample.str.fullmatch(_SSN_RE.pattern, na=False).sum() / total >= threshold:
+            return "ssn"
+
+        # MAC address (before IP to avoid confusion)
+        if sample.str.fullmatch(_MAC_RE.pattern, na=False).sum() / total >= threshold:
+            return "mac_address"
+
+        # IP address (v4 or v6)
+        ipv4_match = sample.str.fullmatch(_IP_V4_RE.pattern, na=False).sum() / total
+        ipv6_match = sample.str.fullmatch(_IP_V6_RE.pattern, na=False).sum() / total
+        if ipv4_match >= threshold or ipv6_match >= threshold:
+            return "ip_address"
+
+        # IBAN
+        if sample.str.fullmatch(_IBAN_RE.pattern, na=False).sum() / total >= threshold:
+            return "iban"
+
+        # Postal code (US ZIP)
+        if sample.str.fullmatch(_POSTAL_US_RE.pattern, na=False).sum() / total >= threshold:
+            return "postal_code"
 
         # Date string
-        if sample.str.match(_DATE_RE.pattern, na=False).sum() / total >= threshold:
+        if sample.str.fullmatch(_DATE_RE.pattern, na=False).sum() / total >= threshold:
             return "date"
+
+        # Phone (more general, check after specific patterns)
+        if sample.str.fullmatch(_PHONE_RE.pattern, na=False).sum() / total >= threshold:
+            return "phone"
+
+        # Currency code (3 uppercase letters) — cardinality guard to avoid false positives
+        if (sample.str.fullmatch(_CURRENCY_CODE_RE.pattern, na=False).sum() / total >= threshold
+                and non_null.nunique() <= 200):
+            return "currency_code"
+
+        # Language code (2 lowercase letters, optional region)
+        if (sample.str.fullmatch(_LANGUAGE_CODE_RE.pattern, na=False).sum() / total >= threshold
+                and non_null.nunique() <= 200):
+            return "language_code"
 
         return None
 

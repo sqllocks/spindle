@@ -340,3 +340,38 @@ class TestSchemaBuilder:
         pk_gen = schema.tables["customer"].columns["id"].generator
         assert pk_gen["strategy"] == "sequence"
         assert pk_gen.get("start", 1) == 1
+
+
+# ---------------------------------------------------------------------------
+# TestExtendedPatternDetection
+# ---------------------------------------------------------------------------
+
+
+class TestExtendedPatternDetection:
+    """New pattern detection for Phase 3B."""
+
+    def _profiler_detect(self, values: list[str]) -> str | None:
+        profiler = DataProfiler()
+        s = pd.Series(values)
+        return profiler._detect_pattern(s)
+
+    def test_detects_ssn(self):
+        ssns = [f"123-{i:02d}-{j:04d}" for i in range(1, 10) for j in range(1, 12)]
+        assert self._profiler_detect(ssns) == "ssn"
+
+    def test_detects_ip_v4(self):
+        ips = [f"192.168.{i}.{j}" for i in range(10) for j in range(10)]
+        assert self._profiler_detect(ips) == "ip_address"
+
+    def test_detects_mac_address(self):
+        macs = [f"00:1A:{i:02X}:{j:02X}:{k:02X}:FF"
+                for i in range(10) for j in range(10) for k in range(10)][:100]
+        assert self._profiler_detect(macs) == "mac_address"
+
+    def test_detects_currency_code(self):
+        codes = ["USD", "EUR", "GBP", "JPY", "CAD"] * 20
+        assert self._profiler_detect(codes) == "currency_code"
+
+    def test_detects_language_code(self):
+        langs = ["en", "fr", "de", "es", "it"] * 20
+        assert self._profiler_detect(langs) == "language_code"
