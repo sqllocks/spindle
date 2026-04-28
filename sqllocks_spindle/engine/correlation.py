@@ -5,13 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# Optional scipy for improved probit computation
-try:
-    from scipy.stats import norm as _sp_norm
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-
 
 class GaussianCopula:
     """Reorder column values to achieve target Pearson correlations.
@@ -89,20 +82,15 @@ class GaussianCopula:
         except np.linalg.LinAlgError:
             return df  # fall back if decomposition fails
 
-        # Step 1: rank-based uniform CDF for each column
-        result = df.copy()
-        uniform_block = np.zeros((n, k))
-        for idx, col in enumerate(active_cols):
-            vals = df[col].values.astype(float)
-            ranks = np.argsort(np.argsort(vals))  # tie-preserving ranks (0-based)
-            # Map ranks to (0, 1) open interval using (rank + 0.5) / n
-            uniform_block[:, idx] = (ranks + 0.5) / n
+        # Step 1: Build target correlation matrix and Cholesky decompose
+        # (already done above)
 
-        # Step 2: apply Cholesky transform to induce target correlations
+        # Step 2: Draw correlated standard normals via Cholesky-transformed randoms
+        result = df.copy()
         z_raw = self._rng.standard_normal((n, k))
         z_corr = z_raw @ L.T
 
-        # Step 4: use the RANK ORDER from z_corr to reorder original column values
+        # Step 3: Use rank of z_corr to reorder original column values
         for idx, col in enumerate(active_cols):
             original_sorted = np.sort(df[col].values)
             new_ranks = np.argsort(np.argsort(z_corr[:, idx]))

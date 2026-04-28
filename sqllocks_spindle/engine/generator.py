@@ -372,6 +372,10 @@ class Spindle:
             scale_overrides: Override row counts for specific tables.
             seed: Random seed for reproducibility.
             on_progress: Optional callback(table_name, tables_done, tables_total).
+            enforce_correlations: If True (default), apply GaussianCopula post-pass when
+                correlated_columns metadata is present in the schema.
+            fidelity_profile: Optional DatasetProfile. When provided, returns a
+                (GenerationResult, FidelityReport) tuple instead of GenerationResult.
         """
         # Resolve schema
         parsed = self._resolve_schema(domain, schema)
