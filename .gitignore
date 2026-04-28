@@ -41,6 +41,7 @@ Thumbs.db
 *.ipynb
 !examples/**/*.ipynb
 !notebooks/spindle_spark_worker.ipynb
+!sqllocks_spindle/notebooks/spindle_spark_worker.ipynb
 
 # Local dev output
 /output/

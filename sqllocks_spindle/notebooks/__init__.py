@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_NOTEBOOKS_DIR = Path(__file__).parent.parent.parent / "notebooks"
+_NOTEBOOKS_DIR = Path(__file__).parent
 
 
 def _load_notebook(name: str) -> dict:
