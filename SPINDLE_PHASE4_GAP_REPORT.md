@@ -14,8 +14,8 @@
 | 4 | Phase 3B Live Test | ⚠️ Partial | DataProfiler/SchemaBuilder/GaussianCopula/FidelityReport all pass; LakehouseProfiler not live-testable (deltalake not in venv; az CLI tenant mismatch; see Area 4) |
 | 5 | Capital Markets Domain (F-012) | ⚠️ Partial | 18/18 tests pass; CLI generates 10 tables, 126K rows; sector table is all-NaN (broken reference_data dataset); exchange table has scrambled codes; no surrogate-key FKs (ticker-based) |
 | 6 | Incremental Engine (F-007) | ✅ Ship-ready | 24/24 tests pass; all three delta ops tagged; IDs continue from max+1; FK integrity holds across Day 1→Day 2; note: `--scale` flag absent from `continue` CLI (use `--inserts`) |
-| 7 | SCD2 Strategy + Data Masker (F-009, F-011) | — | |
-| 8 | Package Hygiene (F-014) | — | |
+| 7 | SCD2 Strategy + Data Masker (F-009, F-011) | ⚠️ Partial | SCD2: 11/11 tests pass, registry wired, temporal columns generated correctly when `generator:` key is used; table-level `strategy: scd2` silently no-ops (doc gap). Masker: 18/18 tests pass, CLI fully wired; `mask()` API requires `dict[str, DataFrame]` not bare DataFrame (undocumented). |
+| 8 | Package Hygiene (F-014) | ⚠️ Partial | No conflict files; core deps correct; `masker.py` hard-imports `faker` at module level (not guarded by try/except) — mitigated at package level by `__init__.py` guard; 12 test failures in `azure`-dependent tests (missing dev extra in env) |
 
 Legend: ✅ Ship-ready | ⚠️ Partial | ❌ Broken/stub
 
@@ -489,16 +489,90 @@ _fill in_
 
 ## Area 8 — Package Hygiene
 
-**Status:** —
+**Status:** ⚠️ Partial
+
+**Audit environment:** Python 3.12.x (Homebrew), `sqllocks-spindle` v2.9.0 (editable install). Commands run from `/Users/sqllocks/Library/CloudStorage/Dropbox/VSCode/AzureClients/forge-workspace/projects/fabric-datagen/`.
 
 ### Conflict files
-_fill in_
+
+**Repo:** `find . -name "*MacBook*" -o -name "*Jonathan's MacBook*"` — **0 results**. No Dropbox conflict files exist in the working tree.
+
+**Git-tracked:** `git ls-files | grep -i "macbook\|jonathan"` — **0 results**. No conflict files are committed.
+
+**Installed package:** Walked the editable install path at runtime — **0 conflict files** in the installed package tree.
+
+**Result: PASS**
 
 ### Dependency audit
-_fill in_
+
+**`[project.dependencies]` (core):**
+
+| Dep | Declared | Status |
+|---|---|---|
+| `numpy>=1.24` | ✅ | Present in pyproject.toml |
+| `pandas>=2.0` | ✅ | Present in pyproject.toml |
+| `click>=8.0` | ✅ | Present in pyproject.toml |
+| `requests>=2.31` | ✅ | Present in pyproject.toml |
+
+**`[project.optional-dependencies]`:**
+
+| Extra | Key deps | Status |
+|---|---|---|
+| `dev` | `pytest>=7.0`, `pytest-cov>=4.0`, `faker>=20.0`, `pyyaml>=6.0`, `pyarrow>=14.0`, `deltalake>=0.17.0`, `openpyxl>=3.1`, `scipy>=1.11`, `azure-identity>=1.15` | ✅ All present |
+| `faker` | `faker>=20.0` | ✅ Present |
+| `parquet` | `pyarrow>=14.0` | ✅ Present |
+| `excel` | `openpyxl>=3.1` | ✅ Present |
+
+**`[tool.setuptools.packages.find]`:** `include = ["sqllocks_spindle*"]` — correctly scoped; conflict files in the root directory are excluded from wheel builds.
+
+**Result: PASS**
+
+### Import safety
+
+**Core imports (no extras):**
+
+```
+import sqllocks_spindle              OK
+from sqllocks_spindle.cli import main  OK
+from sqllocks_spindle.schema.parser import SchemaParser  OK
+from sqllocks_spindle.engine.generator import Spindle    OK
+```
+
+Note: The task brief referenced `DataGenerator` — that class does not exist. The correct class is `Spindle`. This is a documentation gap in the task spec, not a package defect.
+
+**Optional extra — `FabricSqlDatabaseWriter`:**
+
+Import succeeds without `pyodbc` installed. `pyodbc` is imported lazily inside `_get_connection()`, not at module level. **No hard crash on import.**
+
+**Hard top-level import of optional extra found:**
+
+`sqllocks_spindle/inference/masker.py:15` — `from faker import Faker` — unconditional module-level import. This means importing `sqllocks_spindle.inference.masker` directly (or via `sqllocks_spindle.inference`) will raise `ImportError` if `faker` is not installed.
+
+**Mitigation present:** `sqllocks_spindle/__init__.py` wraps the inference import in a `try/except ImportError` block (lines 74–77), so `import sqllocks_spindle` does not hard-crash when `faker` is absent. The masker is silently skipped at the package level.
+
+**Remaining risk:** Any code that imports `sqllocks_spindle.inference` or `sqllocks_spindle.inference.masker` directly (not via the package root) will receive an unguarded `ImportError` if `faker` is not installed. The guard is at `__init__.py`, not at the masker module itself.
+
+No other top-level imports of `pyodbc`, `azure`, `kusto`, `deltalake`, `openpyxl`, `scipy` were found outside of a `try:` block or `TYPE_CHECKING` guard. `faker_strategy.py` imports `faker` lazily (inside method bodies), not at module level — **safe**.
+
+### Full test suite results
+
+**Run:** `/opt/homebrew/bin/python3.12 -m pytest --tb=no -q`
+
+```
+12 failed, 2002 passed, 5 skipped  (115.45s)
+```
+
+**12 failures** — all in `tests/test_demo_seeding_v2.py` (1) and `tests/test_spark_router.py` (11). Root cause: `ModuleNotFoundError: No module named 'azure'` — `azure-identity` is a `[dev]` extra and is not installed in this Python 3.12 environment. These are environment-only failures unrelated to package hygiene. The package code itself is correct (lazy import inside `_get_storage_token()`/`_acquire_token()`); the test environment lacks the optional extra.
+
+**2002 tests pass** across all other coverage areas.
 
 ### Findings
-_fill in_
+
+| # | Finding | Severity | Gap ref |
+|---|---------|----------|---------|
+| 1 | `masker.py` hard-imports `from faker import Faker` at module level — direct import of `sqllocks_spindle.inference` without `faker` installed raises `ImportError`; guard exists only at `__init__.py` level | Low | F-014 |
+| 2 | `azure-identity` (`[dev]` extra) not installed in test runner environment causes 12 test failures in `test_spark_router.py` and `test_demo_seeding_v2.py`; CI environment must install `[dev]` extras to get a clean run | Low | F-014 |
+| 3 | Editable install version shows `2.6.0` in pip list metadata (stale `.egg-info`) while `__version__` is `2.9.0`; no functional impact but `pip show sqllocks-spindle` misleads | Low | F-014 |
 
 ---
 
