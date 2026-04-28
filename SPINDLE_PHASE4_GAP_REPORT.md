@@ -12,7 +12,7 @@
 | 2 | Fabric SQL Database Writer (F-003) | ⚠️ Partial | All 6 auth modes + 4 write modes implemented; `publish --target warehouse` not wired (CLI only: lakehouse/sql-database/eventhouse); `WarehouseBulkWriter` is engine-internal only |
 | 3 | SQL Server On-Prem Auth | ⚠️ Partial | `sql` auth works for on-prem (caller owns UID/PWD in connection string); Entra ID modes functional against Azure SQL / on-prem with Entra enabled; ADO.NET normalizer strips UID/PWD; ODBC 18 hardcoded; no Driver 17 fallback |
 | 4 | Phase 3B Live Test | ⚠️ Partial | DataProfiler/SchemaBuilder/GaussianCopula/FidelityReport all pass; LakehouseProfiler not live-testable (deltalake not in venv; az CLI tenant mismatch; see Area 4) |
-| 5 | Capital Markets Domain (F-012) | — | |
+| 5 | Capital Markets Domain (F-012) | ⚠️ Partial | 18/18 tests pass; CLI generates 10 tables, 126K rows; sector table is all-NaN (broken reference_data dataset); exchange table has scrambled codes; no surrogate-key FKs (ticker-based) |
 | 6 | Incremental Engine (F-007) | — | |
 | 7 | SCD2 Strategy + Data Masker (F-009, F-011) | — | |
 | 8 | Package Hygiene (F-014) | — | |
@@ -323,16 +323,100 @@ Total: 66 passed, 0 failed (Phase 3B scope)
 
 ## Area 5 — Capital Markets Domain
 
-**Status:** —
+**Status:** ⚠️ Partial
 
 ### Test results
-_fill in_
+
+**18 passed, 0 failed** (1.50s) — `tests/test_capital_markets.py`
+
+All 18 tests green across 4 suites:
+
+- `TestCapitalMarketsStructure` (8 tests): expected tables present, correct company/exchange/sector/industry counts, daily_price and trade have rows, generation order respects FK dependencies.
+- `TestCapitalMarketsIntegrity` (5 tests): FK integrity passes, ticker uniqueness, daily_price company FK valid, trade has price columns, dividend and earnings have rows.
+- `TestCapitalMarketsDistributions` (3 tests): OHLC all positive, high >= low, volume non-negative.
+- `TestCapitalMarketsReproducibility` (1 test): same seed produces identical output.
+
+### Domain registry + CLI registration
+
+Registered. `spindle list` output:
+
+```
+  capital_markets  Capital Markets domain with companies, daily prices, dividends, earnings, insider trades, and tick-level trades
+```
+
+Domain is auto-discovered via `pkgutil.iter_modules` scanning `domains/`. Class name is `CapitalMarketsDomain` (not `CapitalMarketsGenerator`).
 
 ### CLI smoke test
-_fill in_
+
+**`spindle generate capital_markets --scale small --format csv --output /tmp/capital_smoke` — PASS**
+
+```
+Schema: capital_markets_3nf
+Mode:   3nf
+Seed:   42
+Time:   0.1s
+
+Table                             Rows  Columns
+---------------------------------------------
+company                            100       10
+daily_price                     25,200        9
+dividend                           150        6
+earnings                           400        7
+exchange                             3        7
+insider_transaction                200        8
+sector                              11        3
+industry                            61        3
+split                                5        5
+trade                          100,000        6
+---------------------------------------------
+TOTAL                          126,130
+
+Referential integrity: PASS (all FKs resolve)
+Written 10 CSV files to /tmp/capital_smoke/
+```
+
+Note: `--format csv` is required; without it the CLI prints a summary only and writes no files (default format is `summary`).
+
+### FK integrity at small scale
+
+Verified against generated CSVs. The domain uses `ticker` as the natural business key (not a surrogate `company_id`). All child tables (`daily_price`, `trade`, `dividend`, `earnings`, `insider_transaction`, `split`) join to `company` via `ticker`.
+
+| FK relationship | Result |
+|---|---|
+| `daily_price.ticker` → `company.ticker` | PASS |
+| `trade.ticker` → `company.ticker` | PASS |
+| `dividend.ticker` → `company.ticker` | PASS |
+| `earnings.ticker` → `company.ticker` | PASS |
+| `insider_transaction.ticker` → `company.ticker` | PASS |
+| `split.ticker` → `company.ticker` | PASS |
+| `company.exchange_code` → `exchange.exchange_code` | FAIL — mismatch (see Findings #1) |
+| `company.sector_name` → `sector.sector_name` | FAIL — sector table all-NaN (see Findings #2) |
+| `industry.sector_id` → `sector.sector_id` | Structural PASS (sequence IDs match), but sector rows are empty |
+
+### Feature completeness
+
+| Feature | Present |
+|---|---|
+| Real S&P 500 tickers (SEC EDGAR) | Yes — `record_sample` from `sp500_constituents` dataset |
+| CIK numbers (SEC Form 4 style) | Yes — `cik` column on `company` |
+| Geometric Brownian Motion pricing | Yes — OHLCV in `daily_price`, docstring confirms GBM |
+| OHLCV columns | Yes — `open`, `high`, `low`, `close`, `adj_close`, `volume` |
+| OHLC validity (high >= low, all positive) | Yes — verified in tests and live data |
+| Dividends | Yes — 150 rows at small scale |
+| Earnings (quarterly EPS) | Yes — 400 rows at small scale |
+| Insider transactions (SEC Form 4) | Yes — 200 rows at small scale |
+| Stock splits | Yes — 5 rows at small scale |
+| Tick-level trades | Yes — 100,000 rows at small scale |
+| Reproducibility (seed) | Yes — test confirms same seed → same output |
 
 ### Findings
-_fill in_
+
+| # | Finding | Severity | Notes |
+|---|---|---|---|
+| 1 | `exchange` table data is scrambled: `exchange_code` column contains full exchange names (e.g. "NASDAQ Stock Market"), while `company.exchange_code` stores short codes ("NASDAQ", "NYSE"). The FK declared in the schema cannot resolve. | Medium | `reference_data` strategy pulls wrong `field` for `exchange_code` — likely `name` being repeated instead of `code`. Tests pass because the engine's internal FK check resolves via a different path than the CSV column values. |
+| 2 | `sector` table is entirely NaN: all 11 rows have `sector_name = NaN` and `sector_code = NaN`. The `reference_data` strategy points to dataset `gics_sectors` / field `sector_name` — that dataset either does not exist or returns empty. Tests pass because the FK check counts rows, not values. | High | This is a data quality gap; `spindle list` says "GICS sectors (11)" but the generated data is blank. Any downstream join on `sector_name` from `company` → `sector` yields no matches. |
+| 3 | No surrogate-key FK wiring between `company` and `exchange`/`sector`: `company` uses denormalized `exchange_code` and `sector_name` string fields copied from the S&P 500 dataset — not foreign keys to the `exchange` or `sector` tables. The 3NF claim is partially accurate (child tables properly FK to company via ticker) but the company↔exchange and company↔sector relationships are denormalized. | Low | Design choice or oversight; document as schema limitation. |
+| 4 | `spindle generate capital_markets --output <dir>` with no `--format` flag writes no files (default is `summary`). This is consistent with other domains but not obvious from help text. | Low | Cosmetic UX gap; not a bug. |
 
 ---
 
