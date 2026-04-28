@@ -122,4 +122,5 @@ sqllocks_spindle = [
 testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow-running integration tests",
+    "live: marks tests as live integration tests requiring a real Fabric connection (skipped by default)",
 ]
