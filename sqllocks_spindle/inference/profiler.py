@@ -42,9 +42,20 @@ _DATE_RE = re.compile(
     r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$"
 )
 _SSN_RE = re.compile(r"^\d{3}-\d{2}-\d{4}$")
-_IP_V4_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
-_IP_V6_RE = re.compile(r"^[0-9a-fA-F]{1,4}(:[0-9a-fA-F]{0,4}){2,7}$")
-_MAC_RE = re.compile(r"^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$")
+_IP_V4_OCTET = r"(?:25[0-5]|2[0-4]\d|[01]?\d\d?)"
+_IP_V4_RE = re.compile(rf"^{_IP_V4_OCTET}\.{_IP_V4_OCTET}\.{_IP_V4_OCTET}\.{_IP_V4_OCTET}$")
+_IP_V6_RE = re.compile(
+    r"^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$"           # full 8-group
+    r"|^(?:[0-9a-fA-F]{1,4}:){1,7}:$"                         # trailing ::
+    r"|^:(?::[0-9a-fA-F]{1,4}){1,7}$"                         # leading ::
+    r"|^(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$"        # internal ::
+    r"|^::(?:[fF]{4}:){0,1}\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"  # IPv4-mapped
+    r"|^::$"                                                    # all zeros
+)
+_MAC_RE = re.compile(
+    r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$"    # colon-separated
+    r"|^([0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2}$"   # dash-separated
+)
 _CURRENCY_CODE_RE = re.compile(r"^[A-Z]{3}$")
 _LANGUAGE_CODE_RE = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
 _IBAN_RE = re.compile(r"^[A-Z]{2}\d{2}[A-Z0-9]{1,30}$")
