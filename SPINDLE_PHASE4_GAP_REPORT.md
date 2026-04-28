@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 1 | SQL/DDL Pipeline (F-001, F-002) | ⚠️ Partial | `generate <schema.json>` path not accepted; warehouse dialect gap (see Area 1) |
 | 2 | Fabric SQL Database Writer (F-003) | ⚠️ Partial | All 6 auth modes + 4 write modes implemented; `publish --target warehouse` not wired (CLI only: lakehouse/sql-database/eventhouse); `WarehouseBulkWriter` is engine-internal only |
-| 3 | SQL Server On-Prem Auth | — | |
+| 3 | SQL Server On-Prem Auth | ⚠️ Partial | `sql` auth works for on-prem (caller owns UID/PWD in connection string); Entra ID modes functional against Azure SQL / on-prem with Entra enabled; ADO.NET normalizer strips UID/PWD; ODBC 18 hardcoded; no Driver 17 fallback |
 | 4 | Phase 3B Live Test | — | |
 | 5 | Capital Markets Domain (F-012) | — | |
 | 6 | Incremental Engine (F-007) | — | |
@@ -150,10 +150,63 @@ However, `publish --target warehouse` is not exposed, so users cannot trigger a 
 
 ## Area 3 — SQL Server On-Prem Auth
 
-**Status:** —
+**Status:** ⚠️ Partial
+
+### Auth mode analysis
+
+#### `sql` auth (username/password)
+
+`_get_connection` (`sql_database_writer.py:402`) passes `self._connection_string` directly to `pyodbc.connect()` with no token injection — correct behavior for SQL authentication. The caller is responsible for embedding `UID=<user>;PWD=<password>` in the ODBC connection string. There is no username/password parameter on `FabricSqlDatabaseWriter.__init__`, so credentials must be pre-baked into the connection string.
+
+**Gap:** `_normalize_connection_string` (`sql_database_writer.py:348`) converts ADO.NET format (`Data Source=...;Initial Catalog=...`) to ODBC format but **does not carry over `User ID` or `Password` ADO.NET keys**. A caller who passes an ADO.NET connection string with embedded credentials to `sql` auth mode will silently lose UID/PWD after normalization, resulting in an auth failure at connection time. ODBC-format strings (already containing `Driver=`) bypass the normalizer and work correctly.
+
+#### Entra ID modes (`cli`, `msi`, `spn`, `device-code`)
+
+All four Entra modes call `_get_access_token()` and inject the token via `SQL_COPT_SS_ACCESS_TOKEN` (pyodbc attribute 1256). The resource URI is hardcoded to `https://database.windows.net/.default` (`sql_database_writer.py:442`), which is correct for both Azure SQL Database (`*.database.windows.net`) and on-prem SQL Server with Entra authentication enabled (via the ODBC driver's `Authentication=ActiveDirectoryAccessToken` path).
+
+**Functional against on-prem with Entra:** Yes — if the on-prem SQL Server is AAD-joined or has Entra ID authentication configured, `SQL_COPT_SS_ACCESS_TOKEN` injection is the supported method and works through ODBC Driver 17/18.
+
+#### `fabric` auth
+
+Forces `mssparkutils` and raises `RuntimeError` if not in a Fabric Notebook. Not applicable to on-prem use cases by design.
+
+### Connection string format support
+
+| Format | Handled | Notes |
+|---|---|---|
+| ODBC (`Driver={...};Server=<host>,1433;Database=<db>;UID=<u>;PWD=<p>`) | ✅ | Pass-through, no normalization |
+| ADO.NET → ODBC conversion | ⚠️ | Converts `Data Source` / `Initial Catalog` but silently drops `User ID` / `Password` |
+| `Server=<host>,1433` port syntax (ODBC) | ✅ | pyodbc supports `<host>,<port>` natively; no code blocks it |
+| `TrustServerCertificate=yes` for self-signed certs (on-prem) | ✅ | Passed through normalizer if present in ADO.NET source |
+
+### ODBC driver detection
+
+`_normalize_connection_string` hardcodes `Driver={ODBC Driver 18 for SQL Server}` (`sql_database_writer.py:363`). There is no runtime detection, fallback to Driver 17, or user-configurable driver override. If only ODBC Driver 17 is installed, callers must pass a fully-formed ODBC connection string (so the normalizer is bypassed) — the auto-normalizer will always generate a Driver 18 string.
+
+### Domain/endpoint distinction
+
+`_is_warehouse` flag (`sql_database_writer.py:104`) checks for `.datawarehouse.fabric.microsoft.com` to activate bulk-write path. No code distinguishes Fabric SQL endpoints from Azure SQL or on-prem SQL Server — auth and DDL paths are identical across all three. This is correct by design: the ODBC driver handles endpoint differences transparently.
+
+### Test coverage
+
+Zero tests for on-prem-specific scenarios:
+- No test for `sql` auth mode with UID/PWD embedded in connection string
+- No test for ADO.NET normalization with `User ID` / `Password` keys (the strip-UID/PWD bug is untested)
+- No test for Entra ID mode against a non-Fabric endpoint
+- No test for `Server=<host>,1433` port syntax
+
+The single normalize test (`test_stores_connection_string`) only validates that a pre-formed ODBC string passes through unchanged.
 
 ### Findings
-_fill in_
+
+| # | Finding | Severity | Gap ref |
+|---|---------|----------|---------|
+| 1 | ADO.NET normalizer silently drops `User ID` / `Password` — `sql` auth via ADO.NET format loses credentials | High | F-003 |
+| 2 | ODBC Driver 18 hardcoded in normalizer — no fallback to Driver 17, no user-configurable override | Medium | F-003 |
+| 3 | No `UID`/`PWD` constructor params — on-prem `sql` auth requires caller to embed credentials in connection string (no safe wrapper) | Low | F-003 |
+| 4 | Zero test coverage for on-prem SQL auth patterns (UID/PWD, port syntax, `sql` mode end-to-end) | Low | F-003 |
+
+---
 
 ---
 
