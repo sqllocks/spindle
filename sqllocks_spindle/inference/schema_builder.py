@@ -74,9 +74,6 @@ class SchemaBuilder:
         include_anomaly_registry: bool = False,
     ) -> "SpindleSchema | tuple[SpindleSchema, Any]":
         """Build a complete SpindleSchema from a dataset profile."""
-        self._fit_threshold = fit_threshold
-        self._correlation_threshold = correlation_threshold
-
         # Build parent PK lookup for FK references
         parent_pk_map: dict[str, str] = {}
         for tname, tprofile in profile.tables.items():
@@ -87,7 +84,7 @@ class SchemaBuilder:
         for tname, tprofile in profile.tables.items():
             columns: dict[str, ColumnDef] = {}
             for cname, cprofile in tprofile.columns.items():
-                gen = self._column_to_generator(cprofile, parent_pk_map)
+                gen = self._column_to_generator(cprofile, parent_pk_map, fit_threshold=fit_threshold)
                 spindle_type = _spindle_to_column_type(cprofile.dtype)
 
                 columns[cname] = ColumnDef(
@@ -190,7 +187,7 @@ class SchemaBuilder:
     # Generator mapping
     # -----------------------------------------------------------------
 
-    def _column_to_generator(self, col: ColumnProfile, parent_pk_map: dict[str, str] | None = None) -> dict:
+    def _column_to_generator(self, col: ColumnProfile, parent_pk_map: dict[str, str] | None = None, fit_threshold: float = 0.80) -> dict:
         """Map a ColumnProfile to a Spindle generator dict."""
 
         # 1. Primary key — sequence or uuid
@@ -266,10 +263,10 @@ class SchemaBuilder:
 
         # 11. Numeric with distribution fit
         if col.dtype in ("integer", "float"):
-            fit_threshold = getattr(self, "_fit_threshold", 0.80)
             if col.fit_score is not None and col.fit_score < fit_threshold:
                 if col.quantiles:
                     return {"strategy": "empirical", "quantiles": col.quantiles}
+                # No quantiles available despite low fit — fall through to distribution
 
             if col.distribution and col.distribution_params:
                 return {
