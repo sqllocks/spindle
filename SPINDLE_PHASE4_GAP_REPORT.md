@@ -615,10 +615,41 @@ No other top-level imports of `pyodbc`, `azure`, `kusto`, `deltalake`, `openpyxl
 ## Phase 5 Candidate Scope
 
 ### Must-fix before PyPI publish
-_fill in_
+
+These gaps make a feature incorrect or unavailable at the CLI level. Shipping v3.0 without fixing them means documented features are broken.
+
+| Priority | Area | Finding | Fix |
+|---|---|---|---|
+| P0 | Area 5 | `sector` table all-NaN — `gics_sectors` reference_data dataset returns empty | Fix reference_data dataset loader or inline sector data in capital_markets.py |
+| P0 | Area 5 | `exchange` table `exchange_code` column is full name not short code — FK join to `company.exchange_code` fails | Fix field mapping in exchange reference_data strategy |
+| P1 | Area 2 | `publish --target warehouse` not wired — `WarehouseBulkWriter` is implemented but CLI doesn't expose it | Add `warehouse` to `publish --target` choices + handler branch in `cli.py:1337` (mirrors sql-database handler at line 1528) |
+| P1 | Area 3 | ADO.NET normalizer silently strips `User ID`/`Password` — on-prem `sql` auth fails when using ADO.NET format | Carry `User ID`→`UID` and `Password`→`PWD` through `_normalize_connection_string` |
 
 ### Should-fix in Phase 5
-_fill in_
+
+Gaps that affect usability or correctness for non-happy-path users, but do not block shipping the current feature set.
+
+| Priority | Area | Finding | Fix |
+|---|---|---|---|
+| P2 | Area 1 | `spindle generate <schema.json>` gives "Unknown domain" error — F-002 round-trip is not directly invocable | Accept `.spindle.json` path as positional arg in `generate`, or document `spindle generate custom --schema <file>` clearly in `--help` |
+| P2 | Area 4 | LakehouseProfiler live test blocked (deltalake not in venv, az tenant mismatch) — Phase 3B never live-validated | Install `[fabric-inference]` in CI; create a dedicated integration test job; re-run live test against Fabric_Lakehouse_Demo with correct tenant |
+| P2 | Area 7 | SCD2 `strategy: scd2` at column top-level silently no-ops — user gets no columns and no error | Add schema parser validation: if `strategy: scd2` is found outside `generator:`, emit a `ValueError` or warning |
+| P3 | Area 3 | ODBC Driver 18 hardcoded — users on Driver 17-only systems must hand-craft ODBC strings | Add `odbc_driver` parameter to `FabricSqlDatabaseWriter.__init__`; default to 18 but allow override |
+| P3 | Area 6 | `ArrowStringArray` shuffle warning fires 9× per `continue` run | Cast to Python list before shuffle in `continue_engine.py:458` |
+| P3 | Area 7 | `DataMasker.mask()` gives opaque `AttributeError` on bare DataFrame input | Add type check at entry: `if isinstance(tables, pd.DataFrame): raise TypeError(...)` |
+| P3 | Area 8 | `pip show sqllocks-spindle` reports `2.6.0` (stale `.egg-info`) while `__version__` is `2.9.0` | Run `pip install -e .` or `python -m build` to regenerate `.egg-info` in CI |
 
 ### Defer
-_fill in_
+
+Not blocking; low user impact or by-design behavior.
+
+| Area | Finding | Rationale for deferring |
+|---|---|---|
+| Area 1 | `tsql-fabric-warehouse` dialect missing `DISTRIBUTION`/`CLUSTERED COLUMNSTORE INDEX` | Complex — requires understanding of Fabric Warehouse DDL ergonomics; low demand for production-ready Warehouse DDL from Spindle |
+| Area 1 | `--sql-dialect` hidden from `spindle generate --help` | Documentation-only fix; defer to docs phase |
+| Area 2 | `publish --target sql-database` hardcodes `create_insert` — no append/truncate mode | Low demand; workaround is to use `generate --format sql-database --write-mode` |
+| Area 2 | `fabric` auth not in `publish --auth` choices | By design — `fabric` is Notebook-only; add to docs |
+| Area 3 | No `UID`/`PWD` constructor params on `FabricSqlDatabaseWriter` | Low priority; callers can embed in ODBC string directly |
+| Area 3 | Zero on-prem SQL auth test coverage | Add in Phase 5 alongside the ADO.NET normalizer fix |
+| Area 7 | 59 scipy `RuntimeWarning` during masker fitting | Cosmetic; suppress with `np.errstate(over='ignore', invalid='ignore')` if CI noise becomes an issue |
+| Area 8 | `masker.py` direct-module import without faker fails | Partially fixed (try/except guard added); full fix is moving Faker to lazy import inside methods — low priority |
