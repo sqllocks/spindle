@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -180,6 +181,13 @@ class SchemaParser:
         for table_name, table_raw in raw.items():
             columns = {}
             for col_name, col_raw in table_raw.get("columns", {}).items():
+                if col_raw.get("strategy") == "scd2" and "generator" not in col_raw:
+                    warnings.warn(
+                        f"Column '{col_name}': 'strategy: scd2' at the column level is ignored. "
+                        "Use 'generator: {strategy: scd2, role: ..., business_key: ...}' instead.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                 columns[col_name] = ColumnDef(
                     name=col_name,
                     type=col_raw.get("type", "string"),

@@ -98,6 +98,49 @@ class TestFabricSqlDatabaseWriterInsert:
         assert "col_c" in sql
 
 
+class TestNormalizeConnectionString:
+    def test_normalize_ado_net_preserves_credentials(self):
+        w = FabricSqlDatabaseWriter.__new__(FabricSqlDatabaseWriter)
+        w._odbc_driver = "ODBC Driver 18 for SQL Server"
+        conn = "Data Source=myserver,1433;Initial Catalog=mydb;User ID=myuser;Password=mypass"
+        result = w._normalize_connection_string(conn)
+        assert "UID=myuser" in result
+        assert "PWD=mypass" in result
+
+    def test_normalize_ado_net_preserves_user_alternate_key(self):
+        w = FabricSqlDatabaseWriter.__new__(FabricSqlDatabaseWriter)
+        w._odbc_driver = "ODBC Driver 18 for SQL Server"
+        conn = "Data Source=myserver;Initial Catalog=mydb;User=altuser;Password=altpass"
+        result = w._normalize_connection_string(conn)
+        assert "UID=altuser" in result
+        assert "PWD=altpass" in result
+
+    def test_normalize_uses_custom_odbc_driver(self):
+        w = FabricSqlDatabaseWriter.__new__(FabricSqlDatabaseWriter)
+        w._odbc_driver = "ODBC Driver 17 for SQL Server"
+        conn = "Data Source=srv;Initial Catalog=db"
+        result = w._normalize_connection_string(conn)
+        assert "ODBC Driver 17 for SQL Server" in result
+
+    def test_normalize_default_odbc_driver_is_18(self):
+        w = FabricSqlDatabaseWriter(connection_string="Data Source=srv;Initial Catalog=db")
+        assert "ODBC Driver 18 for SQL Server" in w._connection_string
+
+    def test_normalize_custom_driver_via_constructor(self):
+        w = FabricSqlDatabaseWriter(
+            connection_string="Data Source=srv;Initial Catalog=db",
+            odbc_driver="ODBC Driver 17 for SQL Server",
+        )
+        assert "ODBC Driver 17 for SQL Server" in w._connection_string
+
+    def test_odbc_string_passes_through_unchanged(self):
+        odbc_cs = "Driver={ODBC Driver 18 for SQL Server};Server=srv;Database=db;"
+        w = FabricSqlDatabaseWriter.__new__(FabricSqlDatabaseWriter)
+        w._odbc_driver = "ODBC Driver 18 for SQL Server"
+        result = w._normalize_connection_string(odbc_cs)
+        assert result == odbc_cs
+
+
 class TestFabricSqlDatabaseWriterWrite:
     @patch.object(FabricSqlDatabaseWriter, "_get_connection")
     def test_write_calls_execute(self, mock_get_conn, sample_tables):

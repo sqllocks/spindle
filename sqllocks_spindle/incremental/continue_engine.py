@@ -453,8 +453,11 @@ class ContinueEngine:
                 df[col] = vals
 
             else:
-                # Shuffle the selected positions among themselves
-                subset = df[col].values[idx].copy()
+                # Shuffle the selected positions among themselves.
+                # Cast to a plain list before shuffling to avoid
+                # "shuffling a 'ArrowStringArray' is not a Sequence" UserWarning.
+                raw_subset = df[col].values[idx].copy()
+                subset = list(raw_subset)
                 rng.shuffle(subset)
                 vals = df[col].values.copy()
                 vals[idx] = subset

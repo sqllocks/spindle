@@ -111,6 +111,12 @@ class TestDataMasker:
         m2 = DataMasker().mask({"t": df}, MaskConfig(seed=42))
         assert m1.tables["t"]["email"].tolist() == m2.tables["t"]["email"].tolist()
 
+    def test_mask_bare_dataframe_raises_type_error(self):
+        m = DataMasker()
+        df = pd.DataFrame({"name": ["Alice"], "email": ["a@b.com"]})
+        with pytest.raises(TypeError, match=r"dict\[str, DataFrame\]"):
+            m.mask(df)
+
     def test_multi_table(self):
         t1 = pd.DataFrame({"id": range(5), "name": ["Alice"] * 5})
         t2 = pd.DataFrame({"id": range(5), "email": ["a@b.com"] * 5})

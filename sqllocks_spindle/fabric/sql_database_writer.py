@@ -95,7 +95,9 @@ class FabricSqlDatabaseWriter:
         client_secret: str | None = None,
         tenant_id: str | None = None,
         staging_lakehouse_path: str | None = None,
+        odbc_driver: str = "ODBC Driver 18 for SQL Server",
     ):
+        self._odbc_driver = odbc_driver
         self._connection_string = self._normalize_connection_string(connection_string)
         self._auth_method = auth_method
         self._client_id = client_id
@@ -344,8 +346,7 @@ class FabricSqlDatabaseWriter:
 
     # ----- internal: connection -----
 
-    @staticmethod
-    def _normalize_connection_string(cs: str) -> str:
+    def _normalize_connection_string(self, cs: str) -> str:
         """Convert ADO.NET connection string format to pyodbc ODBC format if needed.
 
         Fabric portal exports ADO.NET format (``Data Source=...;Initial Catalog=...``).
@@ -360,12 +361,21 @@ class FabricSqlDatabaseWriter:
                 k, _, v = segment.partition("=")
                 parts[k.strip()] = v.strip()
 
-        odbc: list[str] = ["Driver={ODBC Driver 18 for SQL Server}"]
+        driver = getattr(self, "_odbc_driver", "ODBC Driver 18 for SQL Server")
+        odbc: list[str] = [f"Driver={{{driver}}}"]
 
         if "Data Source" in parts:
             odbc.append(f"Server={parts['Data Source']}")
         if "Initial Catalog" in parts:
             odbc.append(f"Database={parts['Initial Catalog']}")
+
+        # Credentials (SQL auth)
+        if "User ID" in parts:
+            odbc.append(f"UID={parts['User ID']}")
+        if "User" in parts and "User ID" not in parts:
+            odbc.append(f"UID={parts['User']}")
+        if "Password" in parts:
+            odbc.append(f"PWD={parts['Password']}")
 
         encrypt = parts.get("Encrypt", "").lower()
         if encrypt in ("true", "yes", "1"):

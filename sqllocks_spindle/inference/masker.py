@@ -116,6 +116,11 @@ class DataMasker:
         -------
         MaskResult with masked DataFrames and statistics.
         """
+        if isinstance(tables, pd.DataFrame):
+            raise TypeError(
+                "DataMasker.mask() requires a dict[str, DataFrame], not a bare DataFrame. "
+                "Pass {'table_name': df} instead."
+            )
         config = config or MaskConfig()
         fake = Faker(config.locale)
         Faker.seed(config.seed)
