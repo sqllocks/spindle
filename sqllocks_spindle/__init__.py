@@ -2,7 +2,7 @@
 
 import importlib as _importlib
 
-__version__ = "2.7.8"
+__version__ = "2.9.0"
 
 from sqllocks_spindle.engine.generator import Spindle
 from sqllocks_spindle.engine.chunked_generator import ChunkedSpindle, ChunkedGenerationResult
@@ -72,7 +72,7 @@ from sqllocks_spindle.incremental import TimeTravelEngine, TimeTravelConfig, Tim
 
 # Inference (optional — requires [inference] extra)
 try:
-    from sqllocks_spindle.inference import DataMasker, DataProfiler, ExportedProfile, MaskConfig, ProfileIO, SchemaBuilder
+    from sqllocks_spindle.inference import DataMasker, DataProfiler, ExportedProfile, LakehouseProfiler, MaskConfig, ProfileIO, SchemaBuilder
 except ImportError:
     pass
 
@@ -137,6 +137,7 @@ __all__ = [
     "DataMasker",
     "DataProfiler",
     "ExportedProfile",
+    "LakehouseProfiler",
     "MaskConfig",
     "ProfileIO",
     "SchemaBuilder",

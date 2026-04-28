@@ -516,3 +516,13 @@ class TestSchemaBuilderV2:
         from sqllocks_spindle.schema.parser import SpindleSchema
         assert isinstance(schema, SpindleSchema)
         assert registry is not None
+
+
+class TestPackagingV29:
+    def test_version_is_290(self):
+        import sqllocks_spindle
+        assert sqllocks_spindle.__version__ == "2.9.0"
+
+    def test_lakehouse_profiler_importable_from_top(self):
+        from sqllocks_spindle.inference import LakehouseProfiler
+        assert LakehouseProfiler is not None

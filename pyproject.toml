@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sqllocks-spindle"
-version = "2.7.8"
+version = "2.9.0"
 description = "Multi-domain, schema-aware synthetic data generator for Microsoft Fabric"
 readme = "README.md"
 license = { text = "MIT" }
@@ -62,6 +62,11 @@ streaming = [
 ]
 inference = [
     "scipy>=1.11",
+]
+fabric-inference = [
+    "scipy>=1.11",
+    "deltalake>=0.17.0",
+    "pyarrow>=14.0",
 ]
 fabric-sql = [
     "pyodbc>=5.0",
