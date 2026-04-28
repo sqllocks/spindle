@@ -13,7 +13,7 @@
 | 3 | SQL Server On-Prem Auth | ⚠️ Partial | `sql` auth works for on-prem (caller owns UID/PWD in connection string); Entra ID modes functional against Azure SQL / on-prem with Entra enabled; ADO.NET normalizer strips UID/PWD; ODBC 18 hardcoded; no Driver 17 fallback |
 | 4 | Phase 3B Live Test | ⚠️ Partial | DataProfiler/SchemaBuilder/GaussianCopula/FidelityReport all pass; LakehouseProfiler not live-testable (deltalake not in venv; az CLI tenant mismatch; see Area 4) |
 | 5 | Capital Markets Domain (F-012) | ⚠️ Partial | 18/18 tests pass; CLI generates 10 tables, 126K rows; sector table is all-NaN (broken reference_data dataset); exchange table has scrambled codes; no surrogate-key FKs (ticker-based) |
-| 6 | Incremental Engine (F-007) | — | |
+| 6 | Incremental Engine (F-007) | ✅ Ship-ready | 24/24 tests pass; all three delta ops tagged; IDs continue from max+1; FK integrity holds across Day 1→Day 2; note: `--scale` flag absent from `continue` CLI (use `--inserts`) |
 | 7 | SCD2 Strategy + Data Masker (F-009, F-011) | — | |
 | 8 | Package Hygiene (F-014) | — | |
 
@@ -422,16 +422,53 @@ Verified against generated CSVs. The domain uses `ticker` as the natural busines
 
 ## Area 6 — Incremental Engine
 
-**Status:** —
+**Status:** ✅ Ship-ready
 
 ### Test results
-_fill in_
+
+**24 passed, 0 failed** (3.04s) — `tests/test_incremental.py` (12 tests) + `tests/test_e2e_incremental.py` (12 tests).
+
+All unit and E2E tests pass, covering: delta INSERT/UPDATE/DELETE generation, PK continuation, FK integrity in delta inserts, seed reproducibility, time-travel snapshots (monthly, growth, churn, seasonality, partitioned DataFrames).
+
+One non-blocking warning emitted at runtime (line 458 of `continue_engine.py`):
+> `UserWarning: you are shuffling a 'ArrowStringArray' object which is not a subclass of 'Sequence'; shuffle is not guaranteed to behave correctly.`
+
+This warning fires once per table (9× per run) and is cosmetic — shuffle still produces valid deltas — but should be addressed before PyPI publish.
 
 ### CLI smoke test
-_fill in_
+
+**Command used:** `spindle continue retail --input /tmp/spindle_day1/ -o /tmp/spindle_day2/ --inserts 100`
+
+Result: PASS — generated 9 delta CSV files, all tables covered, summary table printed correctly.
+
+Note: The task brief specified `--from` and `--scale` flags; neither exists. The correct flags are `--input` and `--inserts`. This is a documentation/discoverability gap, not a functional defect.
+
+### Delta tag and ID continuation
+
+All 9 delta files carry `_delta_type` and `_delta_timestamp` columns (verified via column inspection).
+
+INSERT/UPDATE/DELETE counts per table (sample):
+- `customer`: INSERT 100 / UPDATE 100 / DELETE 20
+- `order`: INSERT 100 / UPDATE 500 / DELETE 100
+- `order_line`: INSERT 100 / UPDATE 1250 / DELETE 250
+
+**ID continuation** (INSERT rows only, verified against Day 1 maxima):
+| Table | Day 1 max PK | Day 2 INSERT min PK | Continues correctly |
+|---|---|---|---|
+| customer | 1000 | 1001 | Yes |
+| product | 500 | 501 | Yes |
+| order | 5000 | 5001 | Yes |
+
+### FK consistency
+
+Day 2 INSERT orders referencing `customer_id`: **0 orphan FKs** — all new order rows reference a customer ID present in either Day 1 or Day 2 INSERT customers.
 
 ### Findings
-_fill in_
+
+| # | Severity | Finding |
+|---|---|---|
+| 6-1 | Low | ArrowStringArray shuffle warning fires once per table per run (line 458 of `continue_engine.py`); cosmetic but noisy in CI logs |
+| 6-2 | Low | `spindle continue` lacks a `--scale` shorthand; users coming from `spindle generate` will expect it; `--inserts` is not equivalent but serves as workaround |
 
 ---
 
