@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -169,7 +170,7 @@ class DataProfiler:
     @classmethod
     def from_csv(
         cls,
-        path: str,
+        path: str | Path,
         table_name: str | None = None,
         sample_rows: int | None = None,
         **kwargs,
@@ -182,12 +183,9 @@ class DataProfiler:
             sample_rows: If set, sample this many rows before profiling.
             **kwargs: Passed to DataProfiler constructor (fit_threshold, top_n_values, etc.).
         """
-        from pathlib import Path as _Path
-        import pandas as _pd
-
-        p = _Path(path)
+        p = Path(path)
         name = table_name or p.stem
-        df = _pd.read_csv(path)
+        df = pd.read_csv(path)
         profiler = cls(sample_rows=sample_rows, **kwargs)
         return profiler.profile(df, table_name=name)
 
