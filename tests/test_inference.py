@@ -375,3 +375,144 @@ class TestExtendedPatternDetection:
     def test_detects_language_code(self):
         langs = ["en", "fr", "de", "es", "it"] * 20
         assert self._profiler_detect(langs) == "language_code"
+
+
+class TestSchemaBuilderV2:
+    """Tests for Phase 3B SchemaBuilder enhancements."""
+
+    def _make_profile_with_field(self, **col_kwargs) -> "DatasetProfile":
+        from sqllocks_spindle.inference.profiler import (
+            ColumnProfile, TableProfile, DatasetProfile
+        )
+        # Base required fields; callers may override any of them via col_kwargs
+        base = dict(
+            name="val", dtype="float",
+            null_count=0, null_rate=0.0,
+            cardinality=100, cardinality_ratio=1.0,
+            is_unique=False, is_enum=False, enum_values=None,
+            min_value=0.0, max_value=100.0, mean=50.0, std=10.0,
+            distribution=None, distribution_params=None, pattern=None,
+            is_primary_key=False, is_foreign_key=False, fk_ref_table=None,
+        )
+        base.update(col_kwargs)
+        col = ColumnProfile(**base)
+        table = TableProfile(name="t", row_count=100, columns={"val": col},
+                             primary_key=[], detected_fks={})
+        return DatasetProfile(tables={"t": table})
+
+    def test_empirical_strategy_selected_when_fit_score_low(self):
+        profile = self._make_profile_with_field(
+            distribution="normal",
+            distribution_params={"loc": 50.0, "scale": 10.0},
+            fit_score=0.60,  # below default 0.80 threshold
+            quantiles={"p1": 10.0, "p5": 20.0, "p10": 25.0, "p25": 35.0,
+                       "p50": 50.0, "p75": 65.0, "p90": 75.0, "p95": 80.0, "p99": 90.0},
+        )
+        builder = SchemaBuilder()
+        schema = builder.build(profile, fit_threshold=0.80)
+        gen = schema.tables["t"].columns["val"].generator
+        assert gen["strategy"] == "empirical"
+        assert "quantiles" in gen
+
+    def test_parametric_strategy_when_fit_score_high(self):
+        profile = self._make_profile_with_field(
+            distribution="normal",
+            distribution_params={"loc": 50.0, "scale": 10.0},
+            fit_score=0.92,
+        )
+        builder = SchemaBuilder()
+        schema = builder.build(profile, fit_threshold=0.80)
+        gen = schema.tables["t"].columns["val"].generator
+        assert gen["strategy"] == "distribution"
+
+    def test_value_counts_ext_used_for_weighted_enum(self):
+        from sqllocks_spindle.inference.profiler import (
+            ColumnProfile, TableProfile, DatasetProfile
+        )
+        col = ColumnProfile(
+            name="cat", dtype="string",
+            null_count=0, null_rate=0.0,
+            cardinality=3, cardinality_ratio=0.03,
+            is_unique=False, is_enum=True,
+            enum_values={"A": 0.6, "B": 0.3, "C": 0.1},
+            min_value=None, max_value=None, mean=None, std=None,
+            distribution=None, distribution_params=None, pattern=None,
+            is_primary_key=False, is_foreign_key=False, fk_ref_table=None,
+            value_counts_ext={"A": 0.6, "B": 0.3, "C": 0.1},
+        )
+        table = TableProfile(name="t", row_count=100, columns={"cat": col},
+                             primary_key=[], detected_fks={})
+        profile = DatasetProfile(tables={"t": table})
+        schema = SchemaBuilder().build(profile)
+        gen = schema.tables["t"].columns["cat"].generator
+        assert gen["strategy"] == "weighted_enum"
+        assert abs(gen["values"]["A"] - 0.6) < 0.01
+
+    def test_correlated_columns_emitted_in_schema(self):
+        from sqllocks_spindle.inference.profiler import (
+            ColumnProfile, TableProfile, DatasetProfile
+        )
+        def _num_col(name):
+            return ColumnProfile(
+                name=name, dtype="float",
+                null_count=0, null_rate=0.0,
+                cardinality=100, cardinality_ratio=1.0,
+                is_unique=False, is_enum=False, enum_values=None,
+                min_value=0.0, max_value=100.0, mean=50.0, std=10.0,
+                distribution="normal", distribution_params={"loc": 50.0, "scale": 10.0},
+                pattern=None, is_primary_key=False, is_foreign_key=False, fk_ref_table=None,
+                fit_score=0.95,
+            )
+        table = TableProfile(
+            name="t", row_count=100,
+            columns={"a": _num_col("a"), "b": _num_col("b")},
+            primary_key=[], detected_fks={},
+            correlation_matrix={"a": {"b": 0.75}, "b": {"a": 0.75}},
+        )
+        profile = DatasetProfile(tables={"t": table})
+        schema = SchemaBuilder().build(profile, correlation_threshold=0.5)
+        # correlated_columns stored in model metadata or schema extra
+        assert hasattr(schema, "correlated_columns") or schema.model.extra.get("correlated_columns")
+
+    def test_include_anomaly_registry_false_returns_single_value(self):
+        from sqllocks_spindle.inference.profiler import (
+            ColumnProfile, TableProfile, DatasetProfile
+        )
+        col = ColumnProfile(
+            name="v", dtype="float",
+            null_count=0, null_rate=0.0, cardinality=100, cardinality_ratio=1.0,
+            is_unique=False, is_enum=False, enum_values=None,
+            min_value=0.0, max_value=10.0, mean=5.0, std=1.0,
+            distribution=None, distribution_params=None, pattern=None,
+            is_primary_key=False, is_foreign_key=False, fk_ref_table=None,
+        )
+        table = TableProfile(name="t", row_count=100, columns={"v": col},
+                             primary_key=[], detected_fks={})
+        profile = DatasetProfile(tables={"t": table})
+        result = SchemaBuilder().build(profile, include_anomaly_registry=False)
+        # Single return value (not tuple)
+        from sqllocks_spindle.schema.parser import SpindleSchema
+        assert isinstance(result, SpindleSchema)
+
+    def test_include_anomaly_registry_true_returns_tuple(self):
+        from sqllocks_spindle.inference.profiler import (
+            ColumnProfile, TableProfile, DatasetProfile
+        )
+        col = ColumnProfile(
+            name="v", dtype="float",
+            null_count=5, null_rate=0.05, cardinality=100, cardinality_ratio=1.0,
+            is_unique=False, is_enum=False, enum_values=None,
+            min_value=0.0, max_value=10.0, mean=5.0, std=1.0,
+            distribution=None, distribution_params=None, pattern=None,
+            is_primary_key=False, is_foreign_key=False, fk_ref_table=None,
+            outlier_rate=0.05,
+        )
+        table = TableProfile(name="t", row_count=100, columns={"v": col},
+                             primary_key=[], detected_fks={})
+        profile = DatasetProfile(tables={"t": table})
+        result = SchemaBuilder().build(profile, include_anomaly_registry=True)
+        assert isinstance(result, tuple)
+        schema, registry = result
+        from sqllocks_spindle.schema.parser import SpindleSchema
+        assert isinstance(schema, SpindleSchema)
+        assert registry is not None
