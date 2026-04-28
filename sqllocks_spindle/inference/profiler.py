@@ -249,7 +249,7 @@ class DataProfiler:
             if spindle_type == "string" and len(non_null) > 0:
                 string_length_val = self._compute_string_length(non_null)
 
-            if len(non_null) > 0 and cardinality <= self.top_n_values:
+            if len(non_null) > 0:
                 value_counts_ext = self._compute_value_counts_ext(non_null)
 
             if spindle_type in ("date", "datetime") and len(non_null) > 0:
@@ -260,7 +260,7 @@ class DataProfiler:
             if dist_name is not None and dist_params is not None and HAS_SCIPY:
                 numeric_for_fit = pd.to_numeric(non_null, errors="coerce").dropna()
                 if len(numeric_for_fit) >= 20:
-                    from scipy import stats as _sp
+                    _sp = sp_stats
                     dist_map = {
                         "normal": _sp.norm, "uniform": _sp.uniform,
                         "exponential": _sp.expon, "lognormal": _sp.lognorm,
