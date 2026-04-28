@@ -27,9 +27,7 @@ And it kept going.
 
 ---
 
-At some point the 40-line script had a config system, a plugin registry, and a changelog.
-
-That's when I stopped being surprised by what it turned into.
+At some point the 40-line script had a plugin registry, a config system, and a changelog.
 
 ---
 
