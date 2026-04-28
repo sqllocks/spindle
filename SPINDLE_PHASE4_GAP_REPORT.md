@@ -208,8 +208,6 @@ The single normalize test (`test_stores_connection_string`) only validates that 
 
 ---
 
----
-
 ## Area 4 — Phase 3B Live Test
 
 **Status:** ⚠️ Partial
@@ -606,7 +604,11 @@ No other top-level imports of `pyodbc`, `azure`, `kusto`, `deltalake`, `openpyxl
 
 ## Trivial Fixes Applied
 
-_List any fixes applied inline during the sprint with file + line reference._
+| Fix | File | Change |
+|---|---|---|
+| Wrap `from faker import Faker` in `try/except ImportError` | `inference/masker.py:15` | Changed unconditional top-level import to guarded import with actionable error message — `import sqllocks_spindle.inference` no longer hard-crashes when `faker` is absent |
+| Export `SCD2Strategy` from strategies package | `engine/strategies/__init__.py:25,36` | Added `from sqllocks_spindle.engine.strategies.scd2 import SCD2Strategy` and added `"SCD2Strategy"` to `__all__` |
+| Remove duplicate `---` separator | `SPINDLE_PHASE4_GAP_REPORT.md:209-211` | Cosmetic — extra separator between Area 3 and Area 4 sections removed |
 
 ---
 

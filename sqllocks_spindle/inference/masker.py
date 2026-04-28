@@ -12,7 +12,14 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from faker import Faker
+
+try:
+    from faker import Faker
+except ImportError as _faker_err:
+    raise ImportError(
+        "faker is required for data masking. "
+        "Install with: pip install sqllocks-spindle[faker]"
+    ) from _faker_err
 
 
 @dataclass

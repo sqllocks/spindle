@@ -22,6 +22,7 @@ from sqllocks_spindle.engine.strategies.first_per_parent import FirstPerParentSt
 from sqllocks_spindle.engine.strategies.record_sample import RecordSampleStrategy
 from sqllocks_spindle.engine.strategies.record_field import RecordFieldStrategy
 from sqllocks_spindle.engine.strategies.native import NativeStrategy
+from sqllocks_spindle.engine.strategies.scd2 import SCD2Strategy
 
 __all__ = [
     "Strategy", "StrategyRegistry",
@@ -33,4 +34,5 @@ __all__ = [
     "LifecycleStrategy", "SelfReferencingStrategy", "SelfRefFieldStrategy",
     "FirstPerParentStrategy",
     "RecordSampleStrategy", "RecordFieldStrategy",
+    "SCD2Strategy",
 ]

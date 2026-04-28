@@ -30,6 +30,7 @@ dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
     "click>=8.0",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ dev = [
     "deltalake>=0.17.0",
     "openpyxl>=3.1",
     "scipy>=1.11",
+    "azure-identity>=1.15",
 ]
 parquet = [
     "pyarrow>=14.0",
@@ -94,6 +96,7 @@ all = [
     "pyodbc>=5.0",
     "azure-identity>=1.15",
     "scipy>=1.11",
+    "requests>=2.31",
 ]
 
 [project.scripts]
