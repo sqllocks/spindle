@@ -24,6 +24,7 @@ from sqllocks_spindle.inference.profiler import (
 )
 from sqllocks_spindle.inference.profile_io import ExportedProfile, ProfileIO
 from sqllocks_spindle.inference.schema_builder import SchemaBuilder
+from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
 
 __all__ = [
     "ColumnFidelity",
@@ -34,6 +35,7 @@ __all__ = [
     "ExportedProfile",
     "FidelityComparator",
     "FidelityReport",
+    "LakehouseProfiler",
     "MaskConfig",
     "MaskResult",
     "ProfileIO",
