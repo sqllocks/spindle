@@ -72,3 +72,4 @@ Spindle_*.docx
 Spindle_*.zip
 SPINDLE_*.md
 scenario_packs_extracted/
+.worktrees/
