@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -46,6 +47,13 @@ class EmpiricalStrategy(Strategy):
         interpolation = config.get("interpolation", "linear")
 
         # Build (cdf_value, quantile_value) mapping
+        # Validate that all required percentile keys are present
+        missing = [k for k in _PERCENTILE_KEYS if k not in quantiles]
+        if missing:
+            raise ValueError(
+                f"empirical strategy for column '{column.name}' is missing quantile keys: {missing}"
+            )
+
         q_values = np.array([quantiles[k] for k in _PERCENTILE_KEYS], dtype=float)
         p_values = np.array(_PERCENTILE_VALUES, dtype=float)
 
@@ -57,6 +65,12 @@ class EmpiricalStrategy(Strategy):
                                    fill_value=(q_values[0], q_values[-1]))
             result = interp_fn(u).astype(float)
         else:
+            if interpolation == "cubic" and not HAS_SCIPY:
+                warnings.warn(
+                    f"scipy not available; falling back to linear interpolation for column '{column.name}'",
+                    ImportWarning,
+                    stacklevel=2,
+                )
             result = np.interp(u, p_values, q_values)
 
         return result

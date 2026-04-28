@@ -43,6 +43,7 @@ class TestEmpiricalStrategy:
         ctx = _make_ctx(n=1000)
         config = {"strategy": "empirical", "quantiles": NORMAL_QUANTILES}
         result = strategy.generate(col, config, ctx)
+        # np.interp clamps to boundary values; ±5 allows for floating-point noise at extremes
         assert float(result.min()) >= NORMAL_QUANTILES["p1"] - 5
         assert float(result.max()) <= NORMAL_QUANTILES["p99"] + 5
 
@@ -58,7 +59,7 @@ class TestEmpiricalStrategy:
         strategy = EmpiricalStrategy()
         col = _make_col()
         ctx = _make_ctx()
-        with pytest.raises((KeyError, ValueError)):
+        with pytest.raises(ValueError):
             strategy.generate(col, {}, ctx)
 
     def test_registered_in_spindle(self):
