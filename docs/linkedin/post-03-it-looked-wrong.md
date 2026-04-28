@@ -11,7 +11,7 @@ I had the structure correct. The foreign keys resolved. The cardinalities were p
 
 But the distributions were wrong. The correlations were wrong. The outlier rates were wrong.
 
-Real customer data has correlated columns. Higher income correlates with certain zip codes. Longer tenure correlates with more purchases. rand() doesn't know any of that. The marginal distributions looked fine in isolation. The joint distribution was immediately obvious as synthetic.
+Real customer data has correlated columns. Higher income correlates with certain zip codes. Longer tenure correlates with more purchases. rand() doesn't know any of that. The marginal distributions looked fine in isolation. The joint distribution gave it away immediately.
 
 ---
 
@@ -21,7 +21,7 @@ Profile your real data — it produces a statistical fingerprint. Distribution s
 
 Then generate synthetic data that matches that fingerprint, not just the schema.
 
-For numeric distributions, it tries parametric fits first — normal, lognormal, exponential, uniform, Poisson. If the KS test says the fit is poor, it falls back to quantile interpolation: empirical sampling that preserves the real shape without having to name it.
+For numeric distributions, it tries parametric fits first — normal, lognormal, exponential, uniform, Poisson. If the KS test says the fit is poor, it falls back to quantile interpolation: empirical sampling that preserves the real shape.
 
 For correlations: generate the columns independently, then reorder values to achieve the target Pearson correlations without changing any column's marginal distribution. The algorithm is Cholesky decomposition on the correlation matrix. Pure NumPy.
 
