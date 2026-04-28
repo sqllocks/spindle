@@ -21,6 +21,7 @@ from sqllocks_spindle.engine.strategies.conditional import ConditionalStrategy
 from sqllocks_spindle.engine.strategies.correlated import CorrelatedStrategy
 from sqllocks_spindle.engine.strategies.derived import DerivedStrategy
 from sqllocks_spindle.engine.strategies.distribution import DistributionStrategy
+from sqllocks_spindle.engine.strategies.empirical import EmpiricalStrategy
 from sqllocks_spindle.engine.strategies.enum import WeightedEnumStrategy
 from sqllocks_spindle.engine.strategies.faker_strategy import FakerStrategy
 from sqllocks_spindle.engine.strategies.native import NativeStrategy
@@ -289,6 +290,7 @@ class Spindle:
         registry.register("faker", FakerStrategy())
         registry.register("weighted_enum", WeightedEnumStrategy())
         registry.register("distribution", DistributionStrategy())
+        registry.register("empirical", EmpiricalStrategy())
         registry.register("temporal", TemporalStrategy())
         registry.register("formula", FormulaStrategy())
         registry.register("derived", DerivedStrategy())
