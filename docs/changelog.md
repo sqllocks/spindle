@@ -5,6 +5,65 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.0] - 2026-04-29
+
+### Added — Phase 6: Fidelity Ceiling, Profile Registry & Streaming Fan-out
+
+#### Profile Registry (`sqllocks_spindle/profiles/`)
+- **`ProfileRegistry`** — File-system-backed registry with `<system>/<table>/<name>.json` hierarchy. CRUD (`save`, `load`, `delete`, `exists`), search (`list_all`, `list_systems`, `list_tables`, `search`), tagging, bulk `import_from_dir`, profile diff, `reindex`, and `save_from_dataset_profile` convenience method.
+- **`RegistryProfile`** — Dataclass capturing column statistics, tags, description, source row count. `identity` property returns canonical `system/table/name` string. `save`/`load` round-trip via JSON. `validate()` on `ProfileRegistry` compares a `GenerationResult` against the stored profile via `FidelityComparator`.
+- **CLI** — `spindle profile-registry list|save|delete|tag|diff|reindex|validate` subcommands.
+
+#### Fidelity Reports (`sqllocks_spindle/inference/comparator.py`)
+- **`FidelityReport.to_html()`** — Self-contained HTML report with inline CSS. Score colour bands: green ≥ 85, amber 70–84, red < 70. Per-column inline progress bars; KS stat, KS p-value, Chi², null delta, cardinality ratio columns.
+
+#### Tier 1 — Advanced Profiler (`sqllocks_spindle/inference/advanced_profiler.py`)
+- **`AdvancedProfiler`** — Wraps real + synthetic DataFrames with four analysis passes:
+  - **GMM fitting** — BIC-optimal Gaussian Mixture (1–5 components) per numeric column.
+  - **Conditional profiles** — per-category mean/std/null-rate for categorical × numeric pairs.
+  - **Adversarial test** — GradientBoostingClassifier 3-fold CV; AUC ≈ 0.5 = statistically indistinguishable.
+  - **Temporal profiles** — gap statistics, lag-1 and lag-7 autocorrelation, FFT periodicity detection.
+
+#### Tier 2 — Format & Cardinality (`sqllocks_spindle/inference/tier2_profiler.py`)
+- **`FormatPreservationAnalyzer`** — Detects dominant format in real data (email, phone, UUID, URL, IPv4, ZIP, SSN, ISO date, credit card); compares synthetic preservation rate.
+- **`StringSimilarityAnalyzer`** — Character n-gram cosine similarity between real and synthetic string columns.
+- **`CardinalityConstraintChecker`** — Flags synthetic cardinality deviations > 20 % of real.
+- **`check_anomaly_rates()`** — Verifies `_spindle_is_anomaly` fractions match expected rates within tolerance.
+- **`run_tier2()`** — Convenience function returning a `Tier2Report`.
+
+#### Tier 3 — Research-Grade Features (`sqllocks_spindle/inference/tier3_research.py`)
+- **`ChowLiuNetwork`** — Chow-Liu Bayesian network via max spanning tree of pairwise mutual information (Kruskal union-find). Returns `ChowLiuResult` with edges and joint-entropy score.
+- **`DifferentialPrivacy`** — Laplace (L1 sensitivity / ε) and Gaussian (σ calibrated to ε, δ) mechanisms with optional range clipping. Returns `DPResult` with privacy budget metadata.
+- **`DriftMonitor`** — KS + PSI for numeric, Chi² for categorical. Returns `DriftReport` with per-column drift flags and overall status.
+- **`BootstrapMode`** — Row sampling with replacement plus optional Gaussian jitter for numeric columns.
+- **`CTGANWrapper`** — Thin wrapper for optional `ctgan` dependency; raises `ImportError` gracefully when not installed.
+
+#### Streaming Fan-out (`sqllocks_spindle/streaming/multi_writer.py`)
+- **`StreamingMultiWriter`** — ThreadPoolExecutor fan-out of any `generate_stream()` iterator to N named `StreamWriter` sinks concurrently. `stream(generator)` and `stream_table(name, df)` entry points. Dynamic `add_sink` / `remove_sink`. Per-sink error isolation with `stop_on_sink_error` option. Returns `StreamingMultiWriteResult` with per-sink `SinkResult`.
+
+#### Tests
+- **122 new tests** across 6 new test files: `test_profile_registry.py` (24), `test_fidelity_report.py` (11), `test_advanced_profiler.py` (20), `test_tier2_profiler.py` (20), `test_tier3_research.py` (27), `test_streaming_multi_writer.py` (20). Full suite: **2687 passed, 4 skipped**.
+
+#### Demo Notebooks (`examples/notebooks/demos/`)
+- `07_profile_registry.ipynb` — Save, load, search, diff, and validate profiles end-to-end.
+- `08_fidelity_report_html.ipynb` — Generate HTML fidelity reports for real vs synthetic comparison.
+- `09_advanced_profiler.ipynb` — GMM, adversarial, conditional, and temporal profiling.
+- `10_tier2_format_fidelity.ipynb` — Format preservation, string similarity, cardinality, anomaly rates.
+- `11_tier3_research.ipynb` — Chow-Liu networks, differential privacy, drift monitoring, bootstrapping.
+- `12_streaming_multi_writer.ipynb` — Fan-out streaming to 4 sinks in parallel.
+- `13_differential_privacy.ipynb` — DP mechanism comparison: Laplace vs Gaussian with budget analysis.
+- `14_drift_monitoring.ipynb` — Baseline drift detection with PSI and Chi² visualisations.
+- `15_bootstrap_sampling.ipynb` — Bootstrap mode sampling and jitter exploration.
+
+#### Documentation (`docs/guides/`)
+- `profile-registry.md`, `fidelity-validation.md`, `advanced-fidelity.md`, `tier2-fidelity.md`, `tier3-research.md`, `streaming-multi-writer.md`, `drift-monitoring.md`, `column-variables.md`
+
+### Changed
+- `pyproject.toml` — Added `[advanced]` optional extra: `scikit-learn>=1.3`, `scipy>=1.11`.
+- `sqllocks_spindle/__init__.py` — Added `ProfileRegistry`, `RegistryProfile`, `StreamingMultiWriter`, `StreamingMultiWriteResult`, `SinkResult` to top-level exports.
+- `sqllocks_spindle/inference/__init__.py` — Added all Tier 1/2/3 exports.
+- `sqllocks_spindle/streaming/__init__.py` — Added `StreamingMultiWriter`, `StreamingMultiWriteResult`, `SinkResult`.
+
 ## [2.11.0] - 2026-04-29
 
 ### Added — Phase 5: Validation Matrix & Demo Notebooks

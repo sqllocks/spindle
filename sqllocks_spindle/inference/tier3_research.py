@@ -14,7 +14,7 @@ All features fail gracefully when optional dependencies (sdv, sklearn) are absen
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -22,7 +22,6 @@ import pandas as pd
 
 try:
     from scipy import stats as sp_stats
-    from scipy.special import rel_entr
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
