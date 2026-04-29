@@ -5,6 +5,33 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-04-29
+
+### Added — Phase 5: Validation Matrix & Demo Notebooks
+
+#### Validation Matrix
+- **`tests/fixtures/validation_matrix.py`** — Matrix builder with filter rules. `build_matrix()` returns 512 valid `(domain, sink, size, mode)` tuples covering 13 domains × 5 sinks × 4 sizes × 3 modes after filters (streaming + sql-server, fabric_demo + sql-server, inference + non-capable domains).
+- **`tests/fixtures/mock_sinks.py`** — `MockSink` dataclass + `make_mock_sink(sink_type)` factory for all 5 sink types. Records write calls without performing real IO.
+- **`tests/test_validation_matrix.py`** — Parametrized mock suite, 518 tests (512 combos + 6 matrix-builder unit tests). All passing.
+- **`tests/test_validation_live.py`** — Live suite with 26 tests across 4 groups: A (13 domains × lakehouse × small × seeding), B (retail × all 5 sinks × fabric_demo × seeding), C (retail × lakehouse × all 4 sizes × streaming), D (retail × warehouse × all sizes × seeding). Auth via `InteractiveBrowserCredential` (browser fires once, token cached).
+- **`pyproject.toml`** — Registered `infra` pytest marker; documented `SPINDLE_TEST_*_CONN` env vars for live tests.
+
+#### Demo Notebooks (`notebooks/demos/`)
+- `01_retail_lakehouse_quickstart.ipynb` — retail → lakehouse, seeding + streaming, all sizes, Delta read-back validation.
+- `02_financial_warehouse_analytics.ipynb` — financial → Fabric Warehouse, all sizes, ODBC row-count validation.
+- `03_healthcare_sql_database.ipynb` — healthcare → Fabric SQL Database, optional DataMasker HIPAA masking.
+- `04_capital_markets_eventhouse.ipynb` — capital markets → Eventhouse/KQL, streaming tick data.
+- `05_multi_domain_fanout.ipynb` — retail + financial → lakehouse + optional warehouse.
+- `06_custom_ddl_to_lakehouse.ipynb` — bring-your-own DDL → DDLParser → generate → lakehouse.
+
+#### Notebook Templates (`notebooks/templates/`)
+- `template_domain_to_sink.ipynb` — parametrized starter for any domain → any sink.
+- `template_custom_schema.ipynb` — custom `.spindle.json` or `.sql` schema → any sink.
+
+### Notes
+- No new sink code required — `FabricSqlDatabaseWriter` covers SQL Server (on-prem), Azure SQL Database, Azure SQL Managed Instance, Fabric Warehouse, and Fabric SQL Database via `auth_method` parameter.
+- Mock matrix runtime: ~12 minutes locally (heavy at fabric_demo size). All 518 tests pass.
+
 ## [2.9.0] - 2026-04-28
 
 ### Added — Phase 3B: Inference Depth
