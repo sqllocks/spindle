@@ -78,6 +78,7 @@ except ImportError:
 
 # Presets
 from sqllocks_spindle.presets import get_preset, list_presets
+from sqllocks_spindle.profiles import ProfileRegistry, RegistryProfile
 
 __all__ = [
     # Core
@@ -144,4 +145,7 @@ __all__ = [
     # Presets
     "get_preset",
     "list_presets",
+    # Profile registry
+    "ProfileRegistry",
+    "RegistryProfile",
 ]
