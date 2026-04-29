@@ -120,7 +120,13 @@ sqllocks_spindle = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Live test env vars (set before running tests/test_validation_live.py):
+#   SPINDLE_TEST_WH_CONN      Fabric Warehouse ODBC connection string
+#   SPINDLE_TEST_EH_CONN      Eventhouse cluster URI (kusto://...)
+#   SPINDLE_TEST_SQL_CONN     Fabric SQL Database ODBC connection string
+#   SPINDLE_TEST_ONPREM_CONN  On-prem SQL Server ODBC connection string
 markers = [
     "slow: marks tests as slow-running integration tests",
     "live: marks tests as live integration tests requiring a real Fabric connection (skipped by default)",
+    "infra: marks tests requiring env vars for specific sink connections",
 ]
