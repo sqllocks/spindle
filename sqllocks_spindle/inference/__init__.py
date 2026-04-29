@@ -25,6 +25,19 @@ from sqllocks_spindle.inference.profiler import (
 from sqllocks_spindle.inference.profile_io import ExportedProfile, ProfileIO
 from sqllocks_spindle.inference.schema_builder import SchemaBuilder
 from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
+from sqllocks_spindle.inference.tier3_research import (
+    BootstrapMode,
+    BootstrapResult,
+    BayesianEdge,
+    ChowLiuNetwork,
+    ChowLiuResult,
+    CTGANWrapper,
+    DifferentialPrivacy,
+    DPResult,
+    DriftMonitor,
+    DriftReport,
+    ColumnDriftResult,
+)
 from sqllocks_spindle.inference.tier2_profiler import (
     AnomalyRateResult,
     CardinalityConstraintChecker,
@@ -82,4 +95,16 @@ __all__ = [
     "Tier2Report",
     "check_anomaly_rates",
     "run_tier2",
+    # Tier 3 research
+    "BootstrapMode",
+    "BootstrapResult",
+    "BayesianEdge",
+    "ChowLiuNetwork",
+    "ChowLiuResult",
+    "CTGANWrapper",
+    "DifferentialPrivacy",
+    "DPResult",
+    "DriftMonitor",
+    "DriftReport",
+    "ColumnDriftResult",
 ]
