@@ -25,6 +25,18 @@ from sqllocks_spindle.inference.profiler import (
 from sqllocks_spindle.inference.profile_io import ExportedProfile, ProfileIO
 from sqllocks_spindle.inference.schema_builder import SchemaBuilder
 from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
+from sqllocks_spindle.inference.tier2_profiler import (
+    AnomalyRateResult,
+    CardinalityConstraintChecker,
+    CardinalityConstraintResult,
+    FormatPreservationAnalyzer,
+    FormatPreservationResult,
+    StringSimilarityAnalyzer,
+    StringSimilarityResult,
+    Tier2Report,
+    check_anomaly_rates,
+    run_tier2,
+)
 from sqllocks_spindle.inference.advanced_profiler import (
     AdvancedProfiler,
     AdvancedTableProfile,
@@ -59,4 +71,15 @@ __all__ = [
     "GMMFit",
     "PeriodicityResult",
     "TemporalProfile",
+    # Tier 2
+    "AnomalyRateResult",
+    "CardinalityConstraintChecker",
+    "CardinalityConstraintResult",
+    "FormatPreservationAnalyzer",
+    "FormatPreservationResult",
+    "StringSimilarityAnalyzer",
+    "StringSimilarityResult",
+    "Tier2Report",
+    "check_anomaly_rates",
+    "run_tier2",
 ]
