@@ -330,3 +330,86 @@ Covers:
 - **Live tests** (optional, `@pytest.mark.live`): Real `import_from_lakehouse(Fabric_Lakehouse_Demo)` round-trip.
 
 Target: ~50 new tests, all green, runtime <30s for unit/integration, full regression unchanged.
+
+---
+
+## Section 11 — Fidelity Validation: KS + Chi-Squared Reports per Profile
+
+### Why
+
+Users importing 150 tables and generating data need **proof the synthetic data matches the registered profile**. Spindle already has `FidelityReport` (Phase 3B) with per-column KS tests for numeric data and Chi-squared tests for categoricals. This section wires it into the registry workflow and adds user-facing reports.
+
+### Existing surface (no change)
+
+```python
+from sqllocks_spindle.inference import FidelityComparator, FidelityReport
+
+# DataFrame vs DataFrame (already works)
+report = FidelityComparator().compare(real_df, synth_df)
+report.summary()       # plain text
+report.to_markdown()   # markdown table
+report.to_dict()       # JSON-serializable
+report.to_dataframe()  # pandas
+```
+
+### New surface: Registry-aware fidelity
+
+```python
+# Compare a generated result against a registered profile
+report = reg.validate("salesforce.customer.prod-2026Q2", result)
+# Internally: load profile → reconstruct expected distributions →
+#             run FidelityComparator against result.tables[table]
+
+# Bulk validation over many tables
+report = reg.validate_all(system="fabric-prod-lh", tag="prod", result=result)
+```
+
+### New: HTML report rendering
+
+```python
+report.to_html("fidelity-report.html")  # standalone, self-contained, no JS framework
+```
+
+The HTML contains:
+- Overall fidelity score (badge: green ≥85, yellow 70-85, red <70)
+- Per-table summary table sortable by score
+- Expandable per-column details: dtype match, null delta, KS stat + p-value, Chi-squared stat + p-value, mean/std deltas
+- Histogram comparisons (real vs synth) for numeric columns — using vega-lite or Plotly inline JSON
+- Bar chart category comparisons for categoricals
+- Color-coded pass/fail per column based on configurable thresholds
+
+Default thresholds (overridable in `FidelityComparator(thresholds=...)`):
+- KS p-value ≥ 0.05 = pass
+- Chi-squared p-value ≥ 0.05 = pass
+- Null rate delta ≤ 0.02 = pass
+- Cardinality ratio in [0.8, 1.2] = pass
+
+### CLI
+
+```bash
+spindle profile validate <profile-id> --result-path <generated-data-dir> \
+    [--output report.html] [--format html|markdown|json|text]
+```
+
+### Demo notebooks
+
+Notebook `08_profile_diff_dev_vs_prod.ipynb` (already in plan) gets extended with a fidelity validation cell:
+
+```python
+report = reg.validate("salesforce.customer.prod-2026Q2", result)
+report.to_html("validation.html")
+report.summary()  # also print plain text inline
+```
+
+### File deliverables
+
+- `sqllocks_spindle/inference/comparator.py` — add `to_html()` method to `FidelityReport`, factor template into `comparator_html.py` (Jinja-based)
+- `sqllocks_spindle/profiles/registry.py` — add `validate(profile_id, result)` and `validate_all(...)` methods
+- `tests/test_fidelity_html.py` — verify HTML output renders, contains expected score, has chart JSON
+- `docs/guides/fidelity-reports.md` — new guide explaining how to read the report
+
+### Out of scope
+
+- PDF export (defer; users can print HTML to PDF)
+- Live web-served dashboard (defer)
+- Cross-profile fidelity ("does my dev data match my prod profile") — possible with the same machinery, but defer until requested
