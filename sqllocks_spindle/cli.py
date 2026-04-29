@@ -1265,6 +1265,166 @@ def profile_list(domain_name):
         )
 
 
+# ---------------------------------------------------------------------------
+# Profile registry subcommands  (spindle profile registry …)
+# ---------------------------------------------------------------------------
+
+@profile.group(name="registry")
+def profile_registry():
+    """Manage the profile registry — list, save, load, diff, validate."""
+    pass
+
+
+@profile_registry.command(name="list")
+@click.option("--system", default=None, help="Filter by system name")
+@click.option("--table", default=None, help="Filter by table name")
+@click.option("--tag", "tags", multiple=True, help="Filter by tag (repeatable)")
+@click.option("--root", default=None, help="Registry root directory (default: ~/.spindle/profiles)")
+def registry_list(system, table, tags, root):
+    """List profiles in the registry."""
+    from sqllocks_spindle.profiles import ProfileRegistry
+    reg = ProfileRegistry(root=root)
+    entries = reg.search(system=system, table=table, tags=list(tags) if tags else None)
+    if not entries:
+        click.echo("No profiles found.")
+        return
+    click.echo(f"{'Identity':<45} {'Tags':<30} {'Rows':>8}")
+    click.echo("-" * 85)
+    for e in entries:
+        identity = f"{e['system']}/{e['table']}/{e['name']}"
+        click.echo(f"{identity:<45} {', '.join(e.get('tags', [])):<30} {e.get('source_rows', 0):>8,}")
+
+
+@profile_registry.command(name="save")
+@click.argument("domain_name")
+@click.option("--system", required=True, help="System name (e.g. salesforce)")
+@click.option("--name", required=True, help="Profile name (e.g. prod-2026Q2)")
+@click.option("--scale", default="small", help="Scale to generate reference data")
+@click.option("--seed", default=42, type=int, help="Random seed")
+@click.option("--tags", default="", help="Comma-separated tags")
+@click.option("--description", default="", help="Profile description")
+@click.option("--root", default=None, help="Registry root directory")
+def registry_save(domain_name, system, name, scale, seed, tags, description, root):
+    """Generate reference data and save as a named profile."""
+    from sqllocks_spindle.engine.generator import Spindle
+    from sqllocks_spindle.inference.profiler import DataProfiler
+    from sqllocks_spindle.profiles import ProfileRegistry
+
+    domain = _resolve_domain(domain_name, "3nf")
+    spindle = Spindle()
+    result = spindle.generate(domain=domain, scale=scale, seed=seed)
+
+    profiler = DataProfiler(sample_rows=1000)
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    reg = ProfileRegistry(root=root)
+
+    import importlib
+    from sqllocks_spindle.inference.profiler import DatasetProfile
+    table_profiles = {
+        tname: profiler.profile(df, table_name=tname)
+        for tname, df in result.tables.items()
+    }
+    dataset_profile = DatasetProfile(tables=table_profiles)
+
+    saved = reg.save_from_dataset_profile(
+        dataset_profile,
+        system=system,
+        name=name,
+        tags=tag_list,
+        description=description,
+    )
+    for p in saved:
+        click.echo(f"  Saved: {p.identity}")
+    click.echo(f"Saved {len(saved)} profile(s) to registry.")
+
+
+@profile_registry.command(name="delete")
+@click.argument("identity")
+@click.option("--root", default=None, help="Registry root directory")
+def registry_delete(identity, root):
+    """Delete a profile from the registry."""
+    from sqllocks_spindle.profiles import ProfileRegistry
+    reg = ProfileRegistry(root=root)
+    if not reg.exists(identity):
+        click.echo(f"Profile '{identity}' not found.", err=True)
+        raise SystemExit(1)
+    reg.delete(identity)
+    click.echo(f"Deleted: {identity}")
+
+
+@profile_registry.command(name="tag")
+@click.argument("identity")
+@click.argument("tags", nargs=-1, required=True)
+@click.option("--remove", is_flag=True, default=False, help="Remove the tags instead of adding")
+@click.option("--root", default=None, help="Registry root directory")
+def registry_tag(identity, tags, remove, root):
+    """Add or remove tags on a profile."""
+    from sqllocks_spindle.profiles import ProfileRegistry
+    reg = ProfileRegistry(root=root)
+    if remove:
+        reg.remove_tags(identity, list(tags))
+        click.echo(f"Removed tags {list(tags)} from {identity}")
+    else:
+        reg.add_tags(identity, list(tags))
+        click.echo(f"Added tags {list(tags)} to {identity}")
+
+
+@profile_registry.command(name="diff")
+@click.argument("identity_a")
+@click.argument("identity_b")
+@click.option("--root", default=None, help="Registry root directory")
+def registry_diff(identity_a, identity_b, root):
+    """Show column diff between two registry profiles."""
+    from sqllocks_spindle.profiles import ProfileRegistry
+    reg = ProfileRegistry(root=root)
+    result = reg.diff(identity_a, identity_b)
+    if result["added"]:
+        click.echo(f"+ Added columns:   {result['added']}")
+    if result["removed"]:
+        click.echo(f"- Removed columns: {result['removed']}")
+    if result["changed"]:
+        click.echo("~ Changed columns:")
+        for col, delta in result["changed"].items():
+            click.echo(f"    {col}: {delta}")
+    if not any(result.values()):
+        click.echo("Profiles are identical.")
+
+
+@profile_registry.command(name="reindex")
+@click.option("--root", default=None, help="Registry root directory")
+def registry_reindex(root):
+    """Rebuild the registry index from files on disk."""
+    from sqllocks_spindle.profiles import ProfileRegistry
+    reg = ProfileRegistry(root=root)
+    count = reg.reindex()
+    click.echo(f"Reindexed {count} profile(s).")
+
+
+@profile_registry.command(name="validate")
+@click.argument("identity")
+@click.option("--domain", "domain_name", required=True, help="Domain to generate against")
+@click.option("--scale", default="small", help="Generation scale")
+@click.option("--seed", default=42, type=int)
+@click.option("--output", default=None, help="Write HTML report to this path")
+@click.option("--root", default=None, help="Registry root directory")
+def registry_validate(identity, domain_name, scale, seed, output, root):
+    """Run fidelity validation comparing a profile to freshly generated data."""
+    from sqllocks_spindle.engine.generator import Spindle
+    from sqllocks_spindle.profiles import ProfileRegistry
+
+    reg = ProfileRegistry(root=root)
+    domain = _resolve_domain(domain_name, "3nf")
+    spindle = Spindle()
+    result = spindle.generate(domain=domain, scale=scale, seed=seed)
+    report = reg.validate(identity, result)
+    click.echo(report.summary())
+    if output:
+        from pathlib import Path
+        html = report.to_html()
+        Path(output).write_text(html)
+        click.echo(f"HTML report written to: {output}")
+
+
 def _apply_scale_overrides(schema, scale_spec: str):
     """Parse scale spec like 'small:customer=5000,order=25000' and apply."""
     if ":" in scale_spec:

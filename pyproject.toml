@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sqllocks-spindle"
-version = "2.10.0"
+version = "2.13.0"
 description = "Multi-domain, schema-aware synthetic data generator for Microsoft Fabric"
 readme = "README.md"
 license = { text = "MIT" }
@@ -79,6 +79,10 @@ eventhouse = [
     "azure-kusto-ingest>=4.3",
     "azure-identity>=1.15",
 ]
+advanced = [
+    "scikit-learn>=1.3",
+    "scipy>=1.11",
+]
 docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.24",
@@ -120,7 +124,13 @@ sqllocks_spindle = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Live test env vars (set before running tests/test_validation_live.py):
+#   SPINDLE_TEST_WH_CONN      Fabric Warehouse ODBC connection string
+#   SPINDLE_TEST_EH_CONN      Eventhouse cluster URI (kusto://...)
+#   SPINDLE_TEST_SQL_CONN     Fabric SQL Database ODBC connection string
+#   SPINDLE_TEST_ONPREM_CONN  On-prem SQL Server ODBC connection string
 markers = [
     "slow: marks tests as slow-running integration tests",
     "live: marks tests as live integration tests requiring a real Fabric connection (skipped by default)",
+    "infra: marks tests requiring env vars for specific sink connections",
 ]

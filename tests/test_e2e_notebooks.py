@@ -34,6 +34,8 @@ FABRIC_NOTEBOOKS = {
     "F11_integration_sweep.ipynb",
     "F12_billion_row_warehouse.ipynb",
     "F13_chaos_simulation_fabric.ipynb",
+    "06_chaos_and_simulation.ipynb",
+    "08_scenario_packs.ipynb",
 }
 
 # Collect all .ipynb files recursively

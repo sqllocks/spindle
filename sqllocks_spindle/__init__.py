@@ -2,7 +2,7 @@
 
 import importlib as _importlib
 
-__version__ = "2.10.0"
+__version__ = "2.13.0"
 
 from sqllocks_spindle.engine.generator import Spindle
 from sqllocks_spindle.engine.chunked_generator import ChunkedSpindle, ChunkedGenerationResult
@@ -62,6 +62,9 @@ from sqllocks_spindle.streaming import (
     StreamResult,
     StreamWriter,
     TimePattern,
+    StreamingMultiWriter,
+    StreamingMultiWriteResult,
+    SinkResult,
 )
 
 # Incremental (continue) engine
@@ -78,6 +81,7 @@ except ImportError:
 
 # Presets
 from sqllocks_spindle.presets import get_preset, list_presets
+from sqllocks_spindle.profiles import ProfileRegistry, RegistryProfile
 
 __all__ = [
     # Core
@@ -105,6 +109,9 @@ __all__ = [
     # Streaming
     "SpindleStreamer",
     "StreamResult",
+    "StreamingMultiWriter",
+    "StreamingMultiWriteResult",
+    "SinkResult",
     "StreamConfig",
     "BurstWindow",
     "TimePattern",
@@ -144,4 +151,7 @@ __all__ = [
     # Presets
     "get_preset",
     "list_presets",
+    # Profile registry
+    "ProfileRegistry",
+    "RegistryProfile",
 ]
