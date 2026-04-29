@@ -175,6 +175,119 @@ class FidelityReport:
                 })
         return pd.DataFrame(rows)
 
+
+    def to_html(self, title: str = "Spindle Fidelity Report") -> str:
+        """Render fidelity report as a self-contained HTML page.
+
+        Uses inline CSS — no external dependencies.  Score bands:
+        green ≥ 85, amber 70-84, red < 70.
+        """
+
+        def _score_color(score: float) -> str:
+            if score >= 85:
+                return "#2d7d46"
+            if score >= 70:
+                return "#b45309"
+            return "#c0392b"
+
+        def _score_bar(score: float) -> str:
+            color = _score_color(score)
+            pct = max(0.0, min(100.0, score))
+            return (
+                f'<div style="display:inline-block;width:80px;background:#e5e5e5;'
+                f'border-radius:3px;height:10px;vertical-align:middle;margin-left:6px">'
+                f'<div style="width:{pct}%;background:{color};height:10px;'
+                f'border-radius:3px"></div></div>'
+            )
+
+        rows_html = ""
+        for table_name, tf in self.tables.items():
+            tc = _score_color(tf.score)
+            rows_html += (
+                f'<tr style="background:#f8f8f8">'
+                f'<td colspan="9" style="padding:10px 12px;font-weight:700;'
+                f'border-bottom:2px solid #ccc;font-size:13px">'
+                f'<span style="color:{tc}">&#9632;</span>&nbsp;'
+                f'{table_name} &mdash; <strong style="color:{tc}">{tf.score:.1f}/100</strong>'
+                f'&nbsp;&nbsp;<span style="font-size:11px;color:#888;font-weight:normal">'
+                f'{tf.row_count_real:,} real rows &bull; {tf.row_count_synth:,} synthetic rows'
+                f'</span></td></tr>'
+            )
+            for col_name, cf in tf.columns.items():
+                ks = f"{cf.ks_statistic:.3f}" if cf.ks_statistic is not None else "&mdash;"
+                ks_p = f"{cf.ks_pvalue:.3f}" if cf.ks_pvalue is not None else "&mdash;"
+                chi2 = f"{cf.chi2_statistic:.1f}" if cf.chi2_statistic is not None else "&mdash;"
+                chi2_p = f"{cf.chi2_pvalue:.3f}" if cf.chi2_pvalue is not None else "&mdash;"
+                overlap = f"{cf.value_overlap:.3f}" if cf.value_overlap is not None else "&mdash;"
+                type_icon = "&#10003;" if cf.dtype_match else '<span style="color:#c0392b">&#10007;</span>'
+                sc = _score_color(cf.score)
+                rows_html += (
+                    f'<tr>'
+                    f'<td style="padding:6px 12px;font-size:12px;color:#333">{col_name}</td>'
+                    f'<td style="padding:6px 8px;text-align:center">'
+                    f'<span style="color:{sc};font-weight:700">{cf.score:.1f}</span>'
+                    f'{_score_bar(cf.score)}</td>'
+                    f'<td style="padding:6px 8px;text-align:center;font-size:12px">{type_icon}</td>'
+                    f'<td style="padding:6px 8px;text-align:right;font-size:12px">{cf.null_rate_delta:.3f}</td>'
+                    f'<td style="padding:6px 8px;text-align:right;font-size:12px">{cf.cardinality_ratio:.3f}</td>'
+                    f'<td style="padding:6px 8px;text-align:right;font-size:12px">{ks}</td>'
+                    f'<td style="padding:6px 8px;text-align:right;font-size:12px">{ks_p}</td>'
+                    f'<td style="padding:6px 8px;text-align:right;font-size:12px">{chi2}</td>'
+                    f'<td style="padding:6px 8px;text-align:right;font-size:12px">{overlap}</td>'
+                    f'</tr>'
+                )
+
+        overall_color = _score_color(self.overall_score)
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         margin: 0; padding: 24px; background: #fff; color: #222; }}
+  h1 {{ font-size: 20px; margin: 0 0 4px 0; }}
+  .overall {{ font-size: 32px; font-weight: 700; color: {overall_color}; margin-bottom: 24px; }}
+  table {{ border-collapse: collapse; width: 100%; font-size: 13px; }}
+  th {{ background: #333; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px;
+        text-transform: uppercase; letter-spacing: 0.05em; }}
+  tr:hover {{ background: #f0f4ff !important; }}
+  td {{ border-bottom: 1px solid #eee; }}
+  .legend {{ font-size: 11px; color: #666; margin-top: 16px; }}
+  .legend span {{ display: inline-block; width: 10px; height: 10px;
+                  border-radius: 2px; margin-right: 4px; vertical-align: middle; }}
+</style>
+</head>
+<body>
+<h1>{title}</h1>
+<div class="overall">{self.overall_score:.1f} / 100</div>
+<table>
+<thead>
+  <tr>
+    <th>Column</th>
+    <th>Score</th>
+    <th>Type</th>
+    <th>Null &Delta;</th>
+    <th>Card. Ratio</th>
+    <th>KS Stat</th>
+    <th>KS p</th>
+    <th>Chi&sup2;</th>
+    <th>Overlap</th>
+  </tr>
+</thead>
+<tbody>
+{rows_html}
+</tbody>
+</table>
+<div class="legend">
+  <span style="background:#2d7d46"></span>&nbsp;Score &ge; 85 &nbsp;&nbsp;
+  <span style="background:#b45309"></span>&nbsp;Score 70&ndash;84 &nbsp;&nbsp;
+  <span style="background:#c0392b"></span>&nbsp;Score &lt; 70
+</div>
+</body>
+</html>"""
+        return html
+
     @classmethod
     def score(
         cls,

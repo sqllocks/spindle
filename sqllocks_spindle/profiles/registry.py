@@ -299,6 +299,62 @@ class ProfileRegistry:
     # Validate: run fidelity check against a GenerationResult
     # ---------------------------------------------------------------------------
 
+    @staticmethod
+    def _reconstruct_reference(profile: "RegistryProfile", n_rows: int = 500) -> "Any":
+        """Build an approximate reference DataFrame from stored profile statistics.
+
+        Numeric columns: sampled from N(mean, std) clipped to [min, max].
+        Categorical columns: sampled from stored top_values frequencies.
+        Other columns: null-filled.
+        """
+        import numpy as np
+        import pandas as pd
+
+        rng = np.random.default_rng(0)
+        data: dict[str, Any] = {}
+
+        for col_name, col_stats in profile.columns.items():
+            dtype = col_stats.get("dtype", "object")
+            null_rate = col_stats.get("null_rate", 0.0)
+            n_null = max(0, int(round(null_rate * n_rows)))
+            n_valid = n_rows - n_null
+
+            if dtype in {"int64", "float64", "int32", "float32", "Int64", "Float64",
+                         "int8", "int16", "uint8", "uint16", "uint32", "uint64"}:
+                mean = col_stats.get("mean")
+                std = col_stats.get("std")
+                if mean is not None and std is not None and float(std) > 0:
+                    vals = rng.normal(float(mean), float(std), n_valid)
+                    mn = col_stats.get("min")
+                    mx = col_stats.get("max")
+                    if mn is not None and mx is not None:
+                        vals = np.clip(vals, float(mn), float(mx))
+                else:
+                    vals = np.full(n_valid, float(mean) if mean is not None else 0.0)
+                col_series = np.concatenate([vals, np.full(n_null, np.nan)])
+            elif col_stats.get("top_values"):
+                top = col_stats["top_values"]
+                if isinstance(top, dict):
+                    cats = list(top.keys())
+                    weights = np.array(list(top.values()), dtype=float)
+                elif isinstance(top, list):
+                    cats = top
+                    weights = np.ones(len(cats), dtype=float)
+                else:
+                    cats = [str(top)]
+                    weights = np.array([1.0])
+                weights = weights / weights.sum()
+                vals = rng.choice(cats, size=n_valid, p=weights)
+                col_series = list(vals) + [None] * n_null
+            else:
+                col_series = [None] * n_rows
+
+            rng.shuffle(col_series if isinstance(col_series, list) else col_series)
+            data[col_name] = col_series
+
+        df = pd.DataFrame(data)
+        return df
+
     def validate(
         self,
         identity: str,
@@ -307,10 +363,11 @@ class ProfileRegistry:
     ) -> Any:
         """Compare a GenerationResult against a stored profile.
 
+        Reconstructs an approximate reference DataFrame from stored column
+        statistics and runs FidelityComparator against the new generation.
         Returns a FidelityReport. Requires scipy.
         """
         from sqllocks_spindle.inference.comparator import FidelityComparator
-        from sqllocks_spindle.inference.profiler import DataProfiler, DatasetProfile, TableProfile
 
         profile = self.load(identity)
         table_name = profile.table
@@ -319,9 +376,7 @@ class ProfileRegistry:
             raise KeyError(f"Table '{table_name}' not in GenerationResult")
 
         synth_df = result.tables[table_name]
-        profiler = DataProfiler(sample_rows=sample_rows)
-        real_profile = profiler.profile(synth_df, table_name=table_name)
-        real_dataset = DatasetProfile(tables={table_name: real_profile})
+        ref_df = self._reconstruct_reference(profile, n_rows=min(sample_rows, len(synth_df)))
 
         comparator = FidelityComparator()
-        return comparator.compare(real_dataset, {table_name: synth_df})
+        return comparator.compare({table_name: ref_df}, {table_name: synth_df})
