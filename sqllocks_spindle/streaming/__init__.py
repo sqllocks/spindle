@@ -2,6 +2,11 @@
 
 from sqllocks_spindle.streaming.config import BurstWindow, StreamConfig, TimePattern
 from sqllocks_spindle.streaming.stream_writer import StreamWriter
+from sqllocks_spindle.streaming.multi_writer import (
+    StreamingMultiWriter,
+    StreamingMultiWriteResult,
+    SinkResult,
+)
 from sqllocks_spindle.streaming.anomaly import (
     Anomaly,
     AnomalyRegistry,
@@ -27,6 +32,9 @@ __all__ = [
     "FileSink",
     "SpindleStreamer",
     "StreamResult",
+    "StreamingMultiWriter",
+    "StreamingMultiWriteResult",
+    "SinkResult",
 ]
 
 

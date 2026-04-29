@@ -62,6 +62,9 @@ from sqllocks_spindle.streaming import (
     StreamResult,
     StreamWriter,
     TimePattern,
+    StreamingMultiWriter,
+    StreamingMultiWriteResult,
+    SinkResult,
 )
 
 # Incremental (continue) engine
@@ -106,6 +109,9 @@ __all__ = [
     # Streaming
     "SpindleStreamer",
     "StreamResult",
+    "StreamingMultiWriter",
+    "StreamingMultiWriteResult",
+    "SinkResult",
     "StreamConfig",
     "BurstWindow",
     "TimePattern",
