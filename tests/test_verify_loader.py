@@ -23,6 +23,9 @@ class TestLoadTables:
             pd.DataFrame({"x": [1, 2]}).to_csv(tmp_path / f"{name}.csv", index=False)
         tables = load_tables(str(tmp_path), "csv")
         assert set(tables.keys()) == {"customers", "orders"}
+        assert len(tables["customers"]) == 2
+        assert list(tables["customers"].columns) == ["x"]
+        assert len(tables["orders"]) == 2
 
     def test_single_parquet_file(self, tmp_path):
         pytest.importorskip("pyarrow")
