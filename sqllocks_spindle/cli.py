@@ -998,43 +998,25 @@ def compare(real_path: str, synth_path: str, input_fmt: str, output: str | None)
 
     Example: spindle compare ./real_data/ ./synth_data/ --output report.md
     """
-    from pathlib import Path
-
-    import pandas as pd
-
     from sqllocks_spindle.inference.comparator import FidelityComparator
-
-    def _load_tables(dir_path: str, fmt: str) -> dict[str, pd.DataFrame]:
-        p = Path(dir_path)
-        ext = "*.csv" if fmt == "csv" else "*.parquet"
-        tables: dict[str, pd.DataFrame] = {}
-
-        if p.is_file():
-            # Single file
-            if fmt == "csv":
-                tables[p.stem] = pd.read_csv(p)
-            else:
-                tables[p.stem] = pd.read_parquet(p)
-        elif p.is_dir():
-            files = sorted(p.glob(ext))
-            if not files:
-                click.echo(f"No {fmt} files found in {dir_path}", err=True)
-                sys.exit(1)
-            for fp in files:
-                if fmt == "csv":
-                    tables[fp.stem] = pd.read_csv(fp)
-                else:
-                    tables[fp.stem] = pd.read_parquet(fp)
-        else:
-            click.echo(f"Path not found: {dir_path}", err=True)
-            sys.exit(1)
-        return tables
+    from sqllocks_spindle.verify.loader import load_tables as _load_tables_shared
 
     click.echo(f"Spindle v{__version__} — Fidelity Comparison")
     click.echo()
 
-    real_tables = _load_tables(real_path, input_fmt)
-    synth_tables = _load_tables(synth_path, input_fmt)
+    try:
+        real_tables = _load_tables_shared(real_path, input_fmt)
+        synth_tables = _load_tables_shared(synth_path, input_fmt)
+    except (FileNotFoundError, ValueError) as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(1)
+
+    if not real_tables:
+        click.echo(f"No {input_fmt} files found in {real_path}", err=True)
+        sys.exit(1)
+    if not synth_tables:
+        click.echo(f"No {input_fmt} files found in {synth_path}", err=True)
+        sys.exit(1)
 
     click.echo(f"  Real tables:  {', '.join(real_tables.keys())}")
     click.echo(f"  Synth tables: {', '.join(synth_tables.keys())}")
