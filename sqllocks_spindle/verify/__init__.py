@@ -2,10 +2,6 @@
 
 from sqllocks_spindle.verify.loader import load_tables
 from sqllocks_spindle.verify.report import VerifyReport, VerifyResult
+from sqllocks_spindle.verify.runner import VerifyRunner
 
-try:
-    from sqllocks_spindle.verify.runner import VerifyRunner
-except ModuleNotFoundError:
-    pass
-
-__all__ = ["load_tables", "VerifyReport", "VerifyResult"]
+__all__ = ["load_tables", "VerifyReport", "VerifyResult", "VerifyRunner"]
