@@ -710,6 +710,9 @@ class SchemaDriftGate(ValidationGate):
         )
 
 
+_DISTRIBUTION_MIN_SAMPLE = 20
+
+
 class DistributionGate(ValidationGate):
     """Check that numeric and enum columns match schema-declared distributions.
 
@@ -770,17 +773,9 @@ class DistributionGate(ValidationGate):
                         continue
 
                     series = pd.to_numeric(df[col_name], errors="coerce").dropna()
-                    if len(series) < 20:
+                    if len(series) < _DISTRIBUTION_MIN_SAMPLE:
                         warnings.append(
                             f"{key}: too few rows ({len(series)}) for KS test — skipped"
-                        )
-                        continue
-
-                    try:
-                        dist = getattr(_sp_stats, dist_name)  # noqa: F841
-                    except AttributeError:
-                        warnings.append(
-                            f"{key}: unknown scipy distribution '{dist_name}' — skipped"
                         )
                         continue
 
@@ -789,7 +784,8 @@ class DistributionGate(ValidationGate):
                     params = {k: v for k, v in col_def.generator.items() if k not in _skip}
 
                     try:
-                        ks_stat, p_value = _sp_stats.kstest(series, dist_name, args=tuple(params.values()))
+                        dist_obj = getattr(_sp_stats, dist_name)(**params)
+                        ks_stat, p_value = _sp_stats.kstest(series, dist_obj.cdf)
                     except Exception as exc:
                         warnings.append(f"{key}: KS test failed — {exc}")
                         continue
@@ -808,7 +804,7 @@ class DistributionGate(ValidationGate):
                         continue
 
                     series = df[col_name].dropna()
-                    if len(series) < 20:
+                    if len(series) < _DISTRIBUTION_MIN_SAMPLE:
                         warnings.append(
                             f"{key}: too few rows ({len(series)}) for chi-squared test — skipped"
                         )

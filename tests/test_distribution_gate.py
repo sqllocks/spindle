@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import random
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -53,6 +55,8 @@ class TestDistributionGate:
         ctx = ValidationContext(tables={"test_table": df}, schema=schema)
         result = DistributionGate().check(ctx)
         assert result.passed
+        # Also verify no drift warning was emitted (data was generated from the same distribution)
+        assert not any("drifted" in w for w in result.warnings), f"Unexpected drift warnings: {result.warnings}"
 
     @pytest.mark.skipif(
         not __import__("importlib").util.find_spec("scipy"),
@@ -76,7 +80,6 @@ class TestDistributionGate:
         reason="scipy not installed",
     )
     def test_passes_on_matching_enum_distribution(self):
-        import random
         random.seed(42)
         data = random.choices(["A", "B", "C"], weights=[0.5, 0.3, 0.2], k=1000)
         schema = _make_schema(
@@ -101,6 +104,7 @@ class TestDistributionGate:
         )
         ctx = ValidationContext(tables={"test_table": df}, schema=schema)
         result = DistributionGate().check(ctx)
+        assert result.passed  # Missing values are warnings, not errors
         assert any("C" in w or "missing" in w.lower() for w in result.warnings)
 
     def test_skips_gracefully_without_scipy(self, monkeypatch):
