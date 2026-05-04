@@ -1035,6 +1035,157 @@ def compare(real_path: str, synth_path: str, input_fmt: str, output: str | None)
 
 
 @main.command()
+@click.argument("data_path")
+@click.option(
+    "--format",
+    "input_fmt",
+    default="csv",
+    type=click.Choice(["csv", "parquet", "jsonl"]),
+    show_default=True,
+    help="Input file format.",
+)
+@click.option(
+    "--schema",
+    "schema_path",
+    default=None,
+    help="Path to .spindle.json — enables schema conformance, null, PK, and FK checks.",
+)
+@click.option(
+    "--statistical",
+    is_flag=True,
+    default=False,
+    help="Run KS and chi-squared distribution tests. Requires scipy ([inference] extra).",
+)
+@click.option(
+    "--output",
+    "-o",
+    default=None,
+    help="Write report to file. Extension determines format: .json or .md.",
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    default=False,
+    help="Exit 1 when warnings are present (in addition to errors).",
+)
+def verify(
+    data_path: str,
+    input_fmt: str,
+    schema_path: str | None,
+    statistical: bool,
+    output: str | None,
+    strict: bool,
+) -> None:
+    """Verify synthetic data quality and statistical integrity.
+
+    Loads generated data from DATA_PATH (file or directory), runs a suite of
+    validation gates, and exits 0 if all pass.
+
+    \b
+    Without --schema: only row counts are reported (no schema = no gates).
+    With --schema:    adds schema conformance, null constraint, PK uniqueness,
+                      and referential integrity checks.
+    With --statistical: also runs KS test (numeric) and chi-squared (enum)
+                        against schema-fitted distribution parameters.
+                        Requires: pip install sqllocks-spindle[inference]
+
+    \b
+    Examples:
+      spindle verify ./output/
+      spindle verify data.csv --schema retail.spindle.json
+      spindle verify ./output/ --schema schema.json --statistical --output report.md
+      spindle verify ./output/ --schema schema.json --output report.json
+    """
+    from pathlib import Path
+
+    from sqllocks_spindle.verify.loader import load_tables
+    from sqllocks_spindle.verify.runner import VerifyRunner
+    from sqllocks_spindle.verify.report import VerifyReport
+
+    click.echo(f"Spindle v{__version__} — Verify")
+    click.echo()
+
+    # Load data
+    try:
+        tables = load_tables(data_path, input_fmt)
+    except (FileNotFoundError, ValueError) as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(1)
+
+    if not tables:
+        click.echo(f"No {input_fmt} files found in {data_path}", err=True)
+        sys.exit(1)
+
+    # Load schema (optional)
+    schema = None
+    if schema_path:
+        from sqllocks_spindle.schema.parser import SchemaParser
+        try:
+            schema = SchemaParser().parse_file(schema_path)
+        except Exception as exc:
+            click.echo(f"Schema parse error: {exc}", err=True)
+            sys.exit(1)
+
+    # Run
+    runner = VerifyRunner(
+        schema=schema,
+        statistical=statistical,
+        data_path=data_path,
+        schema_path=schema_path,
+    )
+    result = runner.run(tables)
+
+    # Console output
+    overall = "PASS" if result.passed else "FAIL"
+    click.echo(f"Data path:   {data_path}")
+    if schema_path:
+        click.echo(f"Schema:      {schema_path}")
+    click.echo(f"Statistical: {'yes' if statistical else 'no'}")
+    click.echo()
+
+    # Gate table
+    if result.gate_results:
+        click.echo(f"{'Gate':<28} {'Status':<8} {'Errors':>6} {'Warnings':>8}")
+        click.echo("-" * 55)
+        for gr in result.gate_results:
+            status = "PASS" if gr.passed else "FAIL"
+            click.echo(
+                f"{gr.gate_name:<28} {status:<8} {len(gr.errors):>6} {len(gr.warnings):>8}"
+            )
+        click.echo()
+
+    # Row counts
+    click.echo("Row counts:")
+    for table, count in sorted(result.row_counts.items()):
+        click.echo(f"  {table}: {count:,}")
+    click.echo()
+
+    # Errors / warnings inline
+    for gr in result.gate_results:
+        for e in gr.errors:
+            click.echo(f"  ERROR [{gr.gate_name}]: {e}", err=True)
+        for w in gr.warnings:
+            click.echo(f"  WARN  [{gr.gate_name}]: {w}")
+
+    click.echo(f"\nResult: {overall}")
+
+    # Write report file
+    if output:
+        report = VerifyReport(result)
+        out_path = Path(output)
+        if out_path.suffix == ".json":
+            out_path.write_text(report.to_json(), encoding="utf-8")
+        else:
+            out_path.write_text(report.to_markdown(), encoding="utf-8")
+        click.echo(f"Report written to {output}")
+
+    # Exit code
+    has_warnings = any(gr.warnings for gr in result.gate_results)
+    if not result.passed or (strict and has_warnings):
+        sys.exit(1)
+
+
+@main.command()
 @click.argument("preset_or_domains")
 @click.option("--scale", "-s", default="small", help="Scale preset")
 @click.option("--seed", default=42, type=int)
