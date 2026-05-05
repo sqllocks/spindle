@@ -74,3 +74,13 @@ class TestVerifyCLI:
         df.to_csv(tmp_path / "t.csv", index=False)
         rc, _, _ = _cli("verify", str(tmp_path), "--strict")
         assert rc == 0  # passes because no warnings without schema
+
+    def test_strict_exits_1_on_warnings(self, tmp_path):
+        """--strict should exit 1 if distribution gate emits warnings (no scipy path via monkeypatch not possible in e2e).
+        Use --statistical without --schema: DistributionGate produces a 'No schema provided' warning."""
+        import json as _json
+        df = pd.DataFrame({"id": [1, 2, 3]})
+        df.to_csv(tmp_path / "t.csv", index=False)
+        # --statistical without --schema triggers DistributionGate warning "No schema provided"
+        rc, out, err = _cli("verify", str(tmp_path), "--statistical", "--strict")
+        assert rc == 1, f"Expected exit 1 with strict+warnings, got {rc}\nstdout: {out}\nstderr: {err}"

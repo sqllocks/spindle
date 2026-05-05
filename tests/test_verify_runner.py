@@ -103,3 +103,13 @@ class TestVerifyRunner:
         assert not result.passed
         conf_gate = next(gr for gr in result.gate_results if gr.gate_name == "schema_conformance")
         assert not conf_gate.passed
+
+    def test_statistical_without_schema_passes_with_warning(self):
+        df = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
+        runner = VerifyRunner(statistical=True)  # no schema
+        result = runner.run({"t": df})
+        assert result.passed
+        assert any("distribution" == gr.gate_name for gr in result.gate_results)
+        dist_gate = next(gr for gr in result.gate_results if gr.gate_name == "distribution")
+        assert dist_gate.passed
+        assert any("No schema" in w for w in dist_gate.warnings)
