@@ -1,6 +1,7 @@
 """Validation gates and quarantine for Spindle data generation."""
 
 from sqllocks_spindle.validation.gates import (
+    DistributionGate,
     FileFormatGate,
     GateResult,
     GateRunner,
@@ -17,6 +18,7 @@ from sqllocks_spindle.validation.gates import (
 from sqllocks_spindle.validation.quarantine import QuarantineEntry, QuarantineManager
 
 __all__ = [
+    "DistributionGate",
     "FileFormatGate",
     "GateResult",
     "GateRunner",

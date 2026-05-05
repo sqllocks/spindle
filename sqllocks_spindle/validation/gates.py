@@ -12,6 +12,12 @@ import pandas as pd
 
 from sqllocks_spindle.schema.parser import SpindleSchema
 
+try:
+    from scipy import stats as _sp_stats
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+
 
 @dataclass
 class ValidationContext:
@@ -704,6 +710,148 @@ class SchemaDriftGate(ValidationGate):
         )
 
 
+_DISTRIBUTION_MIN_SAMPLE = 20
+
+
+class DistributionGate(ValidationGate):
+    """Check that numeric and enum columns match schema-declared distributions.
+
+    For columns with strategy="distribution": runs a Kolmogorov-Smirnov (KS) test
+    comparing the actual data to the fitted scipy distribution from the schema.
+    KS p-value < alpha produces a warning (not an error — distribution drift is
+    expected at scale; hard failures are reserved for broken data).
+
+    For columns with strategy="enum": runs a chi-squared test comparing observed
+    category frequencies to expected probabilities. Missing expected values produce
+    a warning.
+
+    Requires scipy. Skips gracefully (with a warning) when scipy is not installed.
+    Configure significance threshold via context.config["distribution_alpha"] (default 0.05).
+    """
+
+    name = "distribution"
+
+    def check(self, context: ValidationContext) -> GateResult:
+        errors: list[str] = []
+        warnings: list[str] = []
+        details: dict[str, Any] = {}
+
+        if context.schema is None:
+            return GateResult(
+                gate_name=self.name,
+                passed=True,
+                warnings=["No schema provided — distribution checks skipped"],
+            )
+
+        if not HAS_SCIPY:
+            return GateResult(
+                gate_name=self.name,
+                passed=True,
+                warnings=[
+                    "scipy is not installed — distribution checks skipped. "
+                    "Install with: pip install sqllocks-spindle[inference]"
+                ],
+            )
+
+        alpha: float = context.config.get("distribution_alpha", 0.05)
+
+        for table_name, table_def in context.schema.tables.items():
+            if table_name not in context.tables:
+                continue
+            df = context.tables[table_name]
+
+            for col_name, col_def in table_def.columns.items():
+                if col_name not in df.columns:
+                    continue
+
+                strategy = col_def.generator.get("strategy", "")
+                key = f"{table_name}.{col_name}"
+
+                if strategy == "distribution":
+                    dist_name = col_def.generator.get("name")
+                    if not dist_name:
+                        continue
+
+                    series = pd.to_numeric(df[col_name], errors="coerce").dropna()
+                    if len(series) < _DISTRIBUTION_MIN_SAMPLE:
+                        warnings.append(
+                            f"{key}: too few rows ({len(series)}) for KS test — skipped"
+                        )
+                        continue
+
+                    # Build params from generator dict (exclude known non-param keys)
+                    _skip = {"strategy", "name"}
+                    params = {k: v for k, v in col_def.generator.items() if k not in _skip}
+
+                    try:
+                        dist_obj = getattr(_sp_stats, dist_name)(**params)
+                        ks_stat, p_value = _sp_stats.kstest(series, dist_obj.cdf)
+                    except Exception as exc:
+                        warnings.append(f"{key}: KS test failed — {exc}")
+                        continue
+
+                    details[key] = {"ks_statistic": round(ks_stat, 4), "p_value": round(p_value, 4)}
+
+                    if p_value < alpha:
+                        warnings.append(
+                            f"{key}: KS test p={p_value:.4f} < α={alpha} — "
+                            f"distribution may have drifted from schema ({dist_name})"
+                        )
+
+                elif strategy == "enum":
+                    expected_values: dict[str, float] = col_def.generator.get("values", {})
+                    if not expected_values:
+                        continue
+
+                    series = df[col_name].dropna()
+                    if len(series) < _DISTRIBUTION_MIN_SAMPLE:
+                        warnings.append(
+                            f"{key}: too few rows ({len(series)}) for chi-squared test — skipped"
+                        )
+                        continue
+
+                    observed_counts = series.value_counts()
+                    n = len(series)
+
+                    # Check for missing expected values
+                    for val in expected_values:
+                        if val not in observed_counts.index:
+                            warnings.append(
+                                f"{key}: expected enum value '{val}' is missing from data"
+                            )
+
+                    # Chi-squared: observed vs expected frequencies
+                    common = [v for v in expected_values if v in observed_counts.index]
+                    if len(common) < 2:
+                        continue
+
+                    obs = [int(observed_counts[v]) for v in common]
+                    total_expected_weight = sum(expected_values[v] for v in common)
+                    exp = [n * (expected_values[v] / total_expected_weight) for v in common]
+
+                    try:
+                        chi2, p_value = _sp_stats.chisquare(obs, f_exp=exp)
+                    except Exception as exc:
+                        warnings.append(f"{key}: chi-squared test failed — {exc}")
+                        continue
+
+                    details[key] = {"chi2": round(chi2, 4), "p_value": round(p_value, 4)}
+
+                    if p_value < alpha:
+                        warnings.append(
+                            f"{key}: chi-squared p={p_value:.4f} < α={alpha} — "
+                            f"enum distribution may have drifted"
+                        )
+
+        return GateResult(
+            gate_name=self.name,
+            passed=len(errors) == 0,
+            errors=errors,
+            warnings=warnings,
+            details=details,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Gate registry and runner
 # ---------------------------------------------------------------------------
@@ -717,6 +865,7 @@ _GATE_REGISTRY: dict[str, type[ValidationGate]] = {
     "temporal_consistency": TemporalConsistencyGate,
     "file_format": FileFormatGate,
     "schema_drift": SchemaDriftGate,
+    "distribution": DistributionGate,
 }
 
 
