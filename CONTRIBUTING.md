@@ -29,6 +29,36 @@ pytest tests/test_e2e_generation.py -v
 pytest tests/ --cov=sqllocks_spindle --cov-report=term-missing
 ```
 
+## Adding a New Domain
+
+A domain is a reusable schema + calibration package. The fastest way to contribute to Spindle is to add one.
+
+1. Copy the scaffold:
+
+   ```bash
+   cp -r domains/_template/ domains/<your-domain>/
+   ```
+
+2. Define entities, attributes, and relationships in the `.spindle.json` schema. Existing domains (`domains/retail/`, `domains/financial/`, `domains/healthcare/`) are good reference.
+
+3. Cite calibration sources. Spindle is statistically calibrated — distributions should come from public stats (BLS, NAIC, NCES, NAR, FDIC, industry reports, etc.), not from assumption. Document each source in `domains/<your-domain>/methodology.md`.
+
+4. Add a smoke test under `tests/domains/test_<your-domain>.py` that generates ~1,000 rows and asserts FK integrity:
+
+   ```python
+   def test_smoke():
+       result = Spindle().generate(YourDomain(), scale="small", seed=42)
+       assert result.verify_integrity() == []
+   ```
+
+5. Add a short entry to `docs/domains/<your-domain>.md` describing the schema and use cases.
+
+6. Open a PR. Tag it `domain` so it shows up in the domain queue.
+
+Domains we'd love to see: bookstore, events, library, conference, gym, telecom, gaming, logistics. Anything practitioner-shaped is welcome — keep it 5–10 tables, statistically realistic, and self-contained.
+
+If you'd rather discuss the idea before writing code, [open a Discussion](https://github.com/sqllocks/spindle/discussions) or comment on [Issue #1](https://github.com/sqllocks/spindle/issues/1).
+
 ## Adding a Custom Strategy
 
 Spindle supports entrypoint-based plugins. To add a custom strategy:
