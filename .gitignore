@@ -75,3 +75,14 @@ Spindle_*.zip
 SPINDLE_*.md
 scenario_packs_extracted/
 .worktrees/
+
+# Claude Code editor temp files
+*.tmp.*
+
+# Generated output directories
+pack_output/
+pack_output_*/
+spindle_output/
+
+# Claude Code internal
+.superpowers/
