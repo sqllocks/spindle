@@ -21,7 +21,14 @@ serialization guard on the rich dataclasses (STORY-004), and population of the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import cost
+    from sqllocks_spindle.inference.profiler import (
+        ColumnProfile,
+        DatasetProfile,
+        TableProfile,
+    )
 
 # Current persisted schema version. Every persisted-statistic addition bumps
 # this (ARCHITECTURE.md Invariants). Legacy files load read-only as version 0.
@@ -82,6 +89,119 @@ class SafeColumnProfile:
     # Temporal histograms (per-column, where applicable — date/datetime cols).
     hour_histogram: list[float] | None = None
     dow_histogram: list[float] | None = None
+
+    # ----- mapping (rich -> safe) -----
+
+    @classmethod
+    def from_column_profile(
+        cls,
+        col: "ColumnProfile",
+        config: dict[str, Any] | None = None,
+    ) -> "SafeColumnProfile":
+        """Map a rich ``ColumnProfile`` to a ``SafeColumnProfile`` (STORY-002).
+
+        Selects ONLY the safe-and-sufficient statistic set. Reads the REAL
+        attribute names on ``ColumnProfile`` (``min_value``/``max_value`` are
+        *never* read — ADR-002; bounds derive from ``quantiles``). This fixes
+        the B2 attribute-mismatch bug class where the legacy registry read
+        non-existent ``.min``/``.max``/``.top_values``.
+
+        Disclosure-control transforms are applied via hooks that are STUBS in
+        this story and become real in their owning stories:
+
+        * ``bounds``  — winsorized quantile bounds (STORY-006 / ADR-002). Stub
+          here: ``{"lo": p1, "hi": p99}`` taken from ``quantiles`` if present.
+        * ``categorical_weights`` — k-anon suppression (STORY-007 / ADR-003).
+          Stub here: passthrough of the seeded weights (no suppression yet).
+        * pattern-only PII gate (STORY-008 / ADR-004). Stub here: passthrough.
+        """
+        config = config or {}
+
+        # Numeric summary statistics — carried verbatim (safe aggregates).
+        mean = getattr(col, "mean", None)
+        std = getattr(col, "std", None)
+        quantiles = getattr(col, "quantiles", None)
+        distribution = getattr(col, "distribution", None)
+        distribution_params = getattr(col, "distribution_params", None)
+
+        # Winsorized bounds STUB (STORY-006 owns the real winsorization).
+        # ADR-002: derive from quantiles p1/p99 — NEVER from min_value/max_value.
+        bounds = cls._winsorized_bounds_hook(quantiles, config)
+
+        # Categorical weights: seed from enum_values, fall back to
+        # value_counts_ext. Both are REAL attribute names on ColumnProfile.
+        categorical_weights = None
+        if getattr(col, "is_enum", False):
+            seed = getattr(col, "enum_values", None) or getattr(
+                col, "value_counts_ext", None
+            )
+            if seed:
+                categorical_weights = cls._suppress_categories_hook(seed, config)
+
+        # String/pattern statistics. ``string_length`` is a safe summary
+        # (min/mean/max/p95) carried verbatim; ``length_dist`` (a normalized
+        # histogram) has no source on the rich profile yet — left None for the
+        # STORY-008 pattern-only path to populate.
+        pattern = getattr(col, "pattern", None)
+        string_length = getattr(col, "string_length", None)
+        length_dist = None
+
+        return cls(
+            name=col.name,
+            dtype=col.dtype,
+            null_rate=getattr(col, "null_rate", 0.0),
+            cardinality=getattr(col, "cardinality", 0),
+            mean=mean,
+            std=std,
+            quantiles=quantiles,
+            distribution=distribution,
+            distribution_params=distribution_params,
+            bounds=bounds,
+            categorical_weights=categorical_weights,
+            pattern=pattern,
+            length_dist=length_dist,
+            string_length=string_length,
+            hour_histogram=getattr(col, "hour_histogram", None),
+            dow_histogram=getattr(col, "dow_histogram", None),
+        )
+
+    # ----- disclosure-control hooks (STUBS — replaced by later stories) -----
+
+    @staticmethod
+    def _winsorized_bounds_hook(
+        quantiles: dict[str, float] | None,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, float] | None:
+        """STORY-006 hook (stub). Bounds from quantile percentiles (ADR-002).
+
+        Default winsorization percentiles are p1/p99; the real STORY-006
+        implementation makes these configurable (p0.5/p99.5 fallback) and
+        clips at generation. Here we only read the lo/hi percentile keys from
+        the already-computed ``quantiles`` dict — raw min/max are never read.
+        """
+        if not quantiles:
+            return None
+        config = config or {}
+        lo_key = config.get("bounds_lo_quantile", "p1")
+        hi_key = config.get("bounds_hi_quantile", "p99")
+        lo = quantiles.get(lo_key)
+        hi = quantiles.get(hi_key)
+        if lo is None or hi is None:
+            return None
+        return {"lo": float(lo), "hi": float(hi)}
+
+    @staticmethod
+    def _suppress_categories_hook(
+        weights: dict[str, float],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, float]:
+        """STORY-007 hook (stub). k-anon ``__OTHER__`` suppression (ADR-003).
+
+        Passthrough in STORY-002 — the real implementation folds any value
+        with count < k into a single ``__OTHER__`` bucket. Returns a copy so
+        callers never mutate the rich profile's dict.
+        """
+        return dict(weights)
 
     # ----- serialization -----
 
@@ -147,6 +267,32 @@ class SafeTableProfile:
     # Inter-column Pearson correlation (per-table, where applicable).
     correlation_matrix: dict[str, dict[str, float]] | None = None
 
+    # ----- mapping (rich -> safe) -----
+
+    @classmethod
+    def from_table_profile(
+        cls,
+        table: "TableProfile",
+        config: dict[str, Any] | None = None,
+    ) -> "SafeTableProfile":
+        """Map a rich ``TableProfile`` to a ``SafeTableProfile`` (STORY-002).
+
+        One ``SafeColumnProfile`` per column. Carries the table-level
+        ``correlation_matrix``, ``primary_key`` and advisory ``detected_fks``
+        (names/overlap only — no raw values). Column order is preserved.
+        """
+        return cls(
+            name=table.name,
+            row_count=getattr(table, "row_count", 0),
+            columns={
+                col_name: SafeColumnProfile.from_column_profile(col, config)
+                for col_name, col in table.columns.items()
+            },
+            primary_key=list(getattr(table, "primary_key", []) or []),
+            detected_fks=dict(getattr(table, "detected_fks", {}) or {}),
+            correlation_matrix=getattr(table, "correlation_matrix", None),
+        )
+
     # ----- serialization -----
 
     def to_safe_dict(self) -> dict[str, Any]:
@@ -197,6 +343,41 @@ class SafeProfile:
     # Self-describing redaction manifest (ADR-005). Populated by STORY-009;
     # present-but-empty in STORY-001.
     redaction_manifest: dict = field(default_factory=dict)
+
+    # ----- mapping (rich -> safe) -----
+
+    @classmethod
+    def from_dataset_profile(
+        cls,
+        dataset_profile: "DatasetProfile",
+        config: dict[str, Any] | None = None,
+    ) -> "SafeProfile":
+        """Map a rich ``DatasetProfile`` to a ``SafeProfile`` (STORY-002 / ADR-001).
+
+        Builds one ``SafeTableProfile`` per table and one ``SafeColumnProfile``
+        per column, selecting ONLY the safe-and-sufficient statistic set. The
+        rich profile is the *source*; the returned ``SafeProfile`` is the safe
+        *transport*.
+
+        The mapper reads only REAL attribute names on the rich dataclasses
+        (``min_value``/``max_value`` are never read — bounds derive from
+        ``quantiles`` per ADR-002), fixing the B2 attribute-mismatch bug class.
+
+        ``config`` is an optional per-profile/per-column settings dict threaded
+        to the disclosure-control hooks (winsorization percentiles, k-anon k,
+        PII gate) which are stubs in this story.
+
+        ``redaction_manifest`` is left empty here — STORY-009 populates it.
+        """
+        return cls(
+            tables={
+                tname: SafeTableProfile.from_table_profile(tprofile, config)
+                for tname, tprofile in dataset_profile.tables.items()
+            },
+            relationships=list(getattr(dataset_profile, "relationships", []) or []),
+            schema_version=SCHEMA_VERSION,
+            redaction_manifest={},
+        )
 
     # ----- serialization -----
 
