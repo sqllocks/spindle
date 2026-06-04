@@ -9,7 +9,7 @@ SpindleSchema.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +67,17 @@ _POSTAL_US_RE = re.compile(r"^\d{5}(-\d{4})?$")
 # ---------------------------------------------------------------------------
 
 
+# ADR-007: raw-bearing fields are stored as InitVar pseudo-fields so they are
+# EXCLUDED from dataclasses.fields(ColumnProfile). dataclasses.asdict()/json
+# therefore can never emit them — making a naive json.dump(asdict(profile)) a
+# structural no-op for these fields rather than a PII leak. The public
+# constructor kwargs (min_value=, max_value=, enum_values=, value_counts_ext=)
+# are preserved unchanged; in-process reads go through the read-only @property
+# accessors assigned below. See STORY-004 / ADR-007.
+_RAW_BEARING_FIELDS = ("enum_values", "min_value", "max_value", "value_counts_ext")
+_RAW_BEARING_PRIVATE = tuple(f"_{n}" for n in _RAW_BEARING_FIELDS)
+
+
 @dataclass
 class ColumnProfile:
     """Statistical profile of a single column."""
@@ -79,9 +90,12 @@ class ColumnProfile:
     cardinality_ratio: float  # cardinality / row_count
     is_unique: bool
     is_enum: bool  # True if cardinality < 200 or cardinality_ratio < 0.20
-    enum_values: dict[str, float] | None  # value -> probability (if is_enum)
-    min_value: Any
-    max_value: Any
+    # raw-bearing — InitVar (ADR-007); read via .enum_values property
+    enum_values: InitVar[dict[str, float] | None]
+    # raw-bearing — InitVar (ADR-007); read via .min_value property
+    min_value: InitVar[Any]
+    # raw-bearing — InitVar (ADR-007); read via .max_value property
+    max_value: InitVar[Any]
     mean: float | None  # numeric only
     std: float | None  # numeric only
     distribution: str | None  # best-fit name or None
@@ -97,8 +111,55 @@ class ColumnProfile:
     dow_histogram: list[float] | None = None            # 7-bin normalized day-of-week distribution
     string_length: dict[str, float] | None = None       # min, mean, max, p95 of len(value)
     outlier_rate: float | None = None                   # fraction outside 1.5×IQR fence
-    value_counts_ext: dict[str, float] | None = None   # value→proportion (top N)
+    # raw-bearing — InitVar (ADR-007); read via .value_counts_ext property
+    value_counts_ext: InitVar[dict[str, float] | None] = None   # value→proportion (top N)
     fit_score: float | None = None                      # 1 - KS_statistic from best-fit dist
+
+    def __post_init__(
+        self,
+        enum_values: dict[str, float] | None,
+        min_value: Any,
+        max_value: Any,
+        value_counts_ext: dict[str, float] | None,
+    ) -> None:
+        # Store raw-bearing values in private attrs that are NOT dataclass fields.
+        object.__setattr__(self, "_enum_values", enum_values)
+        object.__setattr__(self, "_min_value", min_value)
+        object.__setattr__(self, "_max_value", max_value)
+        object.__setattr__(self, "_value_counts_ext", value_counts_ext)
+
+    def __getstate__(self) -> dict:
+        # ADR-007: strip raw-bearing private attrs from any pickle representation.
+        state = dict(self.__dict__)
+        for priv in _RAW_BEARING_PRIVATE:
+            state.pop(priv, None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        # Restore non-raw state; raw-bearing attrs come back as None (stripped on pickle).
+        self.__dict__.update(state)
+        for priv in _RAW_BEARING_PRIVATE:
+            if priv not in self.__dict__:
+                self.__dict__[priv] = None
+
+
+def _raw_bearing_property(private_name: str) -> property:
+    """Read-only accessor for an InitVar-stored raw-bearing field.
+
+    Defined AFTER the dataclass body so the property object does not become the
+    field's default value (which would force a non-default field to follow a
+    defaulted one and break @dataclass).
+    """
+
+    def _getter(self, _attr: str = private_name):
+        return getattr(self, _attr)
+
+    return property(_getter)
+
+
+for _public, _private in zip(_RAW_BEARING_FIELDS, _RAW_BEARING_PRIVATE):
+    setattr(ColumnProfile, _public, _raw_bearing_property(_private))
+del _public, _private
 
 
 @dataclass
