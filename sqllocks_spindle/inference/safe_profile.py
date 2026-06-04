@@ -54,6 +54,37 @@ FORBIDDEN_RAW_FIELDS = frozenset(
     {"min_value", "max_value", "enum_values", "value_counts_ext"}
 )
 
+# Value-pattern PII gate (ADR-004 / STORY-008). The profiler's value-based
+# pattern detector (``ColumnProfile.pattern``) emits these names for the PII
+# classes ADR-004 enumerates (email / ssn / cc / phone / ip / iban / postal).
+# A column whose detected ``pattern`` is in this set — REGARDLESS of its column
+# NAME — persists ``pattern`` + ``length_dist`` only, never values. This is the
+# name-independent catch the name-based masker/profiler heuristics miss
+# (the B6 hole: PII in ``notes`` / ``c_47``).
+#
+# Detection is value-based, so it is DEFENSE-IN-DEPTH, NOT a completeness
+# guarantee (ADR-004 / ADR-011): a novel/encoded PII format the regexes do not
+# recognise can pass the pattern check — the cardinality≈row_count backstop
+# below is the generic suppressor for high-card free-text that the regexes miss.
+PII_PATTERNS = frozenset(
+    {
+        "email",
+        "ssn",
+        "credit_card",  # ADR-004 "cc"
+        "phone",
+        "ip_address",  # ADR-004 "ip"
+        "iban",
+        "postal_code",  # ADR-004 "postal"
+    }
+)
+
+# cardinality≈row_count backstop (ADR-004). A column whose distinct-value count
+# is within this fraction of the row count is treated as effectively unique
+# free-text (names, addresses, notes, obfuscated/concatenated PII the regexes
+# miss) and is gated to pattern + length only. Default 0.95; configurable via
+# ``config["pii_cardinality_ratio"]``.
+PII_CARDINALITY_RATIO = 0.95
+
 
 # ---------------------------------------------------------------------------
 # SafeColumnProfile
@@ -136,7 +167,13 @@ class SafeColumnProfile:
           ``count`` is derived from the seeded proportion x ``row_count`` (the
           rich ``enum_values`` / ``value_counts_ext`` carry value->proportion,
           not raw counts). ``row_count`` is threaded in by the table mapper.
-        * pattern-only PII gate (STORY-008 / ADR-004). Stub here: passthrough.
+        * value-pattern PII gate (STORY-008 / ADR-004). When a column's detected
+          ``pattern`` is a PII class (:pydata:`PII_PATTERNS`) OR its cardinality
+          is approximately the row count (high-card free-text backstop), the
+          column persists ``pattern`` + ``length_dist`` ONLY — ``categorical_
+          weights`` are dropped and no values are carried. Detection is
+          name-independent (catches PII in ``notes`` / ``c_47``). This is
+          DEFENSE-IN-DEPTH, NOT a completeness guarantee (ADR-004 / ADR-011).
         """
         config = config or {}
 
@@ -171,12 +208,25 @@ class SafeColumnProfile:
                 )
 
         # String/pattern statistics. ``string_length`` is a safe summary
-        # (min/mean/max/p95) carried verbatim; ``length_dist`` (a normalized
-        # histogram) has no source on the rich profile yet — left None for the
-        # STORY-008 pattern-only path to populate.
+        # (min/mean/max/p95) carried verbatim.
         pattern = getattr(col, "pattern", None)
         string_length = getattr(col, "string_length", None)
         length_dist = None
+
+        # Value-pattern PII gate (STORY-008 / ADR-004). Name-independent: keyed
+        # off the value-detected ``pattern`` and the cardinality≈row_count
+        # backstop, never the column name. When it fires the column persists
+        # ``pattern`` + ``length_dist`` ONLY — categorical weights are dropped so
+        # no values reach disk.
+        if cls._pii_gate_hook(
+            pattern=pattern,
+            cardinality=getattr(col, "cardinality", 0),
+            row_count=row_count,
+            config=config,
+        ):
+            length_dist = cls._length_dist_from_summary(string_length)
+            categorical_weights = None
+            suppressed_category_count = None
 
         return cls(
             name=col.name,
@@ -354,6 +404,84 @@ class SafeColumnProfile:
             )
 
         return surviving, suppressed
+
+    @staticmethod
+    def _pii_gate_hook(
+        pattern: str | None,
+        cardinality: int,
+        row_count: int | None,
+        config: dict[str, Any] | None = None,
+    ) -> bool:
+        """Value-pattern PII gate decision (ADR-004 / STORY-008).
+
+        Returns ``True`` if the column must be reduced to ``pattern`` +
+        ``length_dist`` only (no values, no categorical weights). The decision
+        is NAME-INDEPENDENT — it consults only the value-detected ``pattern``
+        and the cardinality≈row_count backstop, never the column name. This
+        catches PII in oddly-named columns (``notes`` / ``c_47``) that the
+        name-based masker/profiler heuristics miss (the B6 hole).
+
+        Two independent triggers (either fires the gate):
+
+        1. **PII pattern match** — ``pattern`` is one of the profiler-detected
+           PII classes (:pydata:`PII_PATTERNS`: email/ssn/cc/phone/ip/iban/
+           postal). Value-based, so it is DEFENSE-IN-DEPTH, not a completeness
+           guarantee (ADR-004 / ADR-011): a novel/encoded format the regexes
+           miss can pass it — trigger 2 is the backstop.
+
+        2. **cardinality≈row_count backstop** — the column's distinct-value
+           count is within :pydata:`PII_CARDINALITY_RATIO` of the row count
+           (configurable via ``config["pii_cardinality_ratio"]``). Catches
+           high-card free-text (names, addresses, obfuscated/concatenated PII)
+           generically, independent of any regex.
+
+        The gate can be disabled per-call with ``config["pii_gate"] = False``
+        (e.g. behind ``--unsafe-full-fidelity``, STORY-009).
+
+        This gate is defense-in-depth and is NOT a completeness guarantee
+        (ADR-004 / ADR-011): value-based regex detection can miss novel or
+        encoded PII formats. The threat model (ADR-011) names the residual.
+        """
+        config = config or {}
+        if config.get("pii_gate") is False:
+            return False
+
+        # Trigger 1: value-pattern PII match (name-independent).
+        if pattern is not None and pattern in PII_PATTERNS:
+            return True
+
+        # Trigger 2: cardinality≈row_count backstop for high-card free-text.
+        if row_count and row_count > 0:
+            ratio = config.get("pii_cardinality_ratio", PII_CARDINALITY_RATIO)
+            if cardinality / row_count >= ratio:
+                return True
+
+        return False
+
+    @staticmethod
+    def _length_dist_from_summary(
+        string_length: dict[str, float] | None,
+    ) -> dict[str, float] | None:
+        """Derive a safe ``length_dist`` descriptor from the length summary.
+
+        The rich profiler computes a ``string_length`` summary
+        (``min``/``mean``/``max``/``p95`` of ``len(value)``) but no length
+        histogram. For a PII-gated column the safe transport carries
+        ``length_dist`` as that aggregate length descriptor — it is an aggregate
+        over lengths only (never a value), so it is safe by construction.
+
+        Returns ``None`` when no length summary is available (e.g. a gated
+        non-string column with no ``string_length``).
+        """
+        if not string_length:
+            return None
+        # Copy (never alias the rich profile's dict) and keep only numeric
+        # aggregates — these are lengths, not values.
+        return {
+            key: float(val)
+            for key, val in string_length.items()
+            if isinstance(val, (int, float))
+        }
 
     # ----- serialization -----
 
