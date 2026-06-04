@@ -30,6 +30,10 @@ from sqllocks_spindle.inference.safe_profile import (
     SafeProfile,
     SafeTableProfile,
 )
+from sqllocks_spindle.inference.safe_profile_adapter import (
+    SafeProfileAdapter,
+    safe_profile_to_schema,
+)
 from sqllocks_spindle.inference.schema_builder import SchemaBuilder
 from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
 from sqllocks_spindle.inference.tier3_research import (
@@ -83,7 +87,9 @@ __all__ = [
     "ProfileStore",
     "SafeColumnProfile",
     "SafeProfile",
+    "SafeProfileAdapter",
     "SafeTableProfile",
+    "safe_profile_to_schema",
     "SCHEMA_VERSION",
     "SchemaBuilder",
     "TableFidelity",
