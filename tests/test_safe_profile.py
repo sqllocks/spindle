@@ -208,6 +208,7 @@ def test_safe_column_field_set_exact():
         "distribution_params",
         "bounds",
         "categorical_weights",
+        "suppressed_category_count",  # STORY-007 / ADR-003 k-anon bookkeeping
         "pattern",
         "length_dist",
         "string_length",

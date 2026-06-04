@@ -35,7 +35,18 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import cost
 #   v1: STORY-001 baseline safe statistic set.
 #   v2: STORY-006 adds p0_5/p99_5 to the quantile fingerprint (winsorized-bounds
 #       widening fallback endpoints; ADR-002).
-SCHEMA_VERSION = 2
+#   v3: STORY-007 adds per-column ``suppressed_category_count`` (k-anon
+#       __OTHER__ suppression bookkeeping for the redaction manifest; ADR-003).
+SCHEMA_VERSION = 3
+
+# k-anonymity defaults (ADR-003). A categorical value whose count is below the
+# applicable k is folded into a single ``__OTHER__`` bucket carrying aggregate
+# weight. ``k`` is configurable per-profile and per-column; a ``sensitive`` /
+# health flag raises it to ``K_SENSITIVE``.
+K_DEFAULT = 5
+K_SENSITIVE = 11
+# The residual bucket every suppressed sub-k value is folded into.
+OTHER_BUCKET = "__OTHER__"
 
 # Raw-bearing field names that must NEVER appear on the safe model (ADR-007).
 # Used by the introspection conformance test (and a cheap self-check below).
@@ -81,6 +92,11 @@ class SafeColumnProfile:
     # values — sub-k categories are folded into "__OTHER__" before they land
     # here (STORY-007).
     categorical_weights: dict[str, float] | None = None
+    # Number of distinct categories that were suppressed (folded into
+    # ``__OTHER__``) by k-anon (ADR-003 / STORY-007). Recorded so the redaction
+    # manifest (STORY-009) can report per-column what was dropped. None for
+    # non-categorical columns; 0 when a categorical had nothing to suppress.
+    suppressed_category_count: int | None = None
 
     # String/pattern statistics.
     pattern: str | None = None
@@ -100,6 +116,7 @@ class SafeColumnProfile:
         cls,
         col: "ColumnProfile",
         config: dict[str, Any] | None = None,
+        row_count: int | None = None,
     ) -> "SafeColumnProfile":
         """Map a rich ``ColumnProfile`` to a ``SafeColumnProfile`` (STORY-002).
 
@@ -114,8 +131,11 @@ class SafeColumnProfile:
 
         * ``bounds``  — winsorized quantile bounds (STORY-006 / ADR-002). Stub
           here: ``{"lo": p1, "hi": p99}`` taken from ``quantiles`` if present.
-        * ``categorical_weights`` — k-anon suppression (STORY-007 / ADR-003).
-          Stub here: passthrough of the seeded weights (no suppression yet).
+        * ``categorical_weights`` — k-anon suppression (STORY-007 / ADR-003):
+          any value with count < k folded into a single ``__OTHER__`` bucket.
+          ``count`` is derived from the seeded proportion x ``row_count`` (the
+          rich ``enum_values`` / ``value_counts_ext`` carry value->proportion,
+          not raw counts). ``row_count`` is threaded in by the table mapper.
         * pattern-only PII gate (STORY-008 / ADR-004). Stub here: passthrough.
         """
         config = config or {}
@@ -133,13 +153,22 @@ class SafeColumnProfile:
 
         # Categorical weights: seed from enum_values, fall back to
         # value_counts_ext. Both are REAL attribute names on ColumnProfile.
+        # k-anon suppression folds sub-k values into __OTHER__ (ADR-003).
         categorical_weights = None
+        suppressed_category_count = None
         if getattr(col, "is_enum", False):
             seed = getattr(col, "enum_values", None) or getattr(
                 col, "value_counts_ext", None
             )
             if seed:
-                categorical_weights = cls._suppress_categories_hook(seed, config)
+                categorical_weights, suppressed_category_count = (
+                    cls._suppress_categories_hook(
+                        seed,
+                        config,
+                        row_count=row_count,
+                        column_name=col.name,
+                    )
+                )
 
         # String/pattern statistics. ``string_length`` is a safe summary
         # (min/mean/max/p95) carried verbatim; ``length_dist`` (a normalized
@@ -161,6 +190,7 @@ class SafeColumnProfile:
             distribution_params=distribution_params,
             bounds=bounds,
             categorical_weights=categorical_weights,
+            suppressed_category_count=suppressed_category_count,
             pattern=pattern,
             length_dist=length_dist,
             string_length=string_length,
@@ -222,17 +252,108 @@ class SafeColumnProfile:
         return {"lo": float(lo), "hi": float(hi)}
 
     @staticmethod
+    def _resolve_k(
+        config: dict[str, Any] | None,
+        column_name: str | None,
+    ) -> int:
+        """Resolve the effective k for a column (ADR-003).
+
+        Precedence (most specific wins):
+
+        1. Per-column override: ``config["columns"][<column_name>]["k"]``.
+        2. Per-column sensitive flag: ``config["columns"][<column_name>]
+           ["sensitive"]`` -> ``K_SENSITIVE``.
+        3. Profile-level ``config["k"]``.
+        4. Profile-level ``config["sensitive"]`` -> ``K_SENSITIVE``.
+        5. ``K_DEFAULT`` (5).
+
+        A column override of ``k`` always beats a profile-level ``sensitive``.
+        """
+        config = config or {}
+        col_cfg: dict[str, Any] = {}
+        if column_name is not None:
+            cols = config.get("columns")
+            if isinstance(cols, dict):
+                maybe = cols.get(column_name)
+                if isinstance(maybe, dict):
+                    col_cfg = maybe
+
+        # 1 / 2 — per-column.
+        if "k" in col_cfg and col_cfg["k"] is not None:
+            return int(col_cfg["k"])
+        if col_cfg.get("sensitive"):
+            return K_SENSITIVE
+
+        # 3 / 4 — profile-level.
+        if "k" in config and config["k"] is not None:
+            return int(config["k"])
+        if config.get("sensitive"):
+            return K_SENSITIVE
+
+        return K_DEFAULT
+
+    @classmethod
     def _suppress_categories_hook(
+        cls,
         weights: dict[str, float],
         config: dict[str, Any] | None = None,
-    ) -> dict[str, float]:
-        """STORY-007 hook (stub). k-anon ``__OTHER__`` suppression (ADR-003).
+        row_count: int | None = None,
+        column_name: str | None = None,
+    ) -> tuple[dict[str, float], int]:
+        """k-anon ``__OTHER__`` suppression (ADR-003 / STORY-007).
 
-        Passthrough in STORY-002 — the real implementation folds any value
-        with count < k into a single ``__OTHER__`` bucket. Returns a copy so
-        callers never mutate the rich profile's dict.
+        Folds any category whose **count** is below the effective ``k`` into a
+        single ``__OTHER__`` bucket carrying the aggregate weight. Surviving
+        categories keep their original weights; only post-suppression weights
+        are returned, so sub-k values never reach disk (the leak ADR-003 closes).
+
+        ``weights`` is the rich seed ``value -> proportion`` (normalized; sums
+        to ~1.0), NOT raw counts. The count for each value is reconstructed as
+        ``round(proportion * row_count)``. When ``row_count`` is unknown
+        (``None`` or <= 0) suppression cannot be applied count-wise; the weights
+        pass through unchanged with a suppressed count of 0 (fail-open on the
+        bookkeeping, never fabricating a count we can't derive).
+
+        Returns ``(post_suppression_weights, suppressed_category_count)``.
+        ``suppressed_category_count`` is the number of distinct categories that
+        were folded into ``__OTHER__`` (recorded for the STORY-009 manifest).
+
+        A returned dict never mutates the caller's input.
         """
-        return dict(weights)
+        if not weights:
+            return {}, 0
+
+        k = cls._resolve_k(config, column_name)
+
+        # Without a row count we cannot turn proportions into counts; pass the
+        # weights through untouched rather than guess. (k<=1 disables
+        # suppression — every count is >= 1.)
+        if not row_count or row_count <= 0 or k <= 1:
+            return dict(weights), 0
+
+        surviving: dict[str, float] = {}
+        other_weight = 0.0
+        suppressed = 0
+        for value, weight in weights.items():
+            # __OTHER__ already present in the seed (shouldn't happen pre-
+            # suppression) is treated as residual mass, never as a real value.
+            if value == OTHER_BUCKET:
+                other_weight += float(weight)
+                continue
+            count = round(float(weight) * row_count)
+            if count < k:
+                other_weight += float(weight)
+                suppressed += 1
+            else:
+                surviving[value] = float(weight)
+
+        if suppressed > 0 or other_weight > 0.0:
+            # Accumulate (don't overwrite) in case a residual bucket pre-existed.
+            surviving[OTHER_BUCKET] = (
+                surviving.get(OTHER_BUCKET, 0.0) + other_weight
+            )
+
+        return surviving, suppressed
 
     # ----- serialization -----
 
@@ -250,6 +371,7 @@ class SafeColumnProfile:
             "distribution_params": self.distribution_params,
             "bounds": self.bounds,
             "categorical_weights": self.categorical_weights,
+            "suppressed_category_count": self.suppressed_category_count,
             "pattern": self.pattern,
             "length_dist": self.length_dist,
             "string_length": self.string_length,
@@ -271,6 +393,7 @@ class SafeColumnProfile:
             distribution_params=data.get("distribution_params"),
             bounds=data.get("bounds"),
             categorical_weights=data.get("categorical_weights"),
+            suppressed_category_count=data.get("suppressed_category_count"),
             pattern=data.get("pattern"),
             length_dist=data.get("length_dist"),
             string_length=data.get("string_length"),
@@ -312,11 +435,14 @@ class SafeTableProfile:
         ``correlation_matrix``, ``primary_key`` and advisory ``detected_fks``
         (names/overlap only — no raw values). Column order is preserved.
         """
+        row_count = getattr(table, "row_count", 0)
         return cls(
             name=table.name,
-            row_count=getattr(table, "row_count", 0),
+            row_count=row_count,
             columns={
-                col_name: SafeColumnProfile.from_column_profile(col, config)
+                col_name: SafeColumnProfile.from_column_profile(
+                    col, config, row_count=row_count
+                )
                 for col_name, col in table.columns.items()
             },
             primary_key=list(getattr(table, "primary_key", []) or []),
