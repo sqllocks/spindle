@@ -4,7 +4,7 @@ Covers:
 - Construct a SafeProfile, round-trip via dict, assert equality.
 - to_safe_dict -> from_safe_dict round-trips byte-stably.
 - Introspection: no safe dataclass declares a raw-bearing field name.
-- schema_version defaults to 1; redaction_manifest field present.
+- schema_version matches the SCHEMA_VERSION constant; redaction_manifest field present.
 - The forbidden raw fields are absent from every safe dataclass.
 """
 
@@ -133,9 +133,11 @@ def test_table_roundtrip_equality():
 # ---------------------------------------------------------------------------
 
 
-def test_schema_version_default_is_1():
-    assert SafeProfile().schema_version == 1
-    assert SCHEMA_VERSION == 1
+def test_schema_version_default_matches_constant():
+    # Bumped to 2 in STORY-006 (p0_5/p99_5 added to the quantile fingerprint —
+    # a persisted-statistic addition; ARCHITECTURE invariant requires the bump).
+    assert SafeProfile().schema_version == SCHEMA_VERSION
+    assert SCHEMA_VERSION >= 2
 
 
 def test_redaction_manifest_field_present():

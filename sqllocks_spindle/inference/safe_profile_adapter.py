@@ -302,11 +302,19 @@ class SafeProfileAdapter:
             return {"strategy": "distribution", "distribution": name, "params": params}
 
         # 2. Empirical from the quantile fingerprint (needs the full p1..p99 set).
+        #    Thread the winsorized bounds through so the empirical strategy clips
+        #    regenerated values to [lo, hi] (ADR-002 / STORY-006). The empirical
+        #    quantile interpolation naturally clamps to [p1, p99]; explicit
+        #    bounds enforce the configured window (e.g. widened p0.5/p99.5).
         if col.quantiles and _has_full_quantiles(col.quantiles):
             gen: dict[str, Any] = {
                 "strategy": "empirical",
                 "quantiles": dict(col.quantiles),
             }
+            if lo is not None:
+                gen["min"] = float(lo)
+            if hi is not None:
+                gen["max"] = float(hi)
             return gen
 
         # 3. Normal from mean/std, clipped to bounds.

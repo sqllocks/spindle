@@ -190,7 +190,11 @@ class TestDataProfiler:
         profile = profiler.profile_dataframe(df)
         col = profile.columns["score"]
         assert col.quantiles is not None
-        assert set(col.quantiles.keys()) == {"p1", "p5", "p10", "p25", "p50", "p75", "p90", "p95", "p99"}
+        # p1..p99 empirical-strategy fingerprint (always present).
+        fingerprint = {"p1", "p5", "p10", "p25", "p50", "p75", "p90", "p95", "p99"}
+        assert fingerprint <= set(col.quantiles.keys())
+        # STORY-006: widening-fallback endpoints p0.5/p99.5 added (ADR-002).
+        assert {"p0_5", "p99_5"} <= set(col.quantiles.keys())
         assert col.quantiles["p50"] == pytest.approx(df["score"].median(), abs=2.0)
 
     def test_outlier_rate_captured(self):

@@ -21,7 +21,7 @@ serialization guard on the rich dataclasses (STORY-004), and population of the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import cost
     from sqllocks_spindle.inference.profiler import (
@@ -32,7 +32,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import cost
 
 # Current persisted schema version. Every persisted-statistic addition bumps
 # this (ARCHITECTURE.md Invariants). Legacy files load read-only as version 0.
-SCHEMA_VERSION = 1
+#   v1: STORY-001 baseline safe statistic set.
+#   v2: STORY-006 adds p0_5/p99_5 to the quantile fingerprint (winsorized-bounds
+#       widening fallback endpoints; ADR-002).
+SCHEMA_VERSION = 2
 
 # Raw-bearing field names that must NEVER appear on the safe model (ADR-007).
 # Used by the introspection conformance test (and a cheap self-check below).
@@ -167,17 +170,39 @@ class SafeColumnProfile:
 
     # ----- disclosure-control hooks (STUBS — replaced by later stories) -----
 
+    # Widening fallback percentile keys (ADR-002): when p1/p99 winsorization
+    # drops a heavy-tailed column's fidelity below tolerance, widen to
+    # p0.5/p99.5 (still aggregate quantiles — non-literal). The decision to
+    # widen is owned by the fidelity gate (ADR-012 / STORY-011); STORY-006
+    # provides the mechanism + the quantile endpoints to widen to.
+    WIDEN_BOUNDS_CONFIG: ClassVar[dict[str, str]] = {
+        "bounds_lo_quantile": "p0_5",
+        "bounds_hi_quantile": "p99_5",
+    }
+
     @staticmethod
     def _winsorized_bounds_hook(
         quantiles: dict[str, float] | None,
         config: dict[str, Any] | None = None,
     ) -> dict[str, float] | None:
-        """STORY-006 hook (stub). Bounds from quantile percentiles (ADR-002).
+        """Winsorized bounds from quantile percentiles (ADR-002 / STORY-006).
 
-        Default winsorization percentiles are p1/p99; the real STORY-006
-        implementation makes these configurable (p0.5/p99.5 fallback) and
-        clips at generation. Here we only read the lo/hi percentile keys from
-        the already-computed ``quantiles`` dict — raw min/max are never read.
+        Returns ``{"lo": <lo-quantile>, "hi": <hi-quantile>}`` derived ONLY
+        from the already-computed aggregate ``quantiles`` fingerprint — raw
+        ``min_value``/``max_value`` are NEVER read.
+
+        Percentiles are configurable per call:
+
+        * default: p1 / p99 (``bounds_lo_quantile`` / ``bounds_hi_quantile``).
+        * widening fallback: p0.5 / p99.5 (keys ``p0_5`` / ``p99_5``), selected
+          by passing :pyattr:`WIDEN_BOUNDS_CONFIG` (or an equivalent config).
+          Recovers tail mass for heavy-tailed columns where p1/p99 clips too
+          aggressively, while staying non-literal.
+
+        If the requested percentile keys are not present in ``quantiles`` (e.g.
+        a widened request against a legacy v1 fingerprint that lacks p0_5/p99_5)
+        the hook falls back to the default p1/p99 keys rather than returning
+        ``None``, so bounds are still produced.
         """
         if not quantiles:
             return None
@@ -186,6 +211,12 @@ class SafeColumnProfile:
         hi_key = config.get("bounds_hi_quantile", "p99")
         lo = quantiles.get(lo_key)
         hi = quantiles.get(hi_key)
+        # Graceful degradation: a widened request against a fingerprint that
+        # lacks the widened endpoints falls back to the default p1/p99.
+        if lo is None:
+            lo = quantiles.get("p1")
+        if hi is None:
+            hi = quantiles.get("p99")
         if lo is None or hi is None:
             return None
         return {"lo": float(lo), "hi": float(hi)}

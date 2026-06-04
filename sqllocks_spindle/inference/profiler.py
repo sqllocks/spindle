@@ -430,10 +430,24 @@ class DataProfiler:
     # ----- Phase 3B helper methods -----
 
     def _compute_quantiles(self, numeric: pd.Series) -> dict[str, float]:
-        """Compute quantile fingerprint at fixed percentiles."""
+        """Compute quantile fingerprint at fixed percentiles.
+
+        The p1..p99 set is the empirical-strategy fingerprint. p0.5/p99.5 are
+        added (keys ``p0_5``/``p99_5``) so the winsorized-bounds widening
+        fallback (ADR-002 / STORY-006) is derivable from aggregate quantiles
+        alone — never from raw min/max. They are extra, non-literal aggregate
+        statistics; the empirical strategy ignores keys outside its required
+        p1..p99 set.
+        """
         percs = [1, 5, 10, 25, 50, 75, 90, 95, 99]
         vals = np.percentile(numeric.values.astype(float), percs)
-        return {f"p{p}": round(float(v), 6) for p, v in zip(percs, vals)}
+        out = {f"p{p}": round(float(v), 6) for p, v in zip(percs, vals)}
+        # Widening-fallback endpoints (ADR-002): p0.5 / p99.5 as identifier-safe
+        # keys p0_5 / p99_5. Still aggregate quantiles — not raw extremes.
+        lo_hi = np.percentile(numeric.values.astype(float), [0.5, 99.5])
+        out["p0_5"] = round(float(lo_hi[0]), 6)
+        out["p99_5"] = round(float(lo_hi[1]), 6)
+        return out
 
     def _compute_outlier_rate(self, numeric: pd.Series) -> float:
         """Fraction of values outside 1.5×IQR fence."""
