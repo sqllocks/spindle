@@ -23,6 +23,12 @@ from sqllocks_spindle.inference.profiler import (
     TableProfile,
 )
 from sqllocks_spindle.inference.profile_io import ExportedProfile, ProfileIO
+from sqllocks_spindle.inference.safe_profile import (
+    SCHEMA_VERSION,
+    SafeColumnProfile,
+    SafeProfile,
+    SafeTableProfile,
+)
 from sqllocks_spindle.inference.schema_builder import SchemaBuilder
 from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
 from sqllocks_spindle.inference.tier3_research import (
@@ -73,6 +79,10 @@ __all__ = [
     "MaskConfig",
     "MaskResult",
     "ProfileIO",
+    "SafeColumnProfile",
+    "SafeProfile",
+    "SafeTableProfile",
+    "SCHEMA_VERSION",
     "SchemaBuilder",
     "TableFidelity",
     "TableProfile",
