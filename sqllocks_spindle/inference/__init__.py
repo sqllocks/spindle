@@ -23,6 +23,7 @@ from sqllocks_spindle.inference.profiler import (
     TableProfile,
 )
 from sqllocks_spindle.inference.profile_io import ExportedProfile, ProfileIO
+from sqllocks_spindle.inference.profile_store import ProfileStore
 from sqllocks_spindle.inference.safe_profile import (
     SCHEMA_VERSION,
     SafeColumnProfile,
@@ -79,6 +80,7 @@ __all__ = [
     "MaskConfig",
     "MaskResult",
     "ProfileIO",
+    "ProfileStore",
     "SafeColumnProfile",
     "SafeProfile",
     "SafeTableProfile",
