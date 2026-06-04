@@ -14,8 +14,15 @@ are suppressed into ``categorical_weights`` (populated by STORY-007).
 STORY-001 scope: the dataclasses + ``schema_version`` + byte-stable
 ``to_safe_dict`` / ``from_safe_dict`` round-trip. The *mapping* from a rich
 profile (STORY-002), the ``ProfileStore`` save/load path (STORY-003), the
-serialization guard on the rich dataclasses (STORY-004), and population of the
-``redaction_manifest`` (STORY-009) are out of scope for this story.
+serialization guard on the rich dataclasses (STORY-004).
+
+STORY-009 (ADR-005) adds safe-by-default behaviour: the scrub (winsorize +
+k-anon + PII gate) runs on the mapping path by DEFAULT; an opt-out
+``unsafe_full_fidelity`` flag disables the disclosure-control transforms,
+persists full-fidelity statistics, and stamps ``unsafe=true`` on the artifact.
+Every artifact embeds a self-describing ``redaction_manifest`` reporting, per
+column, what was actually suppressed (rare categories dropped, bounds
+winsorized, pattern-only columns, the k used, the sensitive flag).
 """
 
 from __future__ import annotations
@@ -625,9 +632,15 @@ class SafeProfile:
     tables: dict[str, SafeTableProfile] = field(default_factory=dict)
     relationships: list[dict] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
-    # Self-describing redaction manifest (ADR-005). Populated by STORY-009;
-    # present-but-empty in STORY-001.
+    # Self-describing redaction manifest (ADR-005 / STORY-009). Reports, per
+    # column, what the scrub actually suppressed. Empty {} only on an artifact
+    # built without a rich source (e.g. a hand-built test fixture).
     redaction_manifest: dict = field(default_factory=dict)
+    # Safe-by-default stamp (ADR-005 / STORY-009). ``False`` on a scrubbed
+    # (safe) artifact; ``True`` only when built with ``unsafe_full_fidelity``
+    # — i.e. disclosure controls were disabled and full-fidelity statistics
+    # persisted. ``validate --safe`` (STORY-010) rejects ``unsafe=true``.
+    unsafe: bool = False
 
     # ----- mapping (rich -> safe) -----
 
@@ -636,6 +649,7 @@ class SafeProfile:
         cls,
         dataset_profile: "DatasetProfile",
         config: dict[str, Any] | None = None,
+        unsafe_full_fidelity: bool = False,
     ) -> "SafeProfile":
         """Map a rich ``DatasetProfile`` to a ``SafeProfile`` (STORY-002 / ADR-001).
 
@@ -650,19 +664,54 @@ class SafeProfile:
 
         ``config`` is an optional per-profile/per-column settings dict threaded
         to the disclosure-control hooks (winsorization percentiles, k-anon k,
-        PII gate) which are stubs in this story.
+        PII gate).
 
-        ``redaction_manifest`` is left empty here — STORY-009 populates it.
+        Safe-by-default (ADR-005 / STORY-009)
+        -------------------------------------
+        The scrub — winsorized bounds (ADR-002), k-anon ``__OTHER__``
+        suppression (ADR-003), and the value-pattern PII gate (ADR-004) — runs
+        by DEFAULT. The safe path is the path of least resistance.
+
+        ``unsafe_full_fidelity=True`` is the explicit, single opt-out. It
+        disables the disclosure-control transforms (k-anon suppression and the
+        PII gate are turned off so full-fidelity categorical weights / values
+        survive) and stamps ``unsafe=True`` on the returned profile. Such an
+        artifact is rejected by ``validate --safe`` (STORY-010). It is the ONLY
+        way to persist un-scrubbed statistics.
+
+        Every returned profile carries an accurate ``redaction_manifest`` (built
+        from the rich source vs. the scrubbed safe columns — see
+        :func:`build_redaction_manifest`).
         """
-        return cls(
+        # Merge the opt-out into an effective config that disables the
+        # disclosure-control transforms. We do not mutate the caller's config.
+        effective_config = dict(config or {})
+        if unsafe_full_fidelity:
+            # k<=1 disables k-anon suppression (every count is >= 1); the PII
+            # gate is turned off so values are not reduced to pattern-only.
+            # Bounds stay winsorized-from-quantiles by construction (the safe
+            # model has no raw min/max field — ADR-007), but the manifest
+            # reflects that no suppression occurred.
+            effective_config["k"] = 1
+            effective_config["pii_gate"] = False
+
+        profile = cls(
             tables={
-                tname: SafeTableProfile.from_table_profile(tprofile, config)
+                tname: SafeTableProfile.from_table_profile(tprofile, effective_config)
                 for tname, tprofile in dataset_profile.tables.items()
             },
             relationships=list(getattr(dataset_profile, "relationships", []) or []),
             schema_version=SCHEMA_VERSION,
             redaction_manifest={},
+            unsafe=bool(unsafe_full_fidelity),
         )
+        profile.redaction_manifest = build_redaction_manifest(
+            dataset_profile,
+            profile,
+            config=effective_config,
+            unsafe=bool(unsafe_full_fidelity),
+        )
+        return profile
 
     # ----- serialization -----
 
@@ -670,6 +719,7 @@ class SafeProfile:
         """Serialize to a plain dict with deterministic key order."""
         return {
             "schema_version": self.schema_version,
+            "unsafe": self.unsafe,
             "tables": {
                 tname: tprofile.to_safe_dict()
                 for tname, tprofile in self.tables.items()
@@ -688,7 +738,126 @@ class SafeProfile:
             relationships=list(data.get("relationships", [])),
             schema_version=data.get("schema_version", SCHEMA_VERSION),
             redaction_manifest=dict(data.get("redaction_manifest", {})),
+            unsafe=bool(data.get("unsafe", False)),
         )
+
+
+# ---------------------------------------------------------------------------
+# Redaction manifest (ADR-005 / STORY-009)
+# ---------------------------------------------------------------------------
+
+
+def build_redaction_manifest(
+    dataset_profile: "DatasetProfile",
+    safe_profile: "SafeProfile",
+    config: dict[str, Any] | None = None,
+    unsafe: bool = False,
+) -> dict[str, Any]:
+    """Build the self-describing redaction manifest (ADR-005 / STORY-009).
+
+    The manifest is computed from the rich *source* profile and the scrubbed
+    *safe* profile together, so it reports what was ACTUALLY suppressed — not
+    what was intended. Accuracy is the AC: every figure is read off the real
+    mapping outcome.
+
+    Shape::
+
+        {
+          "unsafe": <bool>,            # mirrors SafeProfile.unsafe
+          "k_default": <int>,          # profile-level k that applied by default
+          "tables": {
+            <table>: {
+              <column>: {
+                "categories_dropped": <int>,       # k-anon __OTHER__ folds (rare)
+                "bounds_winsorized": <bool>,       # winsorized quantile bounds set
+                "pattern_only": <bool>,            # PII-gated to pattern+length only
+                "k": <int>,                        # effective k for this column
+                "sensitive": <bool>,               # sensitive flag raised k
+              }, ...
+            }, ...
+          }
+        }
+
+    ``rare_categories_dropped`` reads the per-column
+    ``suppressed_category_count`` the k-anon hook actually recorded (STORY-007).
+    ``pattern_only`` re-evaluates the exact PII-gate decision the mapper used
+    (STORY-008). In ``unsafe`` mode the effective config disabled both controls,
+    so these report 0 / False — accurately.
+    """
+    config = config or {}
+    profile_k = SafeColumnProfile._resolve_k(config, None)
+
+    tables_manifest: dict[str, Any] = {}
+    for tname, tprofile in dataset_profile.tables.items():
+        safe_table = safe_profile.tables.get(tname)
+        if safe_table is None:
+            continue
+        row_count = getattr(tprofile, "row_count", 0)
+        cols_manifest: dict[str, Any] = {}
+        for cname, rich_col in tprofile.columns.items():
+            safe_col = safe_table.columns.get(cname)
+            if safe_col is None:
+                continue
+
+            effective_k = SafeColumnProfile._resolve_k(config, cname)
+            # ``sensitive`` is true when the resolved k came from a sensitive
+            # flag (profile- or column-level) rather than an explicit k.
+            sensitive = _k_from_sensitive(config, cname)
+
+            # pattern_only: the exact PII-gate decision the mapper used.
+            pattern_only = SafeColumnProfile._pii_gate_hook(
+                pattern=getattr(rich_col, "pattern", None),
+                cardinality=getattr(rich_col, "cardinality", 0),
+                row_count=row_count,
+                config=config,
+            )
+
+            cols_manifest[cname] = {
+                "categories_dropped": int(
+                    safe_col.suppressed_category_count or 0
+                ),
+                "bounds_winsorized": safe_col.bounds is not None,
+                "pattern_only": bool(pattern_only),
+                "k": int(effective_k),
+                "sensitive": bool(sensitive),
+            }
+        tables_manifest[tname] = cols_manifest
+
+    return {
+        "unsafe": bool(unsafe),
+        "k_default": int(profile_k),
+        "tables": tables_manifest,
+    }
+
+
+def _k_from_sensitive(
+    config: dict[str, Any] | None,
+    column_name: str | None,
+) -> bool:
+    """True when the effective k for ``column_name`` is set by a sensitive flag.
+
+    Mirrors :meth:`SafeColumnProfile._resolve_k` precedence: an explicit ``k``
+    (per-column or profile) takes precedence over a sensitive flag, so it is
+    NOT considered sensitive-driven even if a sensitive flag is also present.
+    """
+    config = config or {}
+    col_cfg: dict[str, Any] = {}
+    if column_name is not None:
+        cols = config.get("columns")
+        if isinstance(cols, dict):
+            maybe = cols.get(column_name)
+            if isinstance(maybe, dict):
+                col_cfg = maybe
+
+    if "k" in col_cfg and col_cfg["k"] is not None:
+        return False
+    if col_cfg.get("sensitive"):
+        return True
+    if "k" in config and config["k"] is not None:
+        return False
+    if config.get("sensitive"):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------

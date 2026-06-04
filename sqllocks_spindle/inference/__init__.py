@@ -29,6 +29,7 @@ from sqllocks_spindle.inference.safe_profile import (
     SafeColumnProfile,
     SafeProfile,
     SafeTableProfile,
+    build_redaction_manifest,
 )
 from sqllocks_spindle.inference.safe_profile_adapter import (
     SafeProfileAdapter,
@@ -89,6 +90,7 @@ __all__ = [
     "SafeProfile",
     "SafeProfileAdapter",
     "SafeTableProfile",
+    "build_redaction_manifest",
     "safe_profile_to_schema",
     "SCHEMA_VERSION",
     "SchemaBuilder",

@@ -22,10 +22,16 @@ There is no other public on-disk path. Legacy serialization paths
 STORY-014; until then they remain but are not the supported safe path.
 
 Scope note (STORY-003): this story owns the save/load round-trip + legacy
-``schema_version`` handling. The safe-vs-unsafe ``unsafe`` flag and refusal to
-write raw values is owned by STORY-009 (ADR-005); ``SafeProfile`` carries no
-raw-bearing fields by construction (STORY-001 / ADR-007), so there is nothing
-here to refuse.
+``schema_version`` handling.
+
+Safe-by-default (STORY-009 / ADR-005): the scrub (winsorize + k-anon + PII
+gate) runs at MAPPING time (``SafeProfile.from_dataset_profile``), so a
+``SafeProfile`` reaching ``save`` is already safe-by-construction. ``save``
+writes the profile's ``unsafe`` stamp and embedded ``redaction_manifest`` as-is
+— a ``SafeProfile`` built with ``unsafe_full_fidelity=True`` is persisted with
+``"unsafe": true`` in the artifact (and rejected later by ``validate --safe``,
+STORY-010). ``SafeProfile`` carries no raw-bearing fields by construction
+(STORY-001 / ADR-007), so there is nothing here to refuse.
 """
 
 from __future__ import annotations
