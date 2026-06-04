@@ -35,6 +35,11 @@ from sqllocks_spindle.inference.safe_profile_adapter import (
     SafeProfileAdapter,
     safe_profile_to_schema,
 )
+from sqllocks_spindle.inference.safe_validator import (
+    SafeProfileValidator,
+    ValidationFinding,
+    ValidationResult,
+)
 from sqllocks_spindle.inference.schema_builder import SchemaBuilder
 from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
 from sqllocks_spindle.inference.tier3_research import (
@@ -89,7 +94,10 @@ __all__ = [
     "SafeColumnProfile",
     "SafeProfile",
     "SafeProfileAdapter",
+    "SafeProfileValidator",
     "SafeTableProfile",
+    "ValidationFinding",
+    "ValidationResult",
     "build_redaction_manifest",
     "safe_profile_to_schema",
     "SCHEMA_VERSION",

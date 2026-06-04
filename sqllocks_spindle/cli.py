@@ -1398,6 +1398,62 @@ def profile_list(domain_name):
         )
 
 
+@profile.command(name="validate")
+@click.argument("artifact_path", type=click.Path())
+@click.option(
+    "--safe",
+    "safe_mode",
+    is_flag=True,
+    default=False,
+    help="Run the structural safe-leak scanner over the artifact (ADR-006).",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON instead of human text.",
+)
+def profile_validate(artifact_path, safe_mode, as_json):
+    """Static leak scanner over a serialized profile artifact (STORY-010 / ADR-006).
+
+    Operates on the artifact file ONLY — never the live data. Exits 0 only on a
+    proven-clean artifact; non-zero on any leak. Use as a pre-commit / CI gate:
+
+        spindle profile validate --safe ./profile.json
+
+    Add ``--json`` for machine-readable output.
+    """
+    import json as _json
+
+    from sqllocks_spindle.inference.safe_validator import SafeProfileValidator
+
+    if not safe_mode:
+        # The only validation mode this command implements is --safe (ADR-006).
+        # Be explicit rather than silently doing nothing.
+        click.echo(
+            "Specify --safe to run the structural safe-leak scanner.", err=True
+        )
+        sys.exit(2)
+
+    result = SafeProfileValidator().validate_file(artifact_path)
+
+    if as_json:
+        click.echo(_json.dumps(result.to_dict(), indent=2))
+    else:
+        if result.is_clean:
+            click.echo(f"CLEAN — no leaks found in {result.path}")
+        else:
+            click.echo(
+                f"LEAK — {len(result.findings)} finding(s) in {result.path}:",
+                err=True,
+            )
+            for f in result.findings:
+                click.echo(f"  [{f.rule}] {f.path}: {f.detail}", err=True)
+
+    sys.exit(result.exit_code)
+
+
 # ---------------------------------------------------------------------------
 # Profile registry subcommands  (spindle profile registry …)
 # ---------------------------------------------------------------------------
