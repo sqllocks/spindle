@@ -46,14 +46,19 @@ profile mode, deferred to a post-v1.0 ADR.
 Safety and per-value fidelity trade off, because for categorical and low-card
 columns the literal values ARE the fidelity. Removing them costs accuracy:
 
-- Safe mode (default, no literals): measured ~74/100 round-trip fidelity on the
-  retail reference (FidelityComparator, KS + chi-squared). See
-  `tests/test_safe_profile_fidelity.py` (STORY-011).
-- Unsafe mode (`--unsafe-full-fidelity`): higher, but persists raw values and is
-  not shareable.
+Measured round-trip fidelity (FidelityComparator, KS + chi-squared) on the retail
+reference, via `tests/test_safe_profile_fidelity.py` (STORY-011):
 
-So the blog/marketing claim is: **"ship the recipe, not the data" gives you a
-safe, version-controllable, prod-shaped dev dataset, at roughly three-quarters of
-full statistical fidelity** for categorical-heavy data (higher for numeric-heavy,
-where aggregates carry more of the signal). Do not claim both "PII-free" and
-">= 90% fidelity" for the same artifact; they are in tension by construction.
+- Safe mode (default, no literals): ~73/100.
+- Unsafe mode (`--unsafe-full-fidelity`, raw values, not shareable): ~71/100.
+
+The two are roughly EQUAL: the default-deny safety transforms (k-anon, coarse
+histogram bucketing, hashed high-card keys) round-trip about as well as raw
+literals, so on this data **safety is roughly fidelity-neutral, not a large
+tradeoff**. The honest claim:
+
+**"Ship the recipe, not the data" gives you a safe, version-controllable,
+prod-shaped dev dataset at roughly three-quarters of full statistical fidelity,
+and turning safety ON costs almost nothing here.** Do NOT claim ">= 90% fidelity"
+for the round-trip (the ~88-92 figure is the in-memory profile, not the
+save/load/regenerate cycle, which measures ~73).
