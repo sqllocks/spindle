@@ -146,6 +146,59 @@ class LakehouseProfiler:
 
         return result
 
+    @staticmethod
+    def reconcile_declared_foreign_keys(
+        detected: dict[str, dict[str, dict[str, Any]]],
+        declared: Any,
+    ) -> dict[str, Any]:
+        """Declared FKs override detected advisory FKs (ADR-009 / STORY-017).
+
+        A declared ``star_map`` / ``RelationshipDef`` is AUTHORITATIVE: where a
+        declaration exists for a ``(child_table, child_col)`` it wins over any
+        detected FK, even a high-overlap one. Detected FKs that a declaration
+        overrode are REPORTED (not silently dropped) for transparency.
+
+        Args:
+            detected: the output of :meth:`detect_foreign_keys`.
+            declared: iterable of ``(child_table, child_col, parent_table)``
+                tuples, or dicts with those keys.
+
+        Returns:
+            ``{"foreign_keys": <resolved map>, "overridden": [<reports>]}``.
+            Resolved declared entries carry ``advisory=False, declared=True``.
+        """
+        import copy
+
+        decl: dict[tuple[str, str], str] = {}
+        for d in declared or []:
+            if isinstance(d, dict):
+                decl[(d["child_table"], d["child_col"])] = d["parent_table"]
+            else:
+                child, col, parent = d
+                decl[(child, col)] = parent
+
+        resolved = copy.deepcopy(detected) if detected else {}
+        overridden: list[dict[str, Any]] = []
+        for (child, col), parent in decl.items():
+            existing = resolved.get(child, {}).get(col)
+            if existing and existing.get("parent_table") != parent:
+                overridden.append(
+                    {
+                        "child_table": child,
+                        "child_col": col,
+                        "detected_parent": existing.get("parent_table"),
+                        "detected_overlap": existing.get("overlap"),
+                        "declared_parent": parent,
+                    }
+                )
+            resolved.setdefault(child, {})[col] = {
+                "parent_table": parent,
+                "overlap": None,
+                "advisory": False,
+                "declared": True,
+            }
+        return {"foreign_keys": resolved, "overridden": overridden}
+
     def _abfss_tables_root(self) -> str:
         return (
             f"abfss://{self.workspace_id}"
