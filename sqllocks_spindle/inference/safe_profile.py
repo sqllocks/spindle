@@ -274,7 +274,11 @@ class SafeColumnProfile:
         # numeric/date/identifier columns (memory id=3626/3635).
         categorical_histogram = None
         histogram_routed = False
-        if categorical_weights and not cls._is_safe_label(col.dtype, categorical_weights):
+        if (
+            not config.get("unsafe_full_fidelity")
+            and categorical_weights
+            and not cls._is_safe_label(col.dtype, categorical_weights)
+        ):
             categorical_weights, categorical_histogram, histogram_routed = (
                 cls._route_nonlabel_categorical(col.dtype, categorical_weights)
             )
@@ -857,6 +861,9 @@ class SafeProfile:
             # reflects that no suppression occurred.
             effective_config["k"] = 1
             effective_config["pii_gate"] = False
+            # Also disables default-deny categorical routing + quantile/bounds
+            # suppression (STORY-007a/b), so raw literals survive in unsafe mode.
+            effective_config["unsafe_full_fidelity"] = True
 
         profile = cls(
             tables={
