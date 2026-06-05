@@ -31,6 +31,8 @@ class EmpiricalStrategy(Strategy):
         strategy: "empirical"
         quantiles: {p1: float, p5: float, ..., p99: float}
         interpolation: "linear" | "cubic"  (default "linear")
+        min: float  (optional) — clip lower bound (winsorized ``lo``, ADR-002)
+        max: float  (optional) — clip upper bound (winsorized ``hi``, ADR-002)
     """
 
     def generate(
@@ -72,5 +74,15 @@ class EmpiricalStrategy(Strategy):
                     stacklevel=2,
                 )
             result = np.interp(u, p_values, q_values)
+
+        # Clip to the winsorized bounds when provided (ADR-002 / STORY-006).
+        # Interpolation already clamps to [p1, p99]; explicit min/max enforce
+        # the configured window so no value escapes [lo, hi].
+        min_val = config.get("min")
+        max_val = config.get("max")
+        if min_val is not None:
+            result = np.maximum(result, float(min_val))
+        if max_val is not None:
+            result = np.minimum(result, float(max_val))
 
         return result

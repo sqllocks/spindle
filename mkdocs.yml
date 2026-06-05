@@ -117,6 +117,7 @@ nav:
     - Semantic Model Export: guides/semantic-model.md
     - Chaos Engine: guides/chaos.md
     - Validation Gates: guides/validation.md
+    - Verifying Data Quality: guides/verify.md
     - Simulation: guides/simulation.md
     - Streaming: guides/streaming.md
     - Composite Domains: guides/composite-domains.md

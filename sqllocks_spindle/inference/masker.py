@@ -98,6 +98,33 @@ class DataMasker:
         "date_of_birth": ["date_of_birth", "dob", "birth_date", "birthdate"],
     }
 
+    # ADR-008 / STORY-013: Central map from every profiler-detected value
+    # pattern (the strings returned by DataProfiler._detect_pattern) to the
+    # masker PII type used by _generate_replacements. This is the single
+    # source of truth that closes the name-independent masking hole: a pattern
+    # detected on values alone (e.g. SSN in a column named "notes" or "c_47")
+    # is masked even when no column-name heuristic matches.
+    #
+    # Profiler pattern keys (profiler.py::_detect_pattern):
+    #   email, ssn, ip_address, iban, postal_code, phone
+    # plus uuid (explicitly NOT PII -> None).
+    #
+    # PROFILER GAP: the profiler has NO credit-card ("cc") value detector;
+    # "credit_card" is reachable today only via column-name heuristics.
+    # "cc" is wired here as future-proofing so the registry is complete the
+    # day a value-level cc detector lands in the profiler. It is currently
+    # unreachable from value-pattern detection. (PO decision 2026-06-04.)
+    PATTERN_TO_PII_TYPE: dict[str, str | None] = {
+        "email": "email",
+        "phone": "phone",
+        "ssn": "ssn",
+        "ip_address": "ip_address",
+        "iban": "iban",
+        "postal_code": "zip",
+        "cc": "credit_card",  # PROFILER GAP: no value-level cc detector yet
+        "uuid": None,  # UUIDs are not PII
+    }
+
     def mask(
         self,
         tables: dict[str, pd.DataFrame],
@@ -245,14 +272,14 @@ class DataMasker:
             if col_lower in patterns or any(p in col_lower for p in patterns):
                 return pii_type
 
-        # Pattern-based detection from profiler
+        # Value-pattern-based detection from the profiler, name-independent
+        # (ADR-008 / STORY-013). Consults the central PATTERN_TO_PII_TYPE
+        # registry so every profiler-detected pattern (ssn/ip/iban/postal/
+        # email/phone) is masked even in a misnamed column. uuid maps to None
+        # (not PII); patterns absent from the registry fall through unmasked.
         if col_profile and col_profile.pattern:
-            if col_profile.pattern == "email":
-                return "email"
-            if col_profile.pattern == "phone":
-                return "phone"
-            if col_profile.pattern == "uuid":
-                return None  # UUIDs are not PII
+            if col_profile.pattern in self.PATTERN_TO_PII_TYPE:
+                return self.PATTERN_TO_PII_TYPE[col_profile.pattern]
 
         return None
 
@@ -276,7 +303,11 @@ class DataMasker:
             "address": lambda: fake.street_address(),
             "city": lambda: fake.city(),
             "state": lambda: fake.state_abbr(),
-            "zip": lambda: fake.zipcode(),
+            # ADR-008 / STORY-013: postal + iban are locale-aware. fake is
+            # constructed with config.locale (mask()), so postcode()/iban()
+            # emit locale-correct formats (e.g. de_DE -> DE postcode/IBAN).
+            "zip": lambda: fake.postcode(),
+            "iban": lambda: fake.iban(),
             "ssn": lambda: fake.ssn(),
             "credit_card": lambda: fake.credit_card_number(),
             "ip_address": lambda: fake.ipv4(),
