@@ -253,18 +253,25 @@ class TestSharedFKCoreBackwardCompat:
 
 _SOUND_BI_TENANT = "2536810f-20e1-4911-a453-4409fd96db8a"
 
-# Module-level credential — cached across tests so browser prompt fires once.
-_browser_cred: object | None = None
+# Module-level credential, cached across tests.
+_storage_cred: object | None = None
 
 
 def _get_storage_token() -> str | None:
-    """Acquire an Azure storage token via InteractiveBrowserCredential."""
-    global _browser_cred
+    """Acquire an Azure storage token via AzureCliCredential.
+
+    Reuses the caller's `az login` session (the ~90-day refresh token in their
+    AZURE_CONFIG_DIR): runs headless or at a keyboard, never launches a browser, and
+    works for any signed-in user/CI. Raises (caught) if not signed in. We avoid
+    DefaultAzureCredential: its chain probes MSI / shared-cache / VS Code before the
+    CLI and stalls on dev/CI hosts.
+    """
+    global _storage_cred
     try:
-        from azure.identity import InteractiveBrowserCredential
-        if _browser_cred is None:
-            _browser_cred = InteractiveBrowserCredential(tenant_id=_SOUND_BI_TENANT)
-        token = _browser_cred.get_token("https://storage.azure.com/.default")
+        from azure.identity import AzureCliCredential
+        if _storage_cred is None:
+            _storage_cred = AzureCliCredential()
+        token = _storage_cred.get_token("https://storage.azure.com/.default")
         return token.token if token else None
     except Exception:
         return None
@@ -274,14 +281,17 @@ def _get_storage_token() -> str | None:
 class TestLakehouseProfilerLive:
     """Live integration tests for LakehouseProfiler against Fabric_Lakehouse_Demo.
 
-    Requires a Delta table in Fabric_Lakehouse_Demo.  Auth via InteractiveBrowserCredential
-    — browser prompt fires once per session, token is cached for all tests.
+    Requires a Delta table in Fabric_Lakehouse_Demo. Auth via DefaultAzureCredential
+    (env-resolved: `az login` / MSI / SPN env vars), cached for all tests.
     """
 
     def setup_method(self):
-        """Acquire storage token once per test (cached after first browser login)."""
+        """Acquire storage token once per test (cached on the module credential)."""
         self.token = _get_storage_token()
-        assert self.token, "Could not acquire storage token via InteractiveBrowserCredential"
+        assert self.token, (
+            "Could not acquire a storage token via DefaultAzureCredential. "
+            "Run `az login` (or set MSI / SPN env vars) for the target tenant."
+        )
 
         from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
         self.profiler = LakehouseProfiler(

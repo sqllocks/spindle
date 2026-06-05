@@ -1,9 +1,10 @@
 """Live validation suite — ~30 combinations against real Fabric sinks.
 
-Auth: InteractiveBrowserCredential fires once per session, token cached.
+Auth: AzureCliCredential (reuses the caller's `az login` session). No interactive
+browser; runs headless or at a keyboard, the same way for any signed-in user/CI.
 
 Requires:
-  - Sound BI tenant credentials (browser prompt on first run)
+  - A signed-in Azure credential for the target tenant (`az login`, MSI, or SPN env vars)
   - Fabric_Lakehouse_Demo workspace accessible
   - Optional env vars for other sinks (tests skip gracefully if unset):
       SPINDLE_TEST_WH_CONN      Fabric Warehouse ODBC connection string
@@ -29,16 +30,23 @@ _SOUND_BI_TENANT = "2536810f-20e1-4911-a453-4409fd96db8a"
 _WORKSPACE_ID = "990dbc7b-f5d1-4bc8-a929-9dfd509a5d52"
 _LAKEHOUSE_ID = "ec851642-fa89-42bc-aebf-2742845d36fe"
 
-_browser_cred = None  # cached across tests
+_storage_cred = None  # cached across tests
 
 
 def _get_storage_token():
-    global _browser_cred
+    global _storage_cred
     try:
-        from azure.identity import InteractiveBrowserCredential
-        if _browser_cred is None:
-            _browser_cred = InteractiveBrowserCredential(tenant_id=_SOUND_BI_TENANT)
-        tok = _browser_cred.get_token("https://storage.azure.com/.default")
+        # AzureCliCredential reuses the caller's `az login` session (the ~90-day
+        # refresh token in their AZURE_CONFIG_DIR). It runs identically headless or
+        # at a keyboard, never launches an interactive browser, and works for any
+        # user/CI that has run `az login` (or `az login --service-principal`) for
+        # the target tenant. Raises (caught below) if not signed in, rather than
+        # prompting. We avoid DefaultAzureCredential here: its chain probes managed
+        # identity / shared-cache / VS Code before the CLI and stalls on dev/CI hosts.
+        from azure.identity import AzureCliCredential
+        if _storage_cred is None:
+            _storage_cred = AzureCliCredential()
+        tok = _storage_cred.get_token("https://storage.azure.com/.default")
         return tok.token if tok else None
     except Exception:
         return None

@@ -109,6 +109,7 @@ class ColumnProfile:
     quantiles: dict[str, float] | None = None          # P1,P5,P10,P25,P50,P75,P90,P95,P99
     hour_histogram: list[float] | None = None           # 24-bin normalized hour distribution
     dow_histogram: list[float] | None = None            # 7-bin normalized day-of-week distribution
+    temporal_histogram: dict[str, Any] | None = None    # coarse safe year-range + seasonality
     string_length: dict[str, float] | None = None       # min, mean, max, p95 of len(value)
     outlier_rate: float | None = None                   # fraction outside 1.5×IQR fence
     # raw-bearing — InitVar (ADR-007); read via .value_counts_ext property
@@ -363,9 +364,11 @@ class DataProfiler:
             if len(non_null) > 0:
                 value_counts_ext = self._compute_value_counts_ext(non_null)
 
+            temporal_histogram_val: dict[str, Any] | None = None
             if spindle_type in ("date", "datetime") and len(non_null) > 0:
                 hour_histogram_val = self._compute_hour_histogram(non_null)
                 dow_histogram_val = self._compute_dow_histogram(non_null)
+                temporal_histogram_val = self._compute_temporal_histogram(non_null) or None
 
             # fit_score: 1 - ks_stat from best-fit distribution
             if dist_name is not None and dist_params is not None and HAS_SCIPY:
@@ -410,6 +413,7 @@ class DataProfiler:
                 quantiles=quantiles,
                 hour_histogram=hour_histogram_val,
                 dow_histogram=dow_histogram_val,
+                temporal_histogram=temporal_histogram_val,
                 string_length=string_length_val,
                 outlier_rate=outlier_rate_val,
                 value_counts_ext=value_counts_ext,
@@ -558,6 +562,35 @@ class DataProfiler:
         counts = np.bincount(dows.values, minlength=7).astype(float)
         total = counts.sum()
         return [round(float(v / total), 6) for v in counts]
+
+    def _compute_temporal_histogram(self, dt_series: pd.Series) -> dict[str, Any]:
+        """Coarse, SAFE temporal distribution for a date/datetime column.
+
+        Carries only AGGREGATES (a winsorized year range + per-year and 12-bin
+        monthly seasonality weights), never an individual date. This lets the
+        generator place regenerated dates in the right period + seasonal shape,
+        closing the datetime fidelity gap, without persisting any raw date
+        (consistent with ADR-002 winsorized-bounds: year-level range, p1/p99).
+        """
+        dt = pd.to_datetime(dt_series, errors="coerce").dropna()
+        if len(dt) == 0:
+            return {}
+        years = dt.dt.year.values.astype(int)
+        # Winsorized year range (p1/p99) so a lone extreme date does not set the
+        # bound; coarse year granularity is a safe aggregate.
+        lo_year = int(np.percentile(years, 1))
+        hi_year = int(np.percentile(years, 99))
+        if hi_year < lo_year:
+            hi_year = lo_year
+        span = hi_year - lo_year + 1
+        yr_counts = np.bincount(np.clip(years - lo_year, 0, span - 1), minlength=span).astype(float)
+        month_counts = np.bincount(dt.dt.month.values.astype(int) - 1, minlength=12).astype(float)
+        return {
+            "lo_year": lo_year,
+            "hi_year": hi_year,
+            "year_weights": [round(float(v / yr_counts.sum()), 6) for v in yr_counts],
+            "month_weights": [round(float(v / month_counts.sum()), 6) for v in month_counts],
+        }
 
     def _compute_correlation_matrix(self, df: pd.DataFrame) -> dict[str, dict[str, float]]:
         """Pearson correlation matrix for all numeric columns."""

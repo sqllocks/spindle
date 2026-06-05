@@ -22,8 +22,8 @@ def _artifact(df: pd.DataFrame):
     return a, json.dumps(a, default=str)
 
 
-def test_schema_version_is_4():
-    assert SCHEMA_VERSION == 4
+def test_schema_version_is_5():
+    assert SCHEMA_VERSION == 5
 
 
 @pytest.mark.parametrize(

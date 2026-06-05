@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import cost
 #       histogram-routed low-card numeric/datetime columns (ADR-003 + ADR-002
 #       narrow amendment). Closes the categorical_weights / quantile literal
 #       leak (memory id=3626).
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # k-anonymity defaults (ADR-003). A categorical value whose count is below the
 # applicable k is folded into a single ``__OTHER__`` bucket carrying aggregate
@@ -176,6 +176,8 @@ class SafeColumnProfile:
     # Temporal histograms (per-column, where applicable — date/datetime cols).
     hour_histogram: list[float] | None = None
     dow_histogram: list[float] | None = None
+    # Coarse safe year-range + year/month seasonality (datetime fidelity lever).
+    temporal_histogram: dict[str, Any] | None = None
 
     # ----- mapping (rich -> safe) -----
 
@@ -311,6 +313,7 @@ class SafeColumnProfile:
             string_length=string_length,
             hour_histogram=getattr(col, "hour_histogram", None),
             dow_histogram=getattr(col, "dow_histogram", None),
+            temporal_histogram=getattr(col, "temporal_histogram", None),
         )
 
     # ----- default-DENY categorical key routing (STORY-007a/b, ADR-003) -----
@@ -678,6 +681,7 @@ class SafeColumnProfile:
             "string_length": self.string_length,
             "hour_histogram": self.hour_histogram,
             "dow_histogram": self.dow_histogram,
+            "temporal_histogram": self.temporal_histogram,
         }
 
     @classmethod
@@ -701,6 +705,7 @@ class SafeColumnProfile:
             string_length=data.get("string_length"),
             hour_histogram=data.get("hour_histogram"),
             dow_histogram=data.get("dow_histogram"),
+            temporal_histogram=data.get("temporal_histogram"),
         )
 
 

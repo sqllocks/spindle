@@ -257,12 +257,22 @@ class SafeProfileAdapter:
 
     def _temporal_generator(self, col: SafeColumnProfile) -> dict[str, Any]:
         gen: dict[str, Any] = {"strategy": "temporal", "type": col.dtype}
-        # No raw min/max on the safe model — start/end are intentionally
-        # omitted; the engine falls back to its default date_range. Seasonal
-        # histograms are carried (they're aggregate, non-raw).
-        if col.hour_histogram or col.dow_histogram:
+        th = col.temporal_histogram or {}
+        # Coarse SAFE year range (winsorized p1/p99 years; aggregate, no raw
+        # date) so regenerated dates land in the right PERIOD. Closes the
+        # datetime fidelity gap (was: engine default 2022-2025 = wrong era).
+        if th.get("lo_year") is not None and th.get("hi_year") is not None:
+            gen["date_range"] = {
+                "start": f"{int(th['lo_year'])}-01-01",
+                "end": f"{int(th['hi_year'])}-12-31",
+            }
+        if col.hour_histogram or col.dow_histogram or th.get("month_weights"):
             gen["pattern"] = "seasonal"
             profiles: dict[str, dict[str, float]] = {}
+            if th.get("month_weights"):
+                profiles["month"] = {
+                    str(i + 1): float(w) for i, w in enumerate(th["month_weights"])
+                }
             if col.hour_histogram:
                 profiles["hour_of_day"] = {
                     str(h): float(w) for h, w in enumerate(col.hour_histogram)

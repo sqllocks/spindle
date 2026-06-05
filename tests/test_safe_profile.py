@@ -215,5 +215,6 @@ def test_safe_column_field_set_exact():
         "string_length",
         "hour_histogram",
         "dow_histogram",
+        "temporal_histogram",
     }
     assert declared == expected

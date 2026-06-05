@@ -241,6 +241,7 @@ _REAL_COLUMN_PROFILE_ATTRS = frozenset(
         "pattern",
         "string_length",
         "hour_histogram",
+        "temporal_histogram",
         "dow_histogram",
     }
 )
