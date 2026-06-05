@@ -86,3 +86,9 @@ spindle_output/
 
 # Claude Code internal
 .superpowers/
+
+# Local az CLI credential config (NEVER commit — contains tokens)
+.azure/
+
+# Validation-spiral scratch sandbox
+_spiral_sandbox/

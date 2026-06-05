@@ -23,6 +23,23 @@ from sqllocks_spindle.inference.profiler import (
     TableProfile,
 )
 from sqllocks_spindle.inference.profile_io import ExportedProfile, ProfileIO
+from sqllocks_spindle.inference.profile_store import ProfileStore
+from sqllocks_spindle.inference.safe_profile import (
+    SCHEMA_VERSION,
+    SafeColumnProfile,
+    SafeProfile,
+    SafeTableProfile,
+    build_redaction_manifest,
+)
+from sqllocks_spindle.inference.safe_profile_adapter import (
+    SafeProfileAdapter,
+    safe_profile_to_schema,
+)
+from sqllocks_spindle.inference.safe_validator import (
+    SafeProfileValidator,
+    ValidationFinding,
+    ValidationResult,
+)
 from sqllocks_spindle.inference.schema_builder import SchemaBuilder
 from sqllocks_spindle.inference.lakehouse_profiler import LakehouseProfiler
 from sqllocks_spindle.inference.tier3_research import (
@@ -73,6 +90,17 @@ __all__ = [
     "MaskConfig",
     "MaskResult",
     "ProfileIO",
+    "ProfileStore",
+    "SafeColumnProfile",
+    "SafeProfile",
+    "SafeProfileAdapter",
+    "SafeProfileValidator",
+    "SafeTableProfile",
+    "ValidationFinding",
+    "ValidationResult",
+    "build_redaction_manifest",
+    "safe_profile_to_schema",
+    "SCHEMA_VERSION",
     "SchemaBuilder",
     "TableFidelity",
     "TableProfile",

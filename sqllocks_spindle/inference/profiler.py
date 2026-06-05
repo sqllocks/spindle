@@ -9,7 +9,7 @@ SpindleSchema.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +67,17 @@ _POSTAL_US_RE = re.compile(r"^\d{5}(-\d{4})?$")
 # ---------------------------------------------------------------------------
 
 
+# ADR-007: raw-bearing fields are stored as InitVar pseudo-fields so they are
+# EXCLUDED from dataclasses.fields(ColumnProfile). dataclasses.asdict()/json
+# therefore can never emit them — making a naive json.dump(asdict(profile)) a
+# structural no-op for these fields rather than a PII leak. The public
+# constructor kwargs (min_value=, max_value=, enum_values=, value_counts_ext=)
+# are preserved unchanged; in-process reads go through the read-only @property
+# accessors assigned below. See STORY-004 / ADR-007.
+_RAW_BEARING_FIELDS = ("enum_values", "min_value", "max_value", "value_counts_ext")
+_RAW_BEARING_PRIVATE = tuple(f"_{n}" for n in _RAW_BEARING_FIELDS)
+
+
 @dataclass
 class ColumnProfile:
     """Statistical profile of a single column."""
@@ -79,9 +90,12 @@ class ColumnProfile:
     cardinality_ratio: float  # cardinality / row_count
     is_unique: bool
     is_enum: bool  # True if cardinality < 200 or cardinality_ratio < 0.20
-    enum_values: dict[str, float] | None  # value -> probability (if is_enum)
-    min_value: Any
-    max_value: Any
+    # raw-bearing — InitVar (ADR-007); read via .enum_values property
+    enum_values: InitVar[dict[str, float] | None]
+    # raw-bearing — InitVar (ADR-007); read via .min_value property
+    min_value: InitVar[Any]
+    # raw-bearing — InitVar (ADR-007); read via .max_value property
+    max_value: InitVar[Any]
     mean: float | None  # numeric only
     std: float | None  # numeric only
     distribution: str | None  # best-fit name or None
@@ -95,10 +109,58 @@ class ColumnProfile:
     quantiles: dict[str, float] | None = None          # P1,P5,P10,P25,P50,P75,P90,P95,P99
     hour_histogram: list[float] | None = None           # 24-bin normalized hour distribution
     dow_histogram: list[float] | None = None            # 7-bin normalized day-of-week distribution
+    temporal_histogram: dict[str, Any] | None = None    # coarse safe year-range + seasonality
     string_length: dict[str, float] | None = None       # min, mean, max, p95 of len(value)
     outlier_rate: float | None = None                   # fraction outside 1.5×IQR fence
-    value_counts_ext: dict[str, float] | None = None   # value→proportion (top N)
+    # raw-bearing — InitVar (ADR-007); read via .value_counts_ext property
+    value_counts_ext: InitVar[dict[str, float] | None] = None   # value→proportion (top N)
     fit_score: float | None = None                      # 1 - KS_statistic from best-fit dist
+
+    def __post_init__(
+        self,
+        enum_values: dict[str, float] | None,
+        min_value: Any,
+        max_value: Any,
+        value_counts_ext: dict[str, float] | None,
+    ) -> None:
+        # Store raw-bearing values in private attrs that are NOT dataclass fields.
+        object.__setattr__(self, "_enum_values", enum_values)
+        object.__setattr__(self, "_min_value", min_value)
+        object.__setattr__(self, "_max_value", max_value)
+        object.__setattr__(self, "_value_counts_ext", value_counts_ext)
+
+    def __getstate__(self) -> dict:
+        # ADR-007: strip raw-bearing private attrs from any pickle representation.
+        state = dict(self.__dict__)
+        for priv in _RAW_BEARING_PRIVATE:
+            state.pop(priv, None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        # Restore non-raw state; raw-bearing attrs come back as None (stripped on pickle).
+        self.__dict__.update(state)
+        for priv in _RAW_BEARING_PRIVATE:
+            if priv not in self.__dict__:
+                self.__dict__[priv] = None
+
+
+def _raw_bearing_property(private_name: str) -> property:
+    """Read-only accessor for an InitVar-stored raw-bearing field.
+
+    Defined AFTER the dataclass body so the property object does not become the
+    field's default value (which would force a non-default field to follow a
+    defaulted one and break @dataclass).
+    """
+
+    def _getter(self, _attr: str = private_name):
+        return getattr(self, _attr)
+
+    return property(_getter)
+
+
+for _public, _private in zip(_RAW_BEARING_FIELDS, _RAW_BEARING_PRIVATE):
+    setattr(ColumnProfile, _public, _raw_bearing_property(_private))
+del _public, _private
 
 
 @dataclass
@@ -302,9 +364,11 @@ class DataProfiler:
             if len(non_null) > 0:
                 value_counts_ext = self._compute_value_counts_ext(non_null)
 
+            temporal_histogram_val: dict[str, Any] | None = None
             if spindle_type in ("date", "datetime") and len(non_null) > 0:
                 hour_histogram_val = self._compute_hour_histogram(non_null)
                 dow_histogram_val = self._compute_dow_histogram(non_null)
+                temporal_histogram_val = self._compute_temporal_histogram(non_null) or None
 
             # fit_score: 1 - ks_stat from best-fit distribution
             if dist_name is not None and dist_params is not None and HAS_SCIPY:
@@ -349,6 +413,7 @@ class DataProfiler:
                 quantiles=quantiles,
                 hour_histogram=hour_histogram_val,
                 dow_histogram=dow_histogram_val,
+                temporal_histogram=temporal_histogram_val,
                 string_length=string_length_val,
                 outlier_rate=outlier_rate_val,
                 value_counts_ext=value_counts_ext,
@@ -430,10 +495,24 @@ class DataProfiler:
     # ----- Phase 3B helper methods -----
 
     def _compute_quantiles(self, numeric: pd.Series) -> dict[str, float]:
-        """Compute quantile fingerprint at fixed percentiles."""
+        """Compute quantile fingerprint at fixed percentiles.
+
+        The p1..p99 set is the empirical-strategy fingerprint. p0.5/p99.5 are
+        added (keys ``p0_5``/``p99_5``) so the winsorized-bounds widening
+        fallback (ADR-002 / STORY-006) is derivable from aggregate quantiles
+        alone — never from raw min/max. They are extra, non-literal aggregate
+        statistics; the empirical strategy ignores keys outside its required
+        p1..p99 set.
+        """
         percs = [1, 5, 10, 25, 50, 75, 90, 95, 99]
         vals = np.percentile(numeric.values.astype(float), percs)
-        return {f"p{p}": round(float(v), 6) for p, v in zip(percs, vals)}
+        out = {f"p{p}": round(float(v), 6) for p, v in zip(percs, vals)}
+        # Widening-fallback endpoints (ADR-002): p0.5 / p99.5 as identifier-safe
+        # keys p0_5 / p99_5. Still aggregate quantiles — not raw extremes.
+        lo_hi = np.percentile(numeric.values.astype(float), [0.5, 99.5])
+        out["p0_5"] = round(float(lo_hi[0]), 6)
+        out["p99_5"] = round(float(lo_hi[1]), 6)
+        return out
 
     def _compute_outlier_rate(self, numeric: pd.Series) -> float:
         """Fraction of values outside 1.5×IQR fence."""
@@ -483,6 +562,35 @@ class DataProfiler:
         counts = np.bincount(dows.values, minlength=7).astype(float)
         total = counts.sum()
         return [round(float(v / total), 6) for v in counts]
+
+    def _compute_temporal_histogram(self, dt_series: pd.Series) -> dict[str, Any]:
+        """Coarse, SAFE temporal distribution for a date/datetime column.
+
+        Carries only AGGREGATES (a winsorized year range + per-year and 12-bin
+        monthly seasonality weights), never an individual date. This lets the
+        generator place regenerated dates in the right period + seasonal shape,
+        closing the datetime fidelity gap, without persisting any raw date
+        (consistent with ADR-002 winsorized-bounds: year-level range, p1/p99).
+        """
+        dt = pd.to_datetime(dt_series, errors="coerce").dropna()
+        if len(dt) == 0:
+            return {}
+        years = dt.dt.year.values.astype(int)
+        # Winsorized year range (p1/p99) so a lone extreme date does not set the
+        # bound; coarse year granularity is a safe aggregate.
+        lo_year = int(np.percentile(years, 1))
+        hi_year = int(np.percentile(years, 99))
+        if hi_year < lo_year:
+            hi_year = lo_year
+        span = hi_year - lo_year + 1
+        yr_counts = np.bincount(np.clip(years - lo_year, 0, span - 1), minlength=span).astype(float)
+        month_counts = np.bincount(dt.dt.month.values.astype(int) - 1, minlength=12).astype(float)
+        return {
+            "lo_year": lo_year,
+            "hi_year": hi_year,
+            "year_weights": [round(float(v / yr_counts.sum()), 6) for v in yr_counts],
+            "month_weights": [round(float(v / month_counts.sum()), 6) for v in month_counts],
+        }
 
     def _compute_correlation_matrix(self, df: pd.DataFrame) -> dict[str, dict[str, float]]:
         """Pearson correlation matrix for all numeric columns."""
@@ -640,13 +748,25 @@ class DataProfiler:
 
     # ----- foreign key detection -----
 
-    def _detect_foreign_keys(
+    def _detect_foreign_keys_advisory(
         self,
         table_name: str,
         df: pd.DataFrame,
         all_tables: dict[str, pd.DataFrame],
-    ) -> dict[str, str]:
-        """Detect FK columns by name convention (*_id) and value overlap."""
+        overlap_threshold: float = 0.9,
+    ) -> dict[str, tuple[str, float]]:
+        """Shared FK-detection core (ADR-009).
+
+        Detects FK columns by name convention (``*_id``) and value overlap with a
+        candidate parent table's primary key. Returns a mapping of
+        ``col_name -> (parent_table, overlap_ratio)`` for every column whose
+        overlap meets ``overlap_threshold``.
+
+        This is the single source of truth for FK detection. Both the in-memory
+        ``_detect_foreign_keys`` path and the LakehouseProfiler sampled key pass
+        call it; the in-memory wrapper discards the overlap for backward
+        compatibility, while the lakehouse path reports it as advisory.
+        """
         if not all_tables:
             return {}
 
@@ -655,7 +775,7 @@ class DataProfiler:
         for tname, tdf in all_tables.items():
             pk_cache[tname] = self._detect_primary_key(tdf)
 
-        fk_map: dict[str, str] = {}
+        advisory: dict[str, tuple[str, float]] = {}
 
         for col in df.columns:
             lower = col.lower()
@@ -690,10 +810,25 @@ class DataProfiler:
                 continue
 
             overlap = len(child_values & parent_values) / len(child_values)
-            if overlap >= 0.9:
-                fk_map[col] = parent_table
+            if overlap >= overlap_threshold:
+                advisory[col] = (parent_table, round(float(overlap), 6))
 
-        return fk_map
+        return advisory
+
+    def _detect_foreign_keys(
+        self,
+        table_name: str,
+        df: pd.DataFrame,
+        all_tables: dict[str, pd.DataFrame],
+    ) -> dict[str, str]:
+        """Detect FK columns by name convention (*_id) and value overlap.
+
+        Backward-compatible wrapper around ``_detect_foreign_keys_advisory``
+        (ADR-009 "reuse proven logic"): uses the default 0.9 threshold and
+        discards the measured overlap, returning ``col_name -> parent_table``.
+        """
+        advisory = self._detect_foreign_keys_advisory(table_name, df, all_tables)
+        return {col: parent for col, (parent, _overlap) in advisory.items()}
 
 
 # ---------------------------------------------------------------------------
