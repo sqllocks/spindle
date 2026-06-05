@@ -270,7 +270,10 @@ def _get_storage_token() -> str | None:
     try:
         from azure.identity import AzureCliCredential
         if _storage_cred is None:
-            _storage_cred = AzureCliCredential()
+            # tenant_id PINNED: fail-closed for client isolation. `az ... --tenant`
+            # refuses to mint a token if the active account is a different client's
+            # tenant, instead of silently using the ambient (possibly wrong) account.
+            _storage_cred = AzureCliCredential(tenant_id=_SOUND_BI_TENANT)
         token = _storage_cred.get_token("https://storage.azure.com/.default")
         return token.token if token else None
     except Exception:
