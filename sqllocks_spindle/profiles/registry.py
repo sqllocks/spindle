@@ -256,32 +256,37 @@ class ProfileRegistry:
         name: str,
         tags: list[str] | None = None,
         description: str = "",
+        config: dict[str, Any] | None = None,
     ) -> list[RegistryProfile]:
-        """Convert a DatasetProfile (from inference.profiler) into registry profiles.
+        """Convert a DatasetProfile into registry profiles via the SafeProfile mapper.
 
-        One RegistryProfile is created per table in the DatasetProfile.
-        Returns the list of saved profiles.
+        STORY-014 (ADR-001): the per-column stats are now built through
+        ``SafeProfile.from_dataset_profile`` (the canonical safe-and-correct
+        mapper), NOT the old hand-read of non-existent ``.min``/``.max``/
+        ``.top_values`` attributes (the B2 attribute-mismatch bug). So registry
+        profiles carry the SAFE statistic set (dtype/null_rate/cardinality/mean/
+        std/quantiles/bounds/categorical_weights/categorical_histogram), with no
+        raw values. The ``RegistryProfile`` wrapper (system/table/name/tags/
+        description/source_rows) is unchanged, so the registry read side
+        (load/diff/tag/reindex) is unaffected; no on-disk format break, no sidecar.
+
+        Legacy registry files (old min/max/top_values columns) still load as-is.
+        ``config`` is forwarded to the SafeProfile mapper (e.g. k, sensitive).
+
+        One RegistryProfile is created per table. Returns the saved profiles.
         """
+        from sqllocks_spindle.inference.safe_profile import SafeProfile
+
+        safe = SafeProfile.from_dataset_profile(dataset_profile, config=config)
         saved: list[RegistryProfile] = []
-        for table_name, table_profile in dataset_profile.tables.items():
+        for table_name, safe_table in safe.tables.items():
             columns: dict[str, dict[str, Any]] = {}
-            for col_name, col_profile in table_profile.columns.items():
-                col_data = {
-                    "dtype": str(col_profile.dtype) if hasattr(col_profile, "dtype") else "object",
-                    "null_rate": getattr(col_profile, "null_rate", 0.0),
-                    "cardinality": getattr(col_profile, "cardinality", 0),
-                }
-                if hasattr(col_profile, "mean") and col_profile.mean is not None:
-                    col_data["mean"] = col_profile.mean
-                if hasattr(col_profile, "std") and col_profile.std is not None:
-                    col_data["std"] = col_profile.std
-                if hasattr(col_profile, "min") and col_profile.min is not None:
-                    col_data["min"] = col_profile.min
-                if hasattr(col_profile, "max") and col_profile.max is not None:
-                    col_data["max"] = col_profile.max
-                if hasattr(col_profile, "top_values") and col_profile.top_values:
-                    col_data["top_values"] = col_profile.top_values
-                columns[col_name] = col_data
+            for col_name, safe_col in safe_table.columns.items():
+                col_data = safe_col.to_safe_dict()
+                col_data.pop("name", None)
+                # drop null-valued keys to keep the registry record compact
+                columns[col_name] = {k: v for k, v in col_data.items() if v is not None}
+            rich_table = dataset_profile.tables.get(table_name)
             profile = RegistryProfile(
                 system=system,
                 table=table_name,
@@ -289,7 +294,7 @@ class ProfileRegistry:
                 columns=columns,
                 tags=tags or [],
                 description=description,
-                source_rows=getattr(table_profile, "row_count", 0),
+                source_rows=getattr(rich_table, "row_count", 0) if rich_table else 0,
             )
             self.save(profile)
             saved.append(profile)
