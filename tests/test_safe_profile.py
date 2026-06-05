@@ -208,6 +208,7 @@ def test_safe_column_field_set_exact():
         "distribution_params",
         "bounds",
         "categorical_weights",
+        "categorical_histogram",  # STORY-007a default-deny routing target (schema v4)
         "suppressed_category_count",  # STORY-007 / ADR-003 k-anon bookkeeping
         "pattern",
         "length_dist",

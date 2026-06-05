@@ -27,6 +27,9 @@ winsorized, pattern-only columns, the k used, the sensitive flag).
 
 from __future__ import annotations
 
+import hashlib
+import math
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -44,7 +47,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids any import cost
 #       widening fallback endpoints; ADR-002).
 #   v3: STORY-007 adds per-column ``suppressed_category_count`` (k-anon
 #       __OTHER__ suppression bookkeeping for the redaction manifest; ADR-003).
-SCHEMA_VERSION = 3
+#   v4: STORY-007a/b adds default-DENY categorical-key routing + the
+#       ``categorical_histogram`` field, and suppresses quantiles/bounds for
+#       histogram-routed low-card numeric/datetime columns (ADR-003 + ADR-002
+#       narrow amendment). Closes the categorical_weights / quantile literal
+#       leak (memory id=3626).
+SCHEMA_VERSION = 4
 
 # k-anonymity defaults (ADR-003). A categorical value whose count is below the
 # applicable k is folded into a single ``__OTHER__`` bucket carrying aggregate
@@ -54,6 +62,23 @@ K_DEFAULT = 5
 K_SENSITIVE = 11
 # The residual bucket every suppressed sub-k value is folded into.
 OTHER_BUCKET = "__OTHER__"
+
+# ---------------------------------------------------------------------------
+# Default-DENY categorical key policy (STORY-007a, ADR-003).
+# A literal categorical_weights key is persisted ONLY when the column is PROVEN
+# a safe low-entropy LABEL. Everything else is bucketed (numeric/datetime) or
+# sha256-hashed. Default is DENY, so no PII *shape* can be "missed" (the prior
+# detect-and-route blocklist refuted 3x; memory id=3635).
+#
+# A safe label matches this shape: starts with a letter, then letters plus a
+# small set of label punctuation, max 32 chars. It contains NO DIGITS at all,
+# so by construction it cannot be an SSN/phone/account/date/ZIP/MRN/etc.
+SAFE_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z _/&-]{0,31}$")
+# Max distinct labels for the literal-label path (above this -> hashed).
+LABEL_CARDINALITY_CAP = 64
+# Spindle numeric / temporal dtypes.
+_NUMERIC_DTYPES = frozenset({"integer", "float"})
+_TEMPORAL_DTYPES = frozenset({"date", "datetime"})
 
 # Raw-bearing field names that must NEVER appear on the safe model (ADR-007).
 # Used by the introspection conformance test (and a cheap self-check below).
@@ -135,6 +160,11 @@ class SafeColumnProfile:
     # manifest (STORY-009) can report per-column what was dropped. None for
     # non-categorical columns; 0 when a categorical had nothing to suppress.
     suppressed_category_count: int | None = None
+    # Default-DENY routing target (STORY-007a). When a categorical column is NOT
+    # a proven safe-label set, its distribution is persisted here instead of as
+    # literal ``categorical_weights`` keys: a bucketed histogram (numeric /
+    # datetime, coarse rounded edges, no raw value) or sha256-hashed label keys.
+    categorical_histogram: dict[str, Any] | None = None
 
     # String/pattern statistics.
     pattern: str | None = None
@@ -235,6 +265,29 @@ class SafeColumnProfile:
             categorical_weights = None
             suppressed_category_count = None
 
+        # Default-DENY routing (STORY-007a / ADR-003). Whatever categorical
+        # weights survived k-anon + the PII gate are kept as LITERAL keys ONLY
+        # if the column is a proven safe-label set. Numeric/datetime columns are
+        # bucketed into a coarse ``categorical_histogram`` (no raw value); other
+        # non-label columns get sha256-hashed keys. This is the source fix that
+        # makes the "no literal value on disk" invariant hold for low-card
+        # numeric/date/identifier columns (memory id=3626/3635).
+        categorical_histogram = None
+        histogram_routed = False
+        if categorical_weights and not cls._is_safe_label(col.dtype, categorical_weights):
+            categorical_weights, categorical_histogram, histogram_routed = (
+                cls._route_nonlabel_categorical(col.dtype, categorical_weights)
+            )
+
+        # STORY-007b / ADR-002 narrow amendment: for histogram-routed (low-card
+        # numeric/datetime) columns the persisted quantiles/bounds/literal
+        # distribution_params would re-introduce the real literals (p50 == an
+        # exact value), so SUPPRESS them; the histogram carries the shape.
+        if histogram_routed:
+            quantiles = None
+            bounds = None
+            distribution_params = None
+
         return cls(
             name=col.name,
             dtype=col.dtype,
@@ -247,6 +300,7 @@ class SafeColumnProfile:
             distribution_params=distribution_params,
             bounds=bounds,
             categorical_weights=categorical_weights,
+            categorical_histogram=categorical_histogram,
             suppressed_category_count=suppressed_category_count,
             pattern=pattern,
             length_dist=length_dist,
@@ -254,6 +308,113 @@ class SafeColumnProfile:
             hour_histogram=getattr(col, "hour_histogram", None),
             dow_histogram=getattr(col, "dow_histogram", None),
         )
+
+    # ----- default-DENY categorical key routing (STORY-007a/b, ADR-003) -----
+
+    @staticmethod
+    def _is_safe_label(dtype: str, weights: dict[str, float]) -> bool:
+        """True ONLY if every surviving categorical key is a proven safe label.
+
+        Default-DENY: a key is kept as a literal ONLY when dtype is string/
+        boolean, cardinality is small, and EVERY key matches ``SAFE_LABEL_RE``
+        (which contains no digits, so it cannot be an SSN/phone/account/date/
+        ZIP/MRN). Anything else returns False and gets bucketed/hashed.
+        """
+        if dtype not in ("string", "boolean"):
+            return False
+        keys = [k for k in weights if k != OTHER_BUCKET]
+        if not keys or len(keys) > LABEL_CARDINALITY_CAP:
+            return False
+        return all(SAFE_LABEL_RE.match(str(k)) is not None for k in keys)
+
+    @classmethod
+    def _route_nonlabel_categorical(
+        cls, dtype: str, weights: dict[str, float]
+    ) -> tuple[dict[str, float] | None, dict[str, Any] | None, bool]:
+        """Route a non-label categorical column away from literal keys.
+
+        Returns ``(categorical_weights, categorical_histogram, histogram_routed)``.
+        numeric/datetime -> coarse bucketed histogram (no raw value);
+        anything else -> sha256-hashed keys. The ``__OTHER__`` residual mass is
+        preserved either way.
+        """
+        other_w = float(weights.get(OTHER_BUCKET, 0.0))
+        items = [(k, float(v)) for k, v in weights.items() if k != OTHER_BUCKET]
+        if dtype in _NUMERIC_DTYPES or dtype in _TEMPORAL_DTYPES:
+            hist = cls._bucket_numeric(items, dtype)
+            if hist is not None:
+                if other_w > 0.0:
+                    hist["other_weight"] = round(other_w, 6)
+                return None, hist, True
+        # Fallback (non-numeric non-label, or un-parseable): hash the keys.
+        hashed = {cls._hash_key(k): round(w, 6) for k, w in items}
+        if other_w > 0.0:
+            hashed[OTHER_BUCKET] = round(other_w, 6)
+        return hashed, None, False
+
+    @classmethod
+    def _bucket_numeric(
+        cls, items: list[tuple[str, float]], dtype: str
+    ) -> dict[str, Any] | None:
+        """Bucket numeric/temporal keys into a coarse histogram. None if un-parseable."""
+        temporal = dtype in _TEMPORAL_DTYPES
+        nums: list[tuple[float, float]] = []
+        for key, weight in items:
+            num = cls._coerce_year(key) if temporal else cls._coerce_number(key)
+            if num is None:
+                return None  # un-parseable -> caller falls back to hashing
+            nums.append((float(num), weight))
+        if not nums:
+            return None
+        lo_raw = min(n for n, _ in nums)
+        hi_raw = max(n for n, _ in nums)
+        if temporal:
+            # Years are already coarse aggregates; do NOT 1-sig-round them.
+            lo = float(math.floor(lo_raw))
+            hi = float(math.ceil(hi_raw) + 1)
+        else:
+            lo = cls._round_1sig(lo_raw, math.floor)
+            hi = cls._round_1sig(hi_raw, math.ceil)
+        if hi <= lo:
+            hi = lo + (abs(lo) if lo else 1.0) + 1.0
+        nbins = min(10, max(1, len(nums)))
+        width = (hi - lo) / nbins
+        bins = [0.0] * nbins
+        for num, weight in nums:
+            idx = int((num - lo) / width) if width else 0
+            idx = max(0, min(nbins - 1, idx))
+            bins[idx] += weight
+        return {
+            "kind": "temporal_year" if temporal else "numeric",
+            "lo": lo,
+            "hi": hi,
+            "nbins": nbins,
+            "bins": [round(b, 6) for b in bins],
+        }
+
+    @staticmethod
+    def _coerce_number(key: str) -> float | None:
+        try:
+            return float(str(key).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_year(key: str) -> int | None:
+        m = re.match(r"\s*(\d{4})\b", str(key))
+        return int(m.group(1)) if m else None
+
+    @staticmethod
+    def _round_1sig(x: float, rounder: Any) -> float:
+        """Round to 1 significant figure (coarse, so the edge is never a literal)."""
+        if x == 0:
+            return 0.0
+        mag = 10 ** math.floor(math.log10(abs(x)))
+        return float(rounder(x / mag) * mag)
+
+    @staticmethod
+    def _hash_key(key: str) -> str:
+        return hashlib.sha256(str(key).encode("utf-8")).hexdigest()[:12]
 
     # ----- disclosure-control hooks (STUBS — replaced by later stories) -----
 
@@ -506,6 +667,7 @@ class SafeColumnProfile:
             "distribution_params": self.distribution_params,
             "bounds": self.bounds,
             "categorical_weights": self.categorical_weights,
+            "categorical_histogram": self.categorical_histogram,
             "suppressed_category_count": self.suppressed_category_count,
             "pattern": self.pattern,
             "length_dist": self.length_dist,
@@ -528,6 +690,7 @@ class SafeColumnProfile:
             distribution_params=data.get("distribution_params"),
             bounds=data.get("bounds"),
             categorical_weights=data.get("categorical_weights"),
+            categorical_histogram=data.get("categorical_histogram"),
             suppressed_category_count=data.get("suppressed_category_count"),
             pattern=data.get("pattern"),
             length_dist=data.get("length_dist"),
