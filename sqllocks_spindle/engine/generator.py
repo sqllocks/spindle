@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib as _hashlib
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -416,7 +417,7 @@ class Spindle:
             else:
                 model_config["_domain_path"] = domain.domain_path
 
-        # Generate tables in dependency order (parallelize independent tables)
+        # Generate tables in dependency order (sequential for RNG determinism)
         start_time = time.time()
         tables: dict[str, pd.DataFrame] = {}
         lineage: list[ColumnLineage] = []
@@ -438,7 +439,7 @@ class Spindle:
                 count = row_counts.get(table_name, 100)
                 logger.info("Generating %s (%s rows)", table_name, f"{count:,}")
                 child_rng = np.random.default_rng(
-                    parsed.model.seed ^ (hash(table_name) & 0xFFFF_FFFF)
+                    parsed.model.seed ^ int.from_bytes(_hashlib.sha256(table_name.encode('utf-8')).digest()[:8], 'little')
                 )
                 df = table_gen.generate(
                     table=parsed.tables[table_name],
@@ -623,7 +624,7 @@ class Spindle:
             for table_name in level_tables:
                 count = row_counts.get(table_name, 100)
                 child_rng = np.random.default_rng(
-                    parsed.model.seed ^ (hash(table_name) & 0xFFFF_FFFF)
+                    parsed.model.seed ^ int.from_bytes(_hashlib.sha256(table_name.encode('utf-8')).digest()[:8], 'little')
                 )
                 df = table_gen.generate(
                     table=parsed.tables[table_name],

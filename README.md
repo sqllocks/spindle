@@ -6,9 +6,18 @@
 
 **Spindle** is a multi-domain, schema-aware synthetic data generator for Microsoft Fabric. It generates statistically realistic, relationally correct datasets — think normalized 3NF schemas with proper FK integrity, Pareto order distributions, seasonal temporal patterns, and real US addresses with lat/lng coordinates ready for Power BI maps.
 
-```
+```bash
+# Core install — generates CSV, JSONL, TSV, SQL output
 pip install sqllocks-spindle
+
+# Recommended for Microsoft Fabric users — adds Parquet + Delta Lake support
+pip install "sqllocks-spindle[fabric]"
 ```
+
+> **Heads-up:** the core install does not include `pyarrow`. If you plan to write
+> Parquet (the native Lakehouse/Warehouse format), use `[fabric]` above. Other
+> useful extras: `[parquet]`, `[excel]`, `[fabric-sql]`, `[eventhouse]`,
+> `[streaming]`, `[all]`. See `pyproject.toml` for the full list.
 
 ---
 
@@ -61,7 +70,7 @@ result = spindle.generate(
 )
 
 print(result)
-# GenerationResult(9 tables, 21,300 total rows, 0.3s)
+# GenerationResult(9 tables, 21,750 total rows, 0.1s)
 
 # Access any table as a pandas DataFrame
 customers = result["customer"]
