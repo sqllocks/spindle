@@ -1,0 +1,839 @@
+{
+  "name": "SpindleRetail",
+  "compatibilityLevel": 1604,
+  "model": {
+    "culture": "en-US",
+    "tables": [
+      {
+        "name": "customer",
+        "columns": [
+          {
+            "name": "customer_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "customer_id"
+          },
+          {
+            "name": "first_name",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "first_name"
+          },
+          {
+            "name": "last_name",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "last_name"
+          },
+          {
+            "name": "email",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "email"
+          },
+          {
+            "name": "gender",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "gender"
+          },
+          {
+            "name": "loyalty_tier",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "loyalty_tier"
+          },
+          {
+            "name": "signup_date",
+            "dataType": "dateTime",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "signup_date"
+          },
+          {
+            "name": "is_active",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "is_active"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "customer",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    customer_Data = Data{[schema=\"customer\"]}[Data]\nin\n    customer_Data"
+            }
+          }
+        ],
+        "description": "Individual customers",
+        "measures": [
+          {
+            "name": "Customer Count",
+            "expression": "COUNTROWS('customer')",
+            "formatString": "#,0"
+          }
+        ]
+      },
+      {
+        "name": "address",
+        "columns": [
+          {
+            "name": "address_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "address_id"
+          },
+          {
+            "name": "customer_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "customer_id"
+          },
+          {
+            "name": "address_type",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "address_type"
+          },
+          {
+            "name": "street",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "street"
+          },
+          {
+            "name": "city",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "city"
+          },
+          {
+            "name": "state",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "state"
+          },
+          {
+            "name": "zip_code",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "zip_code"
+          },
+          {
+            "name": "lat",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "lat"
+          },
+          {
+            "name": "lng",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "lng"
+          },
+          {
+            "name": "is_primary",
+            "dataType": "boolean",
+            "isHidden": false,
+            "sourceColumn": "is_primary"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "address",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    address_Data = Data{[schema=\"address\"]}[Data]\nin\n    address_Data"
+            }
+          }
+        ],
+        "description": "Customer addresses — one customer can have multiple (billing, shipping)",
+        "measures": [
+          {
+            "name": "Address Count",
+            "expression": "COUNTROWS('address')",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Lat",
+            "expression": "SUM('address'[lat])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Lat",
+            "expression": "AVERAGE('address'[lat])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Total Lng",
+            "expression": "SUM('address'[lng])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Lng",
+            "expression": "AVERAGE('address'[lng])",
+            "formatString": "#,0.00"
+          }
+        ]
+      },
+      {
+        "name": "product_category",
+        "columns": [
+          {
+            "name": "category_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "category_id"
+          },
+          {
+            "name": "category_name",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "category_name"
+          },
+          {
+            "name": "parent_category_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "sourceColumn": "parent_category_id"
+          },
+          {
+            "name": "level",
+            "dataType": "int64",
+            "isHidden": false,
+            "sourceColumn": "level"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "product_category",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    product_category_Data = Data{[schema=\"product_category\"]}[Data]\nin\n    product_category_Data"
+            }
+          }
+        ],
+        "description": "Product category hierarchy — 3 levels",
+        "measures": [
+          {
+            "name": "Product Category Count",
+            "expression": "COUNTROWS('product_category')",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Parent Category Id",
+            "expression": "SUM('product_category'[parent_category_id])",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Level",
+            "expression": "SUM('product_category'[level])",
+            "formatString": "#,0"
+          }
+        ]
+      },
+      {
+        "name": "product",
+        "columns": [
+          {
+            "name": "product_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "product_id"
+          },
+          {
+            "name": "product_name",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "product_name"
+          },
+          {
+            "name": "category_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "category_id"
+          },
+          {
+            "name": "unit_price",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "unit_price"
+          },
+          {
+            "name": "cost",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "cost"
+          },
+          {
+            "name": "product_status",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "product_status"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "product",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    product_Data = Data{[schema=\"product\"]}[Data]\nin\n    product_Data"
+            }
+          }
+        ],
+        "description": "Individual products (SKUs)",
+        "measures": [
+          {
+            "name": "Product Count",
+            "expression": "COUNTROWS('product')",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Unit Price",
+            "expression": "SUM('product'[unit_price])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Unit Price",
+            "expression": "AVERAGE('product'[unit_price])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Total Cost",
+            "expression": "SUM('product'[cost])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Cost",
+            "expression": "AVERAGE('product'[cost])",
+            "formatString": "#,0.00"
+          }
+        ]
+      },
+      {
+        "name": "store",
+        "columns": [
+          {
+            "name": "store_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "store_id"
+          },
+          {
+            "name": "store_name",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "store_name"
+          },
+          {
+            "name": "store_type",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "store_type"
+          },
+          {
+            "name": "city",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "city"
+          },
+          {
+            "name": "state",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "state"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "store",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    store_Data = Data{[schema=\"store\"]}[Data]\nin\n    store_Data"
+            }
+          }
+        ],
+        "description": "Physical and online store locations",
+        "measures": [
+          {
+            "name": "Store Count",
+            "expression": "COUNTROWS('store')",
+            "formatString": "#,0"
+          }
+        ]
+      },
+      {
+        "name": "promotion",
+        "columns": [
+          {
+            "name": "promotion_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "promotion_id"
+          },
+          {
+            "name": "promo_name",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "promo_name"
+          },
+          {
+            "name": "promo_type",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "promo_type"
+          },
+          {
+            "name": "discount_pct",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "discount_pct"
+          },
+          {
+            "name": "start_date",
+            "dataType": "dateTime",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "start_date"
+          },
+          {
+            "name": "end_date",
+            "dataType": "dateTime",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "end_date"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "promotion",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    promotion_Data = Data{[schema=\"promotion\"]}[Data]\nin\n    promotion_Data"
+            }
+          }
+        ],
+        "description": "Marketing promotions",
+        "measures": [
+          {
+            "name": "Promotion Count",
+            "expression": "COUNTROWS('promotion')",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Discount Pct",
+            "expression": "SUM('promotion'[discount_pct])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Discount Pct",
+            "expression": "AVERAGE('promotion'[discount_pct])",
+            "formatString": "#,0.00"
+          }
+        ]
+      },
+      {
+        "name": "order",
+        "columns": [
+          {
+            "name": "order_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "order_id"
+          },
+          {
+            "name": "customer_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "customer_id"
+          },
+          {
+            "name": "store_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "store_id"
+          },
+          {
+            "name": "shipping_address_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "shipping_address_id"
+          },
+          {
+            "name": "promotion_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "promotion_id"
+          },
+          {
+            "name": "order_date",
+            "dataType": "dateTime",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "order_date"
+          },
+          {
+            "name": "status",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "status"
+          },
+          {
+            "name": "order_total",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "order_total"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "order",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    order_Data = Data{[schema=\"order\"]}[Data]\nin\n    order_Data"
+            }
+          }
+        ],
+        "description": "Customer orders (header)",
+        "measures": [
+          {
+            "name": "Order Count",
+            "expression": "COUNTROWS('order')",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Order Total",
+            "expression": "SUM('order'[order_total])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Order Total",
+            "expression": "AVERAGE('order'[order_total])",
+            "formatString": "#,0.00"
+          }
+        ]
+      },
+      {
+        "name": "order_line",
+        "columns": [
+          {
+            "name": "order_line_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "order_line_id"
+          },
+          {
+            "name": "order_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "order_id"
+          },
+          {
+            "name": "product_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "product_id"
+          },
+          {
+            "name": "promotion_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "sourceColumn": "promotion_id"
+          },
+          {
+            "name": "quantity",
+            "dataType": "int64",
+            "isHidden": false,
+            "sourceColumn": "quantity"
+          },
+          {
+            "name": "unit_price",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "unit_price"
+          },
+          {
+            "name": "discount_percent",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "discount_percent"
+          },
+          {
+            "name": "line_total",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "line_total"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "order_line",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    order_line_Data = Data{[schema=\"order_line\"]}[Data]\nin\n    order_line_Data"
+            }
+          }
+        ],
+        "description": "Individual line items within an order",
+        "measures": [
+          {
+            "name": "Order Line Count",
+            "expression": "COUNTROWS('order_line')",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Promotion Id",
+            "expression": "SUM('order_line'[promotion_id])",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Quantity",
+            "expression": "SUM('order_line'[quantity])",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Unit Price",
+            "expression": "SUM('order_line'[unit_price])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Unit Price",
+            "expression": "AVERAGE('order_line'[unit_price])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Total Discount Percent",
+            "expression": "SUM('order_line'[discount_percent])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Discount Percent",
+            "expression": "AVERAGE('order_line'[discount_percent])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Total Line Total",
+            "expression": "SUM('order_line'[line_total])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Line Total",
+            "expression": "AVERAGE('order_line'[line_total])",
+            "formatString": "#,0.00"
+          }
+        ]
+      },
+      {
+        "name": "return",
+        "columns": [
+          {
+            "name": "return_id",
+            "dataType": "int64",
+            "isHidden": false,
+            "isKey": true,
+            "summarizeBy": "none",
+            "sourceColumn": "return_id"
+          },
+          {
+            "name": "order_id",
+            "dataType": "int64",
+            "isHidden": true,
+            "summarizeBy": "none",
+            "sourceColumn": "order_id"
+          },
+          {
+            "name": "return_date",
+            "dataType": "dateTime",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "return_date"
+          },
+          {
+            "name": "reason",
+            "dataType": "string",
+            "isHidden": false,
+            "summarizeBy": "none",
+            "sourceColumn": "reason"
+          },
+          {
+            "name": "refund_amount",
+            "dataType": "decimal",
+            "isHidden": false,
+            "sourceColumn": "refund_amount"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "return",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Lakehouse.Contents(null),\n    Data = Source{[workspaceId=\"{workspace_id}\", itemObjectId=\"{lakehouse_id}\"]}[Data],\n    return_Data = Data{[schema=\"return\"]}[Data]\nin\n    return_Data"
+            }
+          }
+        ],
+        "description": "Return transactions",
+        "measures": [
+          {
+            "name": "Return Count",
+            "expression": "COUNTROWS('return')",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Total Refund Amount",
+            "expression": "SUM('return'[refund_amount])",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Avg Refund Amount",
+            "expression": "AVERAGE('return'[refund_amount])",
+            "formatString": "#,0.00"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "name": "customer_addresses",
+        "fromTable": "address",
+        "fromColumn": "customer_id",
+        "toTable": "customer",
+        "toColumn": "customer_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "product_in_category",
+        "fromTable": "product",
+        "fromColumn": "category_id",
+        "toTable": "product_category",
+        "toColumn": "category_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "customer_orders",
+        "fromTable": "order",
+        "fromColumn": "customer_id",
+        "toTable": "customer",
+        "toColumn": "customer_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "order_store",
+        "fromTable": "order",
+        "fromColumn": "store_id",
+        "toTable": "store",
+        "toColumn": "store_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "order_address",
+        "fromTable": "order",
+        "fromColumn": "shipping_address_id",
+        "toTable": "address",
+        "toColumn": "address_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "order_promotion",
+        "fromTable": "order",
+        "fromColumn": "promotion_id",
+        "toTable": "promotion",
+        "toColumn": "promotion_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "order_lines",
+        "fromTable": "order_line",
+        "fromColumn": "order_id",
+        "toTable": "order",
+        "toColumn": "order_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "order_line_product",
+        "fromTable": "order_line",
+        "fromColumn": "product_id",
+        "toTable": "product",
+        "toColumn": "product_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      },
+      {
+        "name": "order_returns",
+        "fromTable": "return",
+        "fromColumn": "order_id",
+        "toTable": "order",
+        "toColumn": "order_id",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      }
+    ],
+    "roles": [],
+    "annotations": [
+      {
+        "name": "generated_by",
+        "value": "Spindle v2.14.0"
+      },
+      {
+        "name": "domain",
+        "value": "retail"
+      },
+      {
+        "name": "schema_mode",
+        "value": "3nf"
+      }
+    ]
+  }
+}
