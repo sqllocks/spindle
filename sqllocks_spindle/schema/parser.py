@@ -124,6 +124,9 @@ class SpindleSchema:
     relationships: list[RelationshipDef]
     business_rules: list[BusinessRuleDef]
     generation: GenerationConfig
+    # Per-table correlated-column pairs for the GaussianCopula post-pass:
+    # {table: [[col_a, col_b, r], ...]}. Default empty (no correlation pass).
+    correlated_columns: dict[str, list] = field(default_factory=dict)
 
     @property
     def table_names(self) -> list[str]:

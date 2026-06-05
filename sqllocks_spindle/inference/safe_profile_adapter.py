@@ -121,6 +121,7 @@ class SafeProfileAdapter:
 
         relationships = self._build_relationships(profile)
         generation = self._build_generation_config(profile)
+        correlated_columns = self._build_correlated_columns(profile)
 
         model = ModelDef(
             name=f"{domain_name}_safe",
@@ -138,7 +139,33 @@ class SafeProfileAdapter:
             relationships=relationships,
             business_rules=[],
             generation=generation,
+            correlated_columns=correlated_columns,
         )
+
+    @staticmethod
+    def _build_correlated_columns(profile: SafeProfile) -> dict[str, list]:
+        """Per-table correlated pairs from the safe ``correlation_matrix`` for the
+        GaussianCopula post-pass (joint-fidelity lever). Correlations are
+        aggregate (Pearson r) and SAFE. Only pairs with |r| >= threshold are
+        emitted, so uncorrelated data gets no spurious enforcement.
+        """
+        threshold = 0.3
+        out: dict[str, list] = {}
+        for tname, tprofile in profile.tables.items():
+            corr = getattr(tprofile, "correlation_matrix", None) or {}
+            pairs: list[list] = []
+            seen: set[tuple[str, str]] = set()
+            for a, row in corr.items():
+                for b, r in (row or {}).items():
+                    key = tuple(sorted((a, b)))
+                    if a == b or key in seen or r is None:
+                        continue
+                    seen.add(key)
+                    if abs(float(r)) >= threshold:
+                        pairs.append([a, b, float(r)])
+            if pairs:
+                out[tname] = pairs
+        return out
 
     # ------------------------------------------------------------------
     # Table / column mapping
