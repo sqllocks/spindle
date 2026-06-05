@@ -81,6 +81,71 @@ class LakehouseProfiler:
                 logger.warning("Skipping table '%s': %s", tname, exc)
         return profiles
 
+    def detect_foreign_keys(
+        self,
+        table_names: list[str] | None = None,
+        overlap_threshold: float = 0.9,
+        sample_rows: int | None | str = "default",
+        full_scan: bool = False,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """Sampled cross-table FK detection (advisory). ADR-009 / STORY-016.
+
+        Reads each table's columns (sampled by default) and runs the proven
+        ``DataProfiler._detect_foreign_keys_advisory`` core (naming ``*_id`` plus
+        value-overlap >= ``overlap_threshold``) across every table pair. Detected
+        FKs are advisory and reported with the measured overlap; a declared
+        ``star_map`` / ``RelationshipDef`` remains authoritative and overrides
+        (resolved by the caller, not here).
+
+        Args:
+            table_names: Tables to scan. Defaults to all tables in the lakehouse.
+            overlap_threshold: Minimum child-to-parent value overlap to report a
+                FK (default 0.9, configurable per ADR-009).
+            sample_rows: Per-table row cap used when reading key columns.
+                ``"default"`` uses ``self.default_sample_rows``; ``None`` reads
+                the full table. Ignored when ``full_scan=True``.
+            full_scan: Read entire tables (no sampling) to confirm a sampled
+                result (ADR-009 full-scan option).
+
+        Returns:
+            ``{child_table: {col_name: {"parent_table": str, "overlap": float,
+            "advisory": True, "full_scan": bool}}}`` for every detected FK.
+        """
+        if sample_rows == "default":
+            sample_rows = self.default_sample_rows
+        effective_sample = None if full_scan else sample_rows
+
+        names = table_names if table_names is not None else self._list_tables()
+
+        # Read each table once (sampled unless full_scan); skip unreadable tables.
+        frames: dict[str, pd.DataFrame] = {}
+        for tname in names:
+            try:
+                frames[tname] = self._read_table(tname, sample_rows=effective_sample)
+            except Exception as exc:
+                logger.warning("Skipping table '%s' during FK detection: %s", tname, exc)
+
+        profiler = DataProfiler(sample_rows=None)
+
+        result: dict[str, dict[str, dict[str, Any]]] = {}
+        for child_name, child_df in frames.items():
+            advisory = profiler._detect_foreign_keys_advisory(
+                child_name, child_df, frames, overlap_threshold=overlap_threshold
+            )
+            if not advisory:
+                continue
+            result[child_name] = {
+                col: {
+                    "parent_table": parent,
+                    "overlap": overlap,
+                    "advisory": True,
+                    "full_scan": full_scan,
+                }
+                for col, (parent, overlap) in advisory.items()
+            }
+
+        return result
+
     def _abfss_tables_root(self) -> str:
         return (
             f"abfss://{self.workspace_id}"
@@ -137,9 +202,6 @@ class LakehouseProfiler:
                 "Install with: pip install 'sqllocks-spindle[fabric-inference]'"
             )
             return []
-
-        root = self._abfss_tables_root()
-        storage_options = self._storage_options()
 
         try:
             from pyarrow import fs as _fs

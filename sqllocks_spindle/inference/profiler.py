@@ -715,13 +715,25 @@ class DataProfiler:
 
     # ----- foreign key detection -----
 
-    def _detect_foreign_keys(
+    def _detect_foreign_keys_advisory(
         self,
         table_name: str,
         df: pd.DataFrame,
         all_tables: dict[str, pd.DataFrame],
-    ) -> dict[str, str]:
-        """Detect FK columns by name convention (*_id) and value overlap."""
+        overlap_threshold: float = 0.9,
+    ) -> dict[str, tuple[str, float]]:
+        """Shared FK-detection core (ADR-009).
+
+        Detects FK columns by name convention (``*_id``) and value overlap with a
+        candidate parent table's primary key. Returns a mapping of
+        ``col_name -> (parent_table, overlap_ratio)`` for every column whose
+        overlap meets ``overlap_threshold``.
+
+        This is the single source of truth for FK detection. Both the in-memory
+        ``_detect_foreign_keys`` path and the LakehouseProfiler sampled key pass
+        call it; the in-memory wrapper discards the overlap for backward
+        compatibility, while the lakehouse path reports it as advisory.
+        """
         if not all_tables:
             return {}
 
@@ -730,7 +742,7 @@ class DataProfiler:
         for tname, tdf in all_tables.items():
             pk_cache[tname] = self._detect_primary_key(tdf)
 
-        fk_map: dict[str, str] = {}
+        advisory: dict[str, tuple[str, float]] = {}
 
         for col in df.columns:
             lower = col.lower()
@@ -765,10 +777,25 @@ class DataProfiler:
                 continue
 
             overlap = len(child_values & parent_values) / len(child_values)
-            if overlap >= 0.9:
-                fk_map[col] = parent_table
+            if overlap >= overlap_threshold:
+                advisory[col] = (parent_table, round(float(overlap), 6))
 
-        return fk_map
+        return advisory
+
+    def _detect_foreign_keys(
+        self,
+        table_name: str,
+        df: pd.DataFrame,
+        all_tables: dict[str, pd.DataFrame],
+    ) -> dict[str, str]:
+        """Detect FK columns by name convention (*_id) and value overlap.
+
+        Backward-compatible wrapper around ``_detect_foreign_keys_advisory``
+        (ADR-009 "reuse proven logic"): uses the default 0.9 threshold and
+        discards the measured overlap, returning ``col_name -> parent_table``.
+        """
+        advisory = self._detect_foreign_keys_advisory(table_name, df, all_tables)
+        return {col: parent for col, (parent, _overlap) in advisory.items()}
 
 
 # ---------------------------------------------------------------------------
