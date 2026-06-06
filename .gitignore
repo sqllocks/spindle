@@ -86,3 +86,6 @@ spindle_output/
 
 # Claude Code internal
 .superpowers/
+
+# az CLI config/index scaffolding (never commit)
+.azure/
