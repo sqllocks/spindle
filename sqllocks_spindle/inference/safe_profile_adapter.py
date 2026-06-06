@@ -315,12 +315,23 @@ class SafeProfileAdapter:
         return gen
 
     def _numeric_generator(self, col: SafeColumnProfile) -> dict[str, Any]:
-        """Numeric generator: distribution+params clipped to bounds (ADR-002).
+        """Numeric generator: empirical inverse-CDF first, else fitted distribution
+        (both clipped to winsorized bounds, ADR-002).
 
-        Preference order:
-          1. A fitted distribution the engine implements, translated to engine
-             param keys, with bounds injected as min/max for clipping.
-          2. Otherwise quantiles -> empirical (still clipped to bounds).
+        Preference order (STORY-019 / ADR-016):
+          1. A full p1..p99 quantile fingerprint -> ``empirical`` (piecewise-linear
+             inverse-CDF sampling). Preferred OVER a fitted distribution because
+             parametric fits on derived/clipped numeric columns degenerate: the
+             profiler fits near-zero-sigma log_normals for tightly-coupled columns
+             (e.g. income ~ f(age)), collapsing them to a near-constant
+             (std ~1e-14) -> NaN pairwise correlation -> the GaussianCopula
+             post-pass has nothing to reorder. The empirical path reproduces the
+             marginal faithfully AND preserves the rank structure the copula needs.
+             Persisted p0_5/p99_5 are threaded through (via the quantiles dict) as
+             tail anchors so the winsorization-WIDENING lever (STORY-006 / ADR-002)
+             still recovers heavy-tail mass through the empirical path.
+          2. Otherwise a fitted distribution the engine implements, translated to
+             engine param keys, with bounds injected as min/max for clipping.
           3. Otherwise a normal from mean/std (clipped to bounds).
           4. Otherwise a uniform across bounds, or a degenerate constant.
         """
@@ -328,21 +339,13 @@ class SafeProfileAdapter:
         lo = bounds.get("lo")
         hi = bounds.get("hi")
 
-        # 1. Fitted distribution the engine can generate.
-        engine_dist = _translate_distribution(
-            col.distribution, col.distribution_params
-        )
-        if engine_dist is not None:
-            name, params = engine_dist
-            params = dict(params)
-            _inject_bounds(params, lo, hi)
-            return {"strategy": "distribution", "distribution": name, "params": params}
-
-        # 2. Empirical from the quantile fingerprint (needs the full p1..p99 set).
-        #    Thread the winsorized bounds through so the empirical strategy clips
-        #    regenerated values to [lo, hi] (ADR-002 / STORY-006). The empirical
-        #    quantile interpolation naturally clamps to [p1, p99]; explicit
-        #    bounds enforce the configured window (e.g. widened p0.5/p99.5).
+        # 1. Empirical inverse-CDF from the quantile fingerprint (STORY-019).
+        #    Thread the winsorized bounds through as min/max so the empirical
+        #    strategy clips regenerated values to [lo, hi] (ADR-002 / STORY-006).
+        #    The empirical strategy tail-anchors on p0_5/p99_5 when present, so a
+        #    widened window (lo=p0.5, hi=p99.5) recovers heavy-tail mass instead of
+        #    clamping at [p1, p99] (ADR-016 reconciles empirical-first with the
+        #    STORY-006 winsorization-widening lever).
         if col.quantiles and _has_full_quantiles(col.quantiles):
             gen: dict[str, Any] = {
                 "strategy": "empirical",
@@ -353,6 +356,16 @@ class SafeProfileAdapter:
             if hi is not None:
                 gen["max"] = float(hi)
             return gen
+
+        # 2. Fitted distribution the engine can generate (no full quantile set).
+        engine_dist = _translate_distribution(
+            col.distribution, col.distribution_params
+        )
+        if engine_dist is not None:
+            name, params = engine_dist
+            params = dict(params)
+            _inject_bounds(params, lo, hi)
+            return {"strategy": "distribution", "distribution": name, "params": params}
 
         # 3. Normal from mean/std, clipped to bounds.
         if col.mean is not None and col.std is not None:
