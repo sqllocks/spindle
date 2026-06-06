@@ -185,10 +185,18 @@ def _single_numeric_profile(distribution, params, bounds, strategy_hint="dist"):
 
 
 def test_distribution_path_clips_to_bounds():
-    """Numeric via the fitted-distribution path is clipped to [lo, hi]."""
+    """Numeric via the fitted-distribution path is clipped to [lo, hi].
+
+    The distribution path is taken when the column has NO full p1..p99 quantile
+    fingerprint (with one, the adapter prefers empirical inverse-CDF — STORY-019 /
+    ADR-016). So this fixture drops quantiles to exercise the fitted-distribution
+    branch; the empirical-path clip is covered by ``test_empirical_path_clips_to_bounds``.
+    """
     safe = _single_numeric_profile(
         "normal", {"loc": 100.0, "scale": 50.0}, {"lo": 10.0, "hi": 20.0}
     )
+    # No quantile fingerprint -> adapter routes to the fitted-distribution path.
+    safe.tables["t"].columns["x"].quantiles = None
     schema = safe_profile_to_schema(safe)
     gen = schema.tables["t"].columns["x"].generator
     assert gen["strategy"] == "distribution"

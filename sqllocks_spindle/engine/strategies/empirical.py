@@ -56,8 +56,28 @@ class EmpiricalStrategy(Strategy):
                 f"empirical strategy for column '{column.name}' is missing quantile keys: {missing}"
             )
 
-        q_values = np.array([quantiles[k] for k in _PERCENTILE_KEYS], dtype=float)
-        p_values = np.array(_PERCENTILE_VALUES, dtype=float)
+        # Tail anchors (STORY-019 / ADR-016): when the persisted fingerprint
+        # carries the winsorization-widening endpoints p0_5 / p99_5, include them
+        # as OUTER interpolation anchors so the empirical inverse-CDF can reach
+        # into the widened tail. With default bounds the post-clip still clamps at
+        # [p1, p99]; with widened bounds (lo=p0_5, hi=p99_5) the heavy-tail mass is
+        # recovered THROUGH the empirical path — this is what reconciles STORY-019
+        # empirical-first with the STORY-006 / ADR-002 winsorization-widening lever.
+        # Anchors are only added when monotonic (p0_5 <= p1, p99_5 >= p99) so the
+        # quantile function stays non-decreasing for interpolation.
+        p_list = list(_PERCENTILE_VALUES)
+        q_list = [quantiles[k] for k in _PERCENTILE_KEYS]
+        lo_anchor = quantiles.get("p0_5")
+        if lo_anchor is not None and float(lo_anchor) <= q_list[0]:
+            p_list.insert(0, 0.005)
+            q_list.insert(0, float(lo_anchor))
+        hi_anchor = quantiles.get("p99_5")
+        if hi_anchor is not None and float(hi_anchor) >= q_list[-1]:
+            p_list.append(0.995)
+            q_list.append(float(hi_anchor))
+
+        q_values = np.array(q_list, dtype=float)
+        p_values = np.array(p_list, dtype=float)
 
         # Draw uniform samples, then map through the quantile function
         u = ctx.rng.uniform(0.0, 1.0, size=ctx.row_count)
@@ -76,8 +96,9 @@ class EmpiricalStrategy(Strategy):
             result = np.interp(u, p_values, q_values)
 
         # Clip to the winsorized bounds when provided (ADR-002 / STORY-006).
-        # Interpolation already clamps to [p1, p99]; explicit min/max enforce
-        # the configured window so no value escapes [lo, hi].
+        # Interpolation clamps to the anchored quantile span ([p1, p99], or
+        # [p0_5, p99_5] when widening anchors are present); explicit min/max then
+        # enforce the configured window so no value escapes [lo, hi].
         min_val = config.get("min")
         max_val = config.get("max")
         if min_val is not None:
