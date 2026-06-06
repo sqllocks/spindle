@@ -4,7 +4,6 @@ correlation_matrix on correlated data, via SafeProfileAdapter -> correlated_colu
 """
 
 import numpy as np
-import pytest
 import pandas as pd
 
 from sqllocks_spindle.engine.generator import Spindle
@@ -29,21 +28,31 @@ def test_adapter_emits_correlated_columns():
     assert ("age", "income") in pairs  # strong correlation captured
 
 
-@pytest.mark.xfail(
-    reason="KNOWN: production generator's numeric sampling over-correlates derived/"
-    "clipped columns to ~1.0 (independent of the copula) and reproduces marginals "
-    "poorly (~52% vs the reconstructor-proven 99%). The copula WIRING is correct "
-    "(see test_adapter_emits_correlated_columns); realizing the target correlation "
-    "needs the generator-overhaul story (empirical inverse-CDF marginals + capped "
-    "Cholesky copula). Documents the gap, does not assert on buggy behavior.",
-    strict=False,
-)
 def test_production_generate_recovers_correlation_target():
+    """STORY-019 AC#2/AC#3: the production generate() path tracks the real pairwise
+    correlation (~0.80) instead of collapsing to 1.0. Fixed by empirical inverse-CDF
+    marginals (ADR-016): faithful marginals preserve the rank structure the
+    GaussianCopula post-pass reorders, so age/income recovers the target r.
+    """
     orig = _correlated_df()
     safe = SafeProfile.from_dataset_profile(DataProfiler().profile_dataset({"t": orig}))
     schema = SafeProfileAdapter().to_schema(safe, domain_name="x")
     out = Spindle().generate(schema=schema, scale="small", seed=7, fidelity_profile=safe)
     gen = (out[0] if isinstance(out, tuple) else out).tables["t"]
     gen_corr = gen["age"].corr(gen["income"])
-    # target: track the real ~0.80, NOT collapse to 1.0 (the current over-correlation bug)
+    # target: track the real ~0.80, NOT collapse to 1.0 (the old over-correlation bug)
     assert 0.6 < gen_corr < 0.95
+
+
+def test_production_roundtrip_fidelity_on_correlated_fixture():
+    """STORY-019 AC#4: round-trip fidelity on a correlated continuous fixture is
+    >= 90% (the safe stats were already sufficient; empirical-first unlocks it)."""
+    from sqllocks_spindle.inference.comparator import FidelityComparator
+
+    orig = _correlated_df()
+    safe = SafeProfile.from_dataset_profile(DataProfiler().profile_dataset({"t": orig}))
+    schema = SafeProfileAdapter().to_schema(safe, domain_name="x")
+    out = Spindle().generate(schema=schema, scale="small", seed=7, fidelity_profile=safe)
+    gen = (out[0] if isinstance(out, tuple) else out).tables["t"]
+    rep = FidelityComparator().compare({"t": orig}, {"t": gen})
+    assert rep.tables["t"].score >= 90.0, rep.tables["t"].score
