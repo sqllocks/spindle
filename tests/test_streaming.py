@@ -414,7 +414,9 @@ class TestSpindleStreamer:
         assert result.anomaly_count == 0
         assert result.out_of_order_count == 0
         assert result.elapsed_seconds >= 0
-        assert result.events_per_second_actual > 0
+        # Throughput is non-negative; a tiny run can complete under the clock's
+        # resolution (elapsed rounds to 0 -> eps 0.0), so don't require > 0.
+        assert result.events_per_second_actual >= 0
 
     def test_stream_result_repr(self, simple_tables):
         result = SpindleStreamer(
