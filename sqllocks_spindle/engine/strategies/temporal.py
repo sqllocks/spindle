@@ -158,7 +158,9 @@ class TemporalStrategy(Strategy):
             for i, peak in enumerate(peaks):
                 mask = peak_choice == i
                 hours[mask] = ctx.rng.normal(peak, std_dev, size=mask.sum())
-            hours = np.clip(hours, 0, 23.99).astype(int)
+            # Wrap (not clip) so an evening peak's late tail lands in the early-AM
+            # hours instead of piling a spurious spike onto hour 23.
+            hours = np.mod(np.floor(hours), 24).astype(int)
             minutes = ctx.rng.integers(0, 60, size=n)
             seconds = ctx.rng.integers(0, 60, size=n)
         else:
