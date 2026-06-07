@@ -13,13 +13,24 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-try:
-    from faker import Faker
-except ImportError as _faker_err:
-    raise ImportError(
-        "faker is required for data masking. "
-        "Install with: pip install sqllocks-spindle[faker]"
-    ) from _faker_err
+
+def _get_faker():
+    """Lazily import the optional ``faker`` dependency.
+
+    ``faker`` is only needed for the data-masking path (``DataMasker.mask``).
+    Importing it at module load time would make it a hard dependency of the
+    entire ``inference`` package (profiling, SafeProfile, generation), which
+    only require it as an extra. Import on demand so those paths work without
+    faker installed, and raise the install hint only when masking is invoked.
+    """
+    try:
+        from faker import Faker
+    except ImportError as _faker_err:  # pragma: no cover - exercised when extra missing
+        raise ImportError(
+            "faker is required for data masking. "
+            "Install with: pip install sqllocks-spindle[faker]"
+        ) from _faker_err
+    return Faker
 
 
 @dataclass
@@ -149,6 +160,7 @@ class DataMasker:
                 "Pass {'table_name': df} instead."
             )
         config = config or MaskConfig()
+        Faker = _get_faker()
         fake = Faker(config.locale)
         Faker.seed(config.seed)
         rng = np.random.default_rng(config.seed)
