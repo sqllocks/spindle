@@ -1,0 +1,23 @@
+# Normalize line endings so Dropbox/Windows cross-sync can't introduce CRLF
+# noise into diffs (see masker.py CRLF incident, 2026-06-07).
+* text=auto eol=lf
+
+# Explicitly LF for source/text so a Windows checkout doesn't flip them.
+*.py   text eol=lf
+*.pyi  text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.toml text eol=lf
+*.cfg  text eol=lf
+*.ini  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+
+# Binary artifacts — never touch.
+*.whl  binary
+*.parquet binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
