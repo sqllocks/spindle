@@ -5,6 +5,22 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.2] - 2026-06-08
+
+### Fixed
+- `incremental/continue_engine.py` `_fk_map`: `ContinueEngine.continue_from()` now
+  preserves foreign-key integrity on schemas WITHOUT explicit `strategy: foreign_key`
+  generators (i.e. schemas produced by `SchemaBuilder`/`DataProfiler` over real data).
+  Previously such FK columns fell through to `_perturb_columns` and were corrupted into
+  orphan keys (FK valid rate dropped to ~0.0). FKs are now resolved from three sources in
+  priority order: explicit FK generators, declared `schema.relationships`
+  (child_columns → parent), and unambiguous name-based PK-name matching. This is the bug
+  the Contoso "Day 2 / continue_from" demo had to work around with manual FK resampling.
+
+### Notes
+- Version was previously inconsistent across `pyproject.toml` (2.14.1) and
+  `sqllocks_spindle/__init__.py` (2.14.0); both are now 2.14.2.
+
 ## [2.2.3] - 2026-03-17
 
 ### Fixed

@@ -350,8 +350,27 @@ class ContinueEngine:
         tables: dict[str, pd.DataFrame],
         schema: Any | None,
     ) -> dict[str, dict[str, str]]:
-        """Return {table: {fk_col: parent_table}}."""
+        """Return {table: {fk_col: parent_table}}.
+
+        FK information is resolved from three sources, in priority order:
+
+        1. **Explicit FK generators** — ``ColumnDef.is_foreign_key`` /
+           ``fk_ref_table`` (schemas authored with ``strategy: foreign_key``).
+        2. **Declared relationships** — ``schema.relationships`` child_columns ->
+           parent (catches FKs whose column name differs from the parent PK).
+        3. **Name-based inference** — a column whose name matches another
+           table's primary-key column name, when exactly one table owns that PK
+           name (unambiguous).
+
+        Sources 2 and 3 exist because schemas produced by inference
+        (SchemaBuilder/DataProfiler over real data, e.g. the Contoso demo) do
+        NOT carry ``strategy: foreign_key`` metadata.  Without them, FK columns
+        fall through to ``_perturb_columns`` and get corrupted into orphan keys.
+        """
         fk: dict[str, dict[str, str]] = {}
+        pk_map = ContinueEngine._pk_map(tables, schema)
+
+        # 1. Explicit FK generator metadata -----------------------------
         if schema is not None:
             for tname, tdef in schema.tables.items():
                 if tname not in tables:
@@ -362,7 +381,35 @@ class ContinueEngine:
                         col_map[cname] = cdef.fk_ref_table
                 if col_map:
                     fk[tname] = col_map
-        # No fallback heuristic — plain dicts just won't have FK info
+
+        # 2. Declared relationships -------------------------------------
+        if schema is not None:
+            for rel in getattr(schema, "relationships", None) or []:
+                child = getattr(rel, "child", None)
+                parent = getattr(rel, "parent", None)
+                if child not in tables or parent not in tables:
+                    continue
+                for child_col in getattr(rel, "child_columns", None) or []:
+                    if child_col in tables[child].columns:
+                        fk.setdefault(child, {}).setdefault(child_col, parent)
+
+        # 3. Name-based inference (unambiguous PK-name match) ------------
+        pk_owner: dict[str, str] = {}
+        pk_name_counts: dict[str, int] = {}
+        for ptable, pcols in pk_map.items():
+            for pcol in pcols:
+                pk_name_counts[pcol] = pk_name_counts.get(pcol, 0) + 1
+                pk_owner[pcol] = ptable
+        for tname, df in tables.items():
+            own_pks = set(pk_map.get(tname, []))
+            col_map = fk.setdefault(tname, {})
+            for col in df.columns:
+                if col in col_map or col in own_pks:
+                    continue
+                owner = pk_owner.get(col)
+                if owner is not None and owner != tname and pk_name_counts.get(col, 0) == 1:
+                    col_map[col] = owner
+
         for tname in tables:
             fk.setdefault(tname, {})
         return fk
