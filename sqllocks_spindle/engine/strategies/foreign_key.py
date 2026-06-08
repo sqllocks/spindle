@@ -52,6 +52,21 @@ class ForeignKeyStrategy(Strategy):
                 filter_value=filter_val,
             )
 
+        # Self-referential FK (e.g. employee.manager_id -> employee.employee_id):
+        # the parent PK pool isn't registered until the whole table finishes
+        # (register_table runs after all columns), but the PK column is already
+        # generated (PKs precede FKs in column order), so sample from the
+        # in-progress table. NULL masking (roots with no parent) is applied later.
+        if ref_table == ctx.current_table_name:
+            pk_vals = ctx.current_table.get(ref_column)
+            if pk_vals is None:
+                return np.full(ctx.row_count, None, dtype=object)
+            pk_arr = np.asarray(pk_vals)
+            if len(pk_arr) == 0:
+                return np.full(ctx.row_count, None, dtype=object)
+            idx = ctx.rng.integers(0, len(pk_arr), size=ctx.row_count)
+            return pk_arr[idx]
+
         return ctx.id_manager.get_random_fks(
             table_name=ref_table,
             count=ctx.row_count,

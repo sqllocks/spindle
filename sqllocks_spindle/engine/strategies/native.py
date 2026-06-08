@@ -89,6 +89,7 @@ class NativeStrategy(Strategy):
         "name": "_gen_name",
         "email": "_gen_email",
         "phone_number": "_gen_phone",
+        "ssn": "_gen_ssn",
         "company": "_gen_company",
         "street_address": "_gen_street_address",
         "sentence": "_gen_sentence",
@@ -171,6 +172,19 @@ class NativeStrategy(Strategy):
         subscriber = ctx.rng.integers(1000, 9999, size=ctx.row_count)
         return np.array(
             [f"({a}) {e}-{s}" for a, e, s in zip(area, exchange, subscriber)],
+            dtype=object,
+        )
+
+    def _gen_ssn(self, ctx: GenerationContext) -> np.ndarray:
+        # Synthetic US SSN format AAA-GG-SSSS. Avoids reserved area numbers
+        # (000, 666, 900-999) so values look valid without colliding with real
+        # ranges. Vectorized; faker not required.
+        area = ctx.rng.integers(1, 900, size=ctx.row_count)
+        area[area == 666] = 665
+        group = ctx.rng.integers(1, 100, size=ctx.row_count)
+        serial = ctx.rng.integers(1, 10000, size=ctx.row_count)
+        return np.array(
+            [f"{a:03d}-{g:02d}-{s:04d}" for a, g, s in zip(area, group, serial)],
             dtype=object,
         )
 
