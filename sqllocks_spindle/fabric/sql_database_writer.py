@@ -89,21 +89,25 @@ class FabricSqlDatabaseWriter:
 
     def __init__(
         self,
-        connection_string: str,
+        connection_string: str | None = None,
         auth_method: str = "cli",
         client_id: str | None = None,
         client_secret: str | None = None,
         tenant_id: str | None = None,
         staging_lakehouse_path: str | None = None,
         odbc_driver: str = "ODBC Driver 18 for SQL Server",
+        connection=None,
     ):
         self._odbc_driver = odbc_driver
-        self._connection_string = self._normalize_connection_string(connection_string)
+        # An already-open DBAPI connection (e.g. Fabric UDF FabricSqlConnection.connect()).
+        # When provided, it is reused and NOT closed; connection_string becomes optional.
+        self._connection = connection
+        self._connection_string = self._normalize_connection_string(connection_string) if connection_string else None
         self._auth_method = auth_method
         self._client_id = client_id
         self._client_secret = client_secret
         self._tenant_id = tenant_id
-        self._is_warehouse = ".datawarehouse.fabric.microsoft.com" in connection_string
+        self._is_warehouse = ".datawarehouse.fabric.microsoft.com" in (connection_string or "")
         self._staging_lakehouse_path = staging_lakehouse_path
 
         # Validate auth method
@@ -261,10 +265,11 @@ class FabricSqlDatabaseWriter:
             except Exception:
                 pass
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if self._connection is None:  # don't close a caller-injected connection
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         write_result.elapsed_seconds = time.time() - start
         return write_result
@@ -401,6 +406,8 @@ class FabricSqlDatabaseWriter:
 
         Retries on transient failures (e.g. IMDS cold-start in Fabric Spark).
         """
+        if self._connection is not None:
+            return self._connection  # caller-injected (e.g. Fabric UDF FabricSqlConnection)
         try:
             import pyodbc
         except ImportError:

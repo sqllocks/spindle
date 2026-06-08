@@ -249,7 +249,9 @@ class EventhouseWriter:
             # Fabric Notebook: use mssparkutils to get token
             try:
                 from notebookutils import mssparkutils
-                token = mssparkutils.credentials.getToken("https://kusto.kusto.windows.net")
+                # Fabric Eventhouse: the token resource is the cluster query URI itself
+                # (Microsoft Learn: getToken(query_uri)), not the generic ADX kusto URL.
+                token = mssparkutils.credentials.getToken(self._cluster_uri)
             except ImportError:
                 raise RuntimeError(
                     "auth_method='fabric' requires mssparkutils (only available in Fabric Notebooks)"

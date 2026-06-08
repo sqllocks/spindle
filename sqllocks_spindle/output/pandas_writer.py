@@ -13,7 +13,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 _TSQL_TYPE_MAP: dict[str, str] = {
-    "integer": "INT",
+    "integer": "BIGINT",  # pandas int64 <-> BIGINT; INT (2.1B max) overflows on 16-digit ids (e.g. card numbers)
     "string": "NVARCHAR({length})",
     "decimal": "DECIMAL({precision},{scale})",
     "timestamp": "DATETIME2",

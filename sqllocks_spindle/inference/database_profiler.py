@@ -93,16 +93,21 @@ def _sql_type_to_spindle(type_name: str) -> str:
 class DatabaseProfiler:
     """Profile a SQL database by reading catalog metadata + sampling data."""
 
-    def __init__(self, connection_string: str, auth_method: str = "cli",
+    def __init__(self, connection_string: str | None = None, auth_method: str = "cli",
                  client_id: str | None = None, client_secret: str | None = None,
-                 tenant_id: str | None = None):
+                 tenant_id: str | None = None, connection=None):
         self._connection_string = connection_string
         self._auth_method = auth_method
         self._client_id = client_id
         self._client_secret = client_secret
         self._tenant_id = tenant_id
+        # An already-open DBAPI connection (e.g. a Fabric UDF @udf.connection
+        # FabricSqlConnection.connect()). When provided, it is reused and NOT closed.
+        self._connection = connection
 
     def _get_connection(self):
+        if self._connection is not None:
+            return self._connection
         import pyodbc
         if self._auth_method == "sql":
             return pyodbc.connect(self._connection_string, timeout=30)
@@ -148,7 +153,8 @@ class DatabaseProfiler:
             return self._profile_impl(conn, cursor, schema, sample_rows, tables)
         finally:
             cursor.close()
-            conn.close()
+            if self._connection is None:
+                conn.close()
 
     def _profile_impl(self, conn, cursor, schema, sample_rows, filter_tables):
         cursor.execute(_TABLES_QUERY, (schema,))
@@ -249,9 +255,16 @@ class DatabaseProfiler:
                 is_unique = cardinality_ratio > 0.99 if card > 0 else False
                 is_enum = (card > 0 and card <= 50) or (cardinality_ratio < 0.05 and card > 0)
                 enum_dict = None
-                if is_enum and enum_values:
-                    prob = 1.0 / len(enum_values) if enum_values else 0
-                    enum_dict = {v: prob for v in enum_values}
+                if (is_enum and spindle_type in ("string", "boolean")
+                        and sample_df is not None and col_name in sample_df.columns):
+                    # Capture OBSERVED frequencies (not uniform) so categorical
+                    # proportions round-trip. Restricted to string/boolean so numeric
+                    # low-cardinality columns still use the distribution path.
+                    vc = sample_df[col_name].dropna().value_counts(normalize=True)
+                    enum_dict = {
+                        (str(k).lower() if spindle_type == "boolean" else str(k)): float(v)
+                        for k, v in vc.items()
+                    }
 
                 columns[col_name] = ColumnProfile(
                     name=col_name, dtype=spindle_type, null_count=null_count,

@@ -268,23 +268,36 @@ class SchemaBuilder:
                     return {"strategy": "empirical", "quantiles": col.quantiles}
                 # No quantiles available despite low fit — fall through to distribution
 
+            # DistributionStrategy reads config["distribution"] (the dist name) and
+            # params {mean,std_dev,min,max} — NOT "type"/"loc"/"scale". Emit that shape
+            # or the generator silently falls back to uniform(0,1).
             if col.distribution and col.distribution_params:
+                p = dict(col.distribution_params)
+                if "loc" in p and "mean" not in p:
+                    p["mean"] = p.pop("loc")
+                if "scale" in p and "std_dev" not in p:
+                    p["std_dev"] = p.pop("scale")
                 return {
                     "strategy": "distribution",
-                    "type": col.distribution,
-                    "params": col.distribution_params,
+                    "distribution": col.distribution,
+                    "params": p,
                 }
 
-            # Numeric fallback — normal from observed stats
-            params: dict = {}
+            # Numeric fallback — normal from observed stats, clamped to observed range.
             if col.mean is not None and col.std is not None:
-                params = {"loc": col.mean, "scale": max(col.std, 0.01)}
-            elif col.min_value is not None and col.max_value is not None:
-                params = {
-                    "loc": float(col.min_value),
-                    "scale": float(col.max_value) - float(col.min_value),
+                params: dict = {"mean": float(col.mean), "std_dev": max(float(col.std), 0.01)}
+                if col.min_value is not None:
+                    params["min"] = float(col.min_value)
+                if col.max_value is not None:
+                    params["max"] = float(col.max_value)
+                return {"strategy": "distribution", "distribution": "normal", "params": params}
+            if col.min_value is not None and col.max_value is not None:
+                return {
+                    "strategy": "distribution",
+                    "distribution": "uniform",
+                    "params": {"min": float(col.min_value), "max": float(col.max_value)},
                 }
-            return {"strategy": "distribution", "type": "normal", "params": params}
+            return {"strategy": "distribution", "distribution": "uniform", "params": {"min": 0, "max": 1}}
 
         # 12. String with length bounds → constrained faker
         if col.dtype == "string":
