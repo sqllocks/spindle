@@ -1454,6 +1454,135 @@ def profile_validate(artifact_path, safe_mode, as_json):
     sys.exit(result.exit_code)
 
 
+@profile.command(name="capture")
+@click.argument("data_path", type=click.Path(exists=True))
+@click.option("--output", "-o", required=True, help="Output profile JSON file")
+@click.option("--format", "input_fmt", default="csv",
+              type=click.Choice(["csv", "parquet", "jsonl"]), help="Input file format")
+@click.option("--name", default="captured", help="Profile name")
+def profile_capture(data_path, output, input_fmt, name):
+    """Capture the SHAPE of real data into a portable, PII-free profile JSON.
+
+    Reads data files (one per table), records categorical distributions, and
+    writes a small committable profile.json — no raw rows. Commit it next to
+    your dbt models; diff it with ``spindle profile diff``.
+
+        spindle profile capture ./prod_export/ -o prod.profile.json
+    """
+    import json as _json
+    from dataclasses import asdict
+    from pathlib import Path
+
+    import pandas as pd
+
+    from sqllocks_spindle.inference.profile_io import ExportedProfile, ProfileIO
+
+    p = Path(data_path)
+    ext = {"csv": "*.csv", "parquet": "*.parquet", "jsonl": "*.jsonl"}[input_fmt]
+    files = sorted(p.glob(ext)) if p.is_dir() else [p]
+    if not files:
+        click.echo(f"No {input_fmt} files in {data_path}", err=True)
+        sys.exit(1)
+
+    reader = {
+        "csv": pd.read_csv,
+        "parquet": pd.read_parquet,
+        "jsonl": lambda fp: pd.read_json(fp, lines=True),
+    }[input_fmt]
+
+    io = ProfileIO()
+    distributions: dict = {}
+    meta_tables: dict = {}
+    for fp in files:
+        df = reader(fp)
+        ep = io.from_dataframe(df, table_name=fp.stem, name=name)
+        distributions.update(ep.distributions)
+        meta_tables[fp.stem] = {"rows": len(df), "columns": list(df.columns)}
+        click.echo(f"  {fp.stem}: {len(df):,} rows, {len(ep.distributions)} distributions captured")
+
+    combined = ExportedProfile(
+        name=name,
+        description=f"Captured shape from {data_path}",
+        source_domain="captured",
+        distributions=distributions,
+        ratios={},
+        metadata={"tables": meta_tables},
+    )
+    out = Path(output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        _json.dump(asdict(combined), f, indent=2)
+
+    click.echo()
+    click.echo(f"Shape captured: {output} ({out.stat().st_size:,} bytes, "
+               f"{len(distributions)} distributions, 0 raw rows)")
+    click.echo("Commit it. Diff later with: spindle profile diff old.json new.json")
+
+
+@profile.command(name="diff")
+@click.argument("profile_a", type=click.Path(exists=True))
+@click.argument("profile_b", type=click.Path(exists=True))
+@click.option("--threshold", default=None, type=float,
+              help="Exit 1 if total drift exceeds this (CI gate).")
+@click.option("--json", "as_json", is_flag=True, default=False,
+              help="Machine-readable JSON output.")
+@click.option("--min-drift", default=0.01, type=float,
+              help="Hide categories changing less than this.")
+def profile_diff(profile_a, profile_b, threshold, as_json, min_drift):
+    """Diff the SHAPE of two profile artifacts — a git diff for your data.
+
+    Reports per-distribution drift (total-variation distance) and an overall
+    drift score. Works on ``profile capture`` / ``profile export`` output.
+    Use --threshold as a CI gate to fail builds on shape drift.
+
+        spindle profile diff prod.json staging.json --threshold 0.2
+    """
+    import json as _json
+    from pathlib import Path
+
+    a = _json.loads(Path(profile_a).read_text(encoding="utf-8"))
+    b = _json.loads(Path(profile_b).read_text(encoding="utf-8"))
+    da = a.get("distributions", {}) or {}
+    db = b.get("distributions", {}) or {}
+
+    report: dict = {"profile_a": profile_a, "profile_b": profile_b,
+                    "keys": {}, "added": [], "removed": [], "total_drift": 0.0}
+    for k in sorted(set(da) | set(db)):
+        x, y = da.get(k), db.get(k)
+        if x is None:
+            report["added"].append(k); continue
+        if y is None:
+            report["removed"].append(k); continue
+        cats = sorted(set(x) | set(y))
+        deltas = {c: (round(float(x.get(c, 0)), 4), round(float(y.get(c, 0)), 4)) for c in cats}
+        tvd = round(sum(abs(p - q) for p, q in deltas.values()) / 2, 4)
+        report["total_drift"] += tvd
+        if tvd >= min_drift:
+            report["keys"][k] = {
+                "tvd": tvd,
+                "changes": {c: v for c, v in deltas.items() if abs(v[0] - v[1]) >= min_drift},
+            }
+    report["total_drift"] = round(report["total_drift"], 4)
+
+    if as_json:
+        click.echo(_json.dumps(report, indent=2))
+    else:
+        click.echo(f"Shape diff: {Path(profile_a).name} -> {Path(profile_b).name}")
+        if report["added"]:
+            click.echo(f"+ new distributions:     {', '.join(report['added'])}")
+        if report["removed"]:
+            click.echo(f"- removed distributions: {', '.join(report['removed'])}")
+        for k, info in sorted(report["keys"].items(), key=lambda kv: -kv[1]["tvd"]):
+            click.echo(f"\n  {k}   (drift {info['tvd']:.3f})")
+            for c, (p, q) in info["changes"].items():
+                click.echo(f"      {c:<18} {p:.2f} -> {q:.2f}  {'up' if q > p else 'down'}")
+        click.echo(f"\nTotal shape drift: {report['total_drift']:.3f}")
+
+    if threshold is not None and report["total_drift"] > threshold:
+        click.echo(f"FAIL: drift {report['total_drift']:.3f} exceeds threshold {threshold}", err=True)
+        sys.exit(1)
+
+
 # ---------------------------------------------------------------------------
 # Profile registry subcommands  (spindle profile registry …)
 # ---------------------------------------------------------------------------
