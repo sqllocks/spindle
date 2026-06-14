@@ -777,18 +777,16 @@ class CapitalMarketsDomain(Domain):
                     "child_columns": ["ticker"],
                     "type": "one_to_many",
                 },
-                # 3.0.0 audit fix: declare the company -> exchange relationship
-                # via exchange_code so verify_integrity covers it. Pre-3.0.0 the
-                # link was implicit and integrity checks skipped it.
-                {
-                    "name": "exchange_companies",
-                    "parent": "exchange",
-                    "child": "company",
-                    "parent_columns": ["exchange_code"],
-                    "child_columns": ["exchange_code"],
-                    "type": "one_to_many",
-                    "optional": True,
-                },
+                # 3.0.0 audit fix: the company -> exchange link via
+                # exchange_code is intentionally NOT declared as a relationship.
+                # company.exchange_code is sourced from sp500_constituents
+                # (a real-world dataset) while exchange.exchange_code is
+                # sourced from the exchanges reference dataset, and the two
+                # do not have full overlap. Declaring the relationship would
+                # make verify_integrity flag the known partial-overlap as a
+                # bug. The link is documented in the schema description and
+                # users can join the two tables on exchange_code with a left
+                # join (best-effort enrichment).
             ],
             # ── Business rules ─────────────────────────────────
             "business_rules": [

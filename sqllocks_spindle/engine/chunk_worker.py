@@ -168,12 +168,10 @@ def generate_chunk(
             seed,
         )
 
-        # 3.0.0 audit fix: scale per-table chunk_rows by the declared
-        # natural row count, so smaller dynamic tables (e.g. dim_*) do not
-        # get over-replicated to the full chunk size of the fact table.
+        # 3.0.0 audit fix: scale per-table chunk_rows by the declared natural
+        # row count so smaller dynamic tables (e.g. dim_*) do not get over-
+        # replicated to the largest table's chunk size.
         natural_count = int(schema_counts.get(table_name, count))
-        # Find the largest dynamic table count to anchor the proportion;
-        # default to count when _schema_counts is missing.
         biggest_dynamic = max(
             (int(schema_counts.get(t, 0)) for t in (dynamic_tables or schema_counts.keys())
              if t not in (static_tables or set())),

@@ -5,6 +5,268 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-06-14
+
+Output-changing audit remediation. Resolves the Tier-1/Tier-2/Tier-3 findings
+from the multi-pass deep audit (memory id=4788) that were intentionally held
+back from 2.14.5 because their corrections change the data a given seed
+produces. 2.14.5 remains the recommended-stable line for callers that pin
+2.x output.
+
+### Fixed
+- `engine/strategies/temporal.py`: top-level `start`/`end` are now read as a
+  lowest-priority fallback. `range_ref` still wins, then nested `date_range`
+  / `range`, then top-level `start`/`end`, then the legacy 2022-2025 default.
+  Closes the largest single finding: about 60 columns across 10 domains were
+  silently generating all dates in 2022-2025 because the domains wrote
+  `start`/`end` top-level while the strategy only read nested keys.
+- `engine/strategies/temporal.py`: seasonal pattern picks up top-level
+  `month_weights` / `day_of_week_weights` when the nested `profiles` dict
+  lacks the corresponding key.
+- `engine/strategies/derived.py`: accepts `operation` as alias for `rule`;
+  expands a top-level `days: N` to `add_days` uniform `[N, N]`. Repairs the
+  HIGH-severity finding where 9 derived date columns (card expiry, claim
+  dates, policy/billing/delivery offsets) were silently `rule="copy"` and
+  produced exact copies of their source.
+- `engine/strategies/distribution.py`: `normal` accepts `sigma`/`std` as
+  aliases for `std_dev`; `log_normal` accepts `std` as alias for `sigma`.
+  Repairs columns that collapsed to std=1 because the strategy ignored the
+  domain's spelling (credit_score with sigma=80 collapsed to sigma=1, etc.).
+- `engine/strategies/self_referencing.py`: accepts `max_depth` as alias for
+  `levels` (used in financial and HR hierarchies).
+- `engine/strategies/foreign_key.py`: top-level `alpha`/`max_per_parent` are
+  now routed into the `params` dict id_manager sees. Nested `params` still
+  wins. Repairs about 12 columns where the pareto distribution
+  parameters were silently defaulted.
+- `engine/strategies/correlated.py`: accepts `operation` as alias for `rule`.
+- `schema/ddl_parser.py`: `TYPE_MAP` now emits the canonical `std_dev`
+  (normal) and `sigma` (log_normal) keys instead of the previously-ignored
+  `std` key. All decimal / numeric / money columns imported from DDL now
+  honor the declared spread.
+- `schema/parser.py`: relationship parser accepts scalar `parent_key` /
+  `child_key` as aliases for `parent_columns` / `child_columns`. Previously
+  10 of 14 built-in domains had silently empty relationship lists and
+  `verify_integrity()` returned `[]` regardless of actual orphans.
+- `engine/generator.py`: `GaussianCopula` now receives the model seed, so
+  the correlation post-pass is deterministic across runs (previously used
+  system entropy).
+- `engine/chunk_worker.py` + `engine/scale_router.py`: per-table child RNGs
+  now derive from `zlib.crc32(table_name)` instead of Python builtin
+  `hash(table_name)`. The builtin hash is per-process-randomized via
+  `PYTHONHASHSEED`, so chunked / scale-routed generation drifted across
+  subprocesses on the same seed.
+- `engine/chunk_worker.py`: per-table chunk row count is now proportional
+  to the declared natural row count via `_schema_counts`. Previously every
+  dynamic table got the largest dynamic table's chunk size, over-replicating
+  small dim tables.
+- `engine/table_generator.py` + `engine/chunked_generator.py`: chunk 0
+  registers the table; chunks 1..N append PKs to the existing pool via
+  `IDManager.append_pks()`. Pre-3.0.0 each chunk replaced the prior pool,
+  so child FKs in later chunks only saw the last parent chunk's PKs.
+- `engine/correlation.py`: `GaussianCopula.apply` now skips columns whose
+  name looks like a key (`_id` / `_pk` / `_fk` / `id` / `pk`). The copula
+  reorders each column independently and would otherwise break PK/FK row
+  alignment.
+- `transform/star_schema.py`: dim tables are deduped on natural key BEFORE
+  surrogate-key assignment, so duplicate NKs no longer arbitrarily keep the
+  last SK. Fact build warn-logs orphan FKs left after SK substitution.
+  `_build_date_dim` caps the date dimension span at 60 years and warns when
+  source dates would have produced a multi-century table.
+- `incremental/continue_engine.py` + `incremental/time_travel.py`: persisted
+  per-(table, pk) high-water-mark on the engine instance so repeated
+  `continue_from` / snapshot iterations issue strictly disjoint integer PKs
+  instead of restarting from `max(existing) + 1`.
+- `demo/modes/seeding.py`: when `params.seed` is None, the seeding path now
+  computes one `effective_seed` and uses it for both `parsed.model.seed`
+  (which the chunk workers derive children from) and `router.run(seed=...)`,
+  closing the divergence that broke determinism on default-seed runs.
+- `demo/estimator.py`: write-to-N-targets duration is now the SUM of
+  per-target costs, not the max. Targets run sequentially.
+- `demo/cleanup.py`: SQL `DROP TABLE` always schema-qualifies (`dbo.` when
+  unqualified) so cleanup hits the spindle artifact rather than the caller's
+  default schema.
+- `demo/modes/streaming.py`: `KeyboardInterrupt` with `auto_cleanup=True`
+  now actually invokes `CleanupEngine` (previously logged intent and
+  no-op'd).
+- `domains/healthcare`: `fact_claim.date_cols` now `filing_date`. The
+  previous `service_date` reference lived on `encounter` and was never
+  joined into the claim fact.
+- `domains/iot`: `dim_device.enrich.left_on` corrected from `type_id` to
+  `device_type_id` (the actual FK column on `device`).
+- `domains/marketing`: `dim_campaign.enrich.left_on` corrected from
+  `type_id` to `campaign_type_id`.
+- `domains/education`: `financial_aid` now defines an `award_date` column
+  that `fact_financial_aid.date_cols` already referenced.
+- `domains/composite._ensure_bridge_columns`: bridge FK columns inherit
+  the parent PK's declared type instead of hard-coding integer (used to
+  silently mismatch string PKs like ticker symbols).
+- `domains/capital_markets`: tightened `daily_price.close` to `[0.94, 1.04]`
+  of `open` so the business-rules envelope pass has less corrective work.
+  Added a declared exchange-to-company relationship via `exchange_code` so
+  `verify_integrity()` covers the link.
+
+### Behavior changes (seed output differs from 2.x)
+- Any column whose strategy was previously falling back to default values
+  because of a config-key spelling mismatch will now read the domain's
+  intended config. For most generated data, this means dates land in the
+  domain's declared range, log_normal/normal columns have the declared
+  spread, derived offsets actually offset, and pareto FKs use the declared
+  alpha. Concretely: a 3.0.0 run with seed=42 will NOT match a 2.x run with
+  the same seed for any domain that relied on the affected strategies.
+- Multi-chunk and scale-routed runs are now deterministic across subprocesses
+  with different `PYTHONHASHSEED`. Previously these paths could drift.
+- Chunked generation respects per-table natural row counts; dim tables no
+  longer over-replicate to the fact-table chunk size.
+- Repeated `continue_from` / time-travel snapshots on the same engine
+  instance now produce disjoint integer PKs instead of restarting from
+  `max(existing) + 1`.
+- Star-schema dim tables dedupe on natural key, so duplicate NK input rows
+  produce one dim row, not several.
+
+### Migration
+- Regenerate any pinned synthetic datasets and the 35 example notebook
+  outputs you depended on; output for a given seed changes.
+- 2.14.5 remains the recommended-stable release for 2.x output compatibility.
+
+## [3.0.0] - 2026-06-14
+
+Output-changing audit remediation release. Closes the Tier-1 to Tier-3
+correctness gaps surfaced by the deep audit (memory id=4788, four-iteration
+spiral) that 2.14.5 deliberately deferred. **Seed output changes from 2.x**;
+any pinned, regenerated, or notebook-frozen dataset built against 2.14.5 or
+earlier must be regenerated against 3.0.0.
+
+### Fixed
+
+Config-key tolerance (Tier-1, the largest single class of silent defaults):
+- `engine/strategies/temporal.py`: accepts top-level `start` / `end` as a
+  lowest-priority fallback, after `range_ref` and nested `date_range`.
+  Domains that wrote dates at the top level were silently falling back to the
+  engine default 2022-2025 window for ~60 columns across 10 of 14 domains
+  (all DOB fields landed in 2022-2025 instead of the declared birth range).
+  Seasonal pattern also accepts top-level `month_weights` and
+  `day_of_week_weights`.
+- `engine/strategies/derived.py`: `operation` accepted as alias for `rule`;
+  top-level `days: N` expands to `add_days` uniform [N, N]. Closes ~9 columns
+  where derived dates collapsed to copy-of-source (card expiry == issue date,
+  delivery == ship, claim == policy).
+- `engine/strategies/distribution.py`: `normal` accepts `sigma` / `std` as
+  aliases for `std_dev`; `log_normal` accepts `std` as alias for `sigma`.
+  Previously these distributions silently collapsed to std=1 across credit
+  score, GPA, IoT sensor, and capital-markets numeric columns.
+- `engine/strategies/self_referencing.py`: `max_depth` accepted as alias for
+  `levels`. Financial and HR org-chart hierarchies now respect declared depth.
+- `engine/strategies/foreign_key.py`: top-level `alpha` and `max_per_parent`
+  routed into the id_manager params dict (nested `params` still wins).
+- `engine/strategies/correlated.py`: `operation` accepted as alias for `rule`.
+- `schema/ddl_parser.py`: TYPE_MAP emits canonical `std_dev` (normal) /
+  `sigma` (log_normal) keys instead of the previously ignored `std`.
+- `schema/parser.py`: relationship parser accepts scalar
+  `parent_key` / `child_key` (and `parent_table` / `child_table`) as aliases
+  for `parent_columns` / `child_columns` / `parent` / `child`. Without this
+  10 of 14 domains were dropping declared relationships on the floor, so
+  `verify_integrity()` had no checks to run and returned `[]` regardless of
+  whether the data was consistent.
+
+Cross-subprocess determinism:
+- `engine/generator.py`: `GaussianCopula` now seeded from
+  `parsed.model.seed` so the correlation post-pass is reproducible.
+- `engine/chunk_worker.py` + `engine/scale_router.py`: per-table child RNG
+  seed derived via `zlib.crc32(table_name.encode())` instead of
+  `hash(table_name)`. Built-in `hash` is per-process-randomized by
+  `PYTHONHASHSEED` in Python 3.3+, so cross-subprocess runs produced
+  different output. CRC32 is stable across processes and machines.
+- `demo/modes/seeding.py`: when `params.seed` is `None`, a single
+  `effective_seed` is computed and used for BOTH `model.seed` (consumed by
+  chunk workers) AND `router.run(seed=...)`. Previously these diverged.
+
+Referential integrity across non-default paths:
+- `engine/table_generator.py`: `TableGenerator.generate(register=True)`. When
+  `register=False`, PKs are appended to the IDManager pool via
+  `append_pks()` instead of replacing the prior pool.
+- `engine/chunked_generator.py`: chunk 0 registers, chunks 1..N pass
+  `register=False`. Removes orphan FKs across chunks (child FKs in late
+  chunks previously saw only the last chunk's parent slice).
+- `engine/chunk_worker.py`: per-table per-chunk row count scaled by
+  `schema_counts` ratio to the largest dynamic table, so smaller dynamic
+  tables (dim_*) are no longer over-replicated to the full chunk size.
+- `engine/scale_router.py`: embeds `_total_rows` in the schema_dict so chunk
+  workers can do the proportional scaling above.
+- `engine/correlation.py`: `GaussianCopula` skips columns whose names look
+  like keys (id, pk, `*_id`, `*_pk`, `*_fk`). The copula reorders each
+  participating column independently, which breaks row-aligned key
+  relationships; PKs and FKs must not be copula-reordered.
+- `transform/star_schema.py`: dim rows deduped on the natural key BEFORE
+  surrogate-key assignment (previously duplicate NKs silently kept the last
+  SK and corrupted fact joins). `_build_date_dim` caps the date range at 60
+  years and warns when the source dates would have produced a multi-century
+  table. Orphan fact rows now warn-log instead of silently propagating
+  null FKs.
+- `incremental/continue_engine.py`: persisted per-engine HWM on integer PKs
+  so repeated `continue_from()` calls on the same snapshot keep issuing
+  strictly disjoint PK ranges.
+- `incremental/time_travel.py`: same persisted HWM so cross-snapshot PKs
+  do not collide.
+
+Domain-specific factual fixes (B4 omitted findings):
+- `domains/healthcare/healthcare.py`: `fact_claim.date_cols` points at
+  `filing_date` (which the claim_line + claim join exposes); previously
+  pointed at `service_date` which was never joined into the fact.
+- `domains/education/education.py`: `financial_aid` table declares the
+  `award_date` column referenced by `fact_financial_aid.date_cols`.
+- `domains/iot/iot.py`: `dim_device` enrich `left_on` uses `device_type_id`
+  (the real FK column) instead of `type_id` (which did not exist).
+- `domains/marketing/marketing.py`: same fix, `campaign_type_id` instead of
+  `type_id`.
+- `domains/capital_markets/capital_markets.py`: `close` factor narrowed
+  from 0.93..1.07 to 0.94..1.04 so the OHLC business-rule repair pass has
+  less to enforce after the initial draw.
+- `domains/composite.py`: bridge FK columns injected by the shared-entity
+  registry now inherit the parent PK ColumnDef type instead of always being
+  `integer`. String-keyed parents (ticker, etc.) get a string bridge.
+- `demo/estimator.py`: `CostEstimator.estimate()` SUMs per-target seconds
+  instead of taking the max. Targets are written sequentially, not in
+  parallel, so total duration accumulates.
+- `demo/cleanup.py`: `_cleanup_sql_table` always schema-qualifies the
+  `DROP TABLE` (defaults to `dbo` when unqualified) so the cleanup hits
+  the spindle artifact rather than the caller's default schema.
+- `demo/modes/streaming.py`: streaming demo with `auto_cleanup` on
+  KeyboardInterrupt now actually invokes `CleanupEngine` instead of only
+  logging the intent.
+
+### Behavior changes (seed output differs from 2.x)
+
+- Generated dates land in the domain-declared range (e.g. healthcare DOBs
+  in 1940-2005, financial transactions in the declared trade window) rather
+  than the previous default 2022-2025.
+- Derived date offsets actually offset instead of copying the source.
+- Normal / log-normal numeric distributions honor the declared spread
+  instead of collapsing to std=1.
+- Self-referencing hierarchies build the declared number of levels.
+- Multi-chunk runs have referentially-correct FKs across all chunks (was:
+  orphans in chunks 2..N).
+- Correlation post-pass is deterministic for a given seed (was: system
+  entropy when correlations were enforced).
+- Star-schema dimensions deduplicated on NK (was: duplicate NKs silently
+  collapsed to the last SK).
+- For `chunked_generator` + `scale_router` runs, smaller dynamic tables
+  scale proportionally to their natural cardinality (was: over-replicated
+  to the primary chunk size).
+
+### Migration
+
+- Regenerate any pinned or cached datasets built against Spindle 2.x. The
+  output for a given seed is INTENTIONALLY different; the new output is
+  the correct one.
+- The 35 example notebooks (`SpindleAW_*`, `Spindle_*`) regenerate on
+  first run; the bundled output artifacts under `notebooks/` will differ
+  from 2.x snapshots.
+- Pre-3.0.0 `verify_integrity()` returned `[]` on 10 of 14 domains because
+  parsed relationships were empty. 3.0.0 actually checks; if your custom
+  schema relied on the previous no-op behavior, declare the relationship
+  with `optional: True` or remove it.
+- 2.14.5 remains the recommended-stable 2.x line for pinned 2.x output
+  consumers.
 ## [2.14.5] - 2026-06-14
 
 Safe bugfix release from the deep audit: corrects broken/corrupt output and

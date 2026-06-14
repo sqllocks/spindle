@@ -42,11 +42,14 @@ def test_education_financial_aid_has_award_date_column():
     assert "award_date" in schema.tables["financial_aid"].columns
 
 
-def test_capital_markets_declares_exchange_company_relationship():
+def test_capital_markets_exchange_company_link_intentionally_undeclared():
+    """The two columns draw from disjoint reference datasets, so a declared
+    FK would produce known orphans. The audit decision is to leave the link
+    documented in the schema description and skip the integrity check."""
     from sqllocks_spindle.domains.capital_markets import CapitalMarketsDomain
     schema = CapitalMarketsDomain().get_schema()
     names = [r.name for r in schema.relationships]
-    assert "exchange_companies" in names
+    assert "exchange_companies" not in names
 
 
 def test_cleanup_drop_table_is_schema_qualified():

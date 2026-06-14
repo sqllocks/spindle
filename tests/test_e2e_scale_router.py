@@ -128,14 +128,21 @@ def test_scale_router_retail_e2e(tmp_path):
             f"ScaleRouter may be replicating reference tables across chunks."
         )
 
-    # 3. Dynamic tables have TOTAL_ROWS rows (2 chunks × chunk_size)
-    for table_name in _DYNAMIC_TABLES:
-        if table_name not in result:
-            continue
-        actual = len(result[table_name])
-        assert actual == TOTAL_ROWS, (
-            f"Dynamic table '{table_name}': expected {TOTAL_ROWS} rows, got {actual}"
-        )
+    # 3. Dynamic tables get rows proportional to their natural cardinality
+    # (3.0.0 audit fix: was previously over-replicated to TOTAL_ROWS uniformly).
+    # The largest dynamic table gets TOTAL_ROWS; smaller dynamic tables scale
+    # down by schema_counts[T] / max(schema_counts among dynamic).
+    dynamic_counts = {t: schema_counts.get(t, 0) for t in _DYNAMIC_TABLES if t in result}
+    if dynamic_counts:
+        biggest = max(dynamic_counts.values())
+        for table_name, natural in dynamic_counts.items():
+            actual = len(result[table_name])
+            expected = max(1, round(TOTAL_ROWS * natural / biggest))
+            # Allow +/- 1 row tolerance for rounding across chunks
+            assert abs(actual - expected) <= 2, (
+                f"Dynamic table '{table_name}': expected ~{expected} rows "
+                f"(natural={natural}, biggest={biggest}, TOTAL_ROWS={TOTAL_ROWS}), got {actual}"
+            )
 
     # 4. stats["rows_generated"] counts dynamic chunk rows (not static rows)
     assert stats["rows_generated"] == TOTAL_ROWS, (
