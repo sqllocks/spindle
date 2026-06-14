@@ -269,8 +269,12 @@ class SeedingDemoMode:
         sp = Spindle()
         parsed = sp._resolve_schema(domain, None)
         parsed.generation.scale = _rows_to_scale(self._params.rows)
-        if self._params.seed is not None:
-            parsed.model.seed = self._params.seed
+        # 3.0.0 audit fix: compute effective_seed once and use it for BOTH
+        # parsed.model.seed (chunk worker derives child seeds from this) AND
+        # router.run(). Previously a None params.seed left model.seed at default
+        # while router.run() got 42 -> nondeterministic divergence.
+        effective_seed = self._params.seed if self._params.seed is not None else 42
+        parsed.model.seed = effective_seed
 
         schema_dict = dataclasses.asdict(parsed)
         if hasattr(domain, "domain_path"):
@@ -288,7 +292,7 @@ class SeedingDemoMode:
             )
             stats = router.run(
                 total_rows=self._params.rows,
-                seed=self._params.seed if self._params.seed is not None else 42,
+                seed=effective_seed,
             )
         finally:
             if os.path.exists(tmp.name):

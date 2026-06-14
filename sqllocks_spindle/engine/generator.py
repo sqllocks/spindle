@@ -527,7 +527,7 @@ class Spindle:
                         col_a, col_b, r = pair[0], pair[1], pair[2]
                         corr_matrix.setdefault(col_a, {})[col_b] = r
                         corr_matrix.setdefault(col_b, {})[col_a] = r
-                    copula = GaussianCopula(corr_matrix)
+                    copula = GaussianCopula(corr_matrix, seed=parsed.model.seed)
                     result.tables[tname] = copula.apply(result.tables[tname])
 
         # Return fidelity report if profile provided

@@ -157,7 +157,8 @@ def generate_chunk(
             continue
 
         table_def = schema.tables[table_name]
-        child_rng = np.random.default_rng(seed ^ (hash(table_name) & 0xFFFF_FFFF))
+        import zlib as _zlib  # noqa: PLC0415 stable hash for cross-process determinism
+        child_rng = np.random.default_rng(seed ^ _zlib.crc32(table_name.encode("utf-8")))
 
         logger.debug(
             "chunk_worker: generating %s — count=%d offset=%d seed=%d",

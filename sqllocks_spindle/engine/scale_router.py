@@ -194,7 +194,8 @@ def _generate_static_tables(
         is_static = table_name in static_tables
         natural_count = schema_counts.get(table_name, 100)
         row_count = natural_count if is_static else min(DYNAMIC_SAMPLE_SIZE, natural_count)
-        child_rng = np.random.default_rng(seed ^ (hash(table_name) & 0xFFFF_FFFF))
+        import zlib as _zlib  # 3.0.0 stable hash for cross-process determinism
+        child_rng = np.random.default_rng(seed ^ _zlib.crc32(table_name.encode("utf-8")))
         try:
             df = table_gen.generate(
                 table=schema.tables[table_name],
