@@ -524,8 +524,18 @@ class TestSchemaBuilderV2:
 
 class TestPackagingCurrent:
     def test_version_is_current(self):
+        import re
+        import pathlib
         import sqllocks_spindle
-        assert sqllocks_spindle.__version__.startswith("2.")
+        pyproject = (
+            pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
+        ).read_text(encoding="utf-8")
+        declared = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.M).group(1)
+        # Version-agnostic: the package __version__ must match pyproject (catches
+        # the __init__/pyproject drift seen historically), not a hardcoded major.
+        assert sqllocks_spindle.__version__ == declared, (
+            f"__init__ {sqllocks_spindle.__version__} != pyproject {declared}"
+        )
 
     def test_lakehouse_profiler_importable_from_top(self):
         from sqllocks_spindle.inference import LakehouseProfiler
