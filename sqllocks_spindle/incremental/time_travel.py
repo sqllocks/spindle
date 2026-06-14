@@ -83,6 +83,11 @@ class TimeTravelResult:
 class TimeTravelEngine:
     """Generate monthly point-in-time snapshots showing data evolution."""
 
+    def __init__(self) -> None:
+        # 3.0.0 audit fix: persisted per-table-pk HWM so snapshots issued
+        # across repeated generate() calls keep disjoint PK ranges.
+        self._pk_hwm: dict[tuple[str, str], int] = {}
+
     def generate(
         self,
         domain: Any,  # Domain instance
@@ -137,7 +142,7 @@ class TimeTravelEngine:
 
                 # --- GROWTH: add new rows ---
                 n_new = max(1, int(len(df) * config.growth_rate * season_mult))
-                new_rows = self._generate_new_rows(df, n_new, pk_col, rng)
+                new_rows = self._generate_new_rows(df, n_new, pk_col, rng, table_name=table_name)
 
                 # --- CHURN: remove rows ---
                 n_churn = int(len(df) * config.churn_rate)
@@ -194,13 +199,17 @@ class TimeTravelEngine:
         n: int,
         pk_col: str,
         rng: np.random.Generator,
+        table_name: str = "",
     ) -> pd.DataFrame:
         """Sample existing rows and assign new PKs."""
         sample_idx = rng.choice(len(df), size=n, replace=True)
         new_rows = df.iloc[sample_idx].copy().reset_index(drop=True)
         if pd.api.types.is_integer_dtype(df[pk_col]):
-            max_pk = df[pk_col].max()
-            new_rows[pk_col] = range(int(max_pk) + 1, int(max_pk) + 1 + n)
+            existing_max = int(df[pk_col].max())
+            hwm_key = (table_name, pk_col)
+            start = max(existing_max, self._pk_hwm.get(hwm_key, existing_max)) + 1
+            new_rows[pk_col] = range(start, start + n)
+            self._pk_hwm[hwm_key] = start + n - 1
         return new_rows
 
     def _apply_updates(

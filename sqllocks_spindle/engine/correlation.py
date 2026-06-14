@@ -35,15 +35,32 @@ class GaussianCopula:
         self._rng = np.random.default_rng(seed)
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply the copula reordering to a DataFrame. Returns a new DataFrame."""
+        """Apply the copula reordering to a DataFrame. Returns a new DataFrame.
+
+        Note: the copula reorders each participating column independently,
+        which breaks any row-aligned key relationship. PK and FK columns are
+        therefore EXCLUDED from the copula by convention (3.0.0 audit fix):
+        any column whose name ends with ``_id``, ``_pk``, ``_fk``, or is
+        literally ``id`` / ``pk`` is skipped.
+        """
         if not self.correlation_matrix:
             return df
+
+        def _looks_like_key(name: str) -> bool:
+            n = name.lower()
+            return (
+                n in ("id", "pk")
+                or n.endswith("_id")
+                or n.endswith("_pk")
+                or n.endswith("_fk")
+            )
 
         # Find numeric columns that appear in the correlation matrix
         cols = [
             c for c in df.columns
             if c in self.correlation_matrix
             and pd.api.types.is_numeric_dtype(df[c])
+            and not _looks_like_key(c)
         ]
         if len(cols) < 2:
             return df

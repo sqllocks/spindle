@@ -213,12 +213,24 @@ class SchemaParser:
     def _parse_relationships(self, raw: list) -> list[RelationshipDef]:
         relationships = []
         for r in raw:
+            # 3.0.0 audit fix: accept "parent_key"/"child_key" as scalar aliases
+            # for parent_columns/child_columns. Most domains write the scalar form
+            # and the previous parser silently lost them, so verify_integrity()
+            # had no relationships to check across 10 of 14 domains.
+            parent_cols = r.get("parent_columns") or []
+            if not parent_cols and r.get("parent_key"):
+                pk = r["parent_key"]
+                parent_cols = pk if isinstance(pk, list) else [pk]
+            child_cols = r.get("child_columns") or []
+            if not child_cols and r.get("child_key"):
+                ck = r["child_key"]
+                child_cols = ck if isinstance(ck, list) else [ck]
             relationships.append(RelationshipDef(
                 name=r.get("name", ""),
-                parent=r.get("parent", ""),
-                child=r.get("child", ""),
-                parent_columns=r.get("parent_columns", []),
-                child_columns=r.get("child_columns", []),
+                parent=r.get("parent") or r.get("parent_table", ""),
+                child=r.get("child") or r.get("child_table", ""),
+                parent_columns=parent_cols,
+                child_columns=child_cols,
                 type=r.get("type", "one_to_many"),
                 cardinality=r.get("cardinality", {}),
                 optional=r.get("optional", False),

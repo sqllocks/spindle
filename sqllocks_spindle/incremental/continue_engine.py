@@ -43,6 +43,13 @@ class DeltaResult:
 class ContinueEngine:
     """Generate incremental deltas (inserts, updates, deletes) from existing data."""
 
+    def __init__(self) -> None:
+        # 3.0.0 audit fix: per-engine high-water-mark for integer PKs, keyed by
+        # (table_name, pk_col). Persists across repeated continue_from calls so
+        # PKs do not get reissued when the caller passes the same `existing`
+        # snapshot twice.
+        self._pk_hwm: dict[tuple[str, str], int] = {}
+
     # ------------------------------------------------------------------ #
     # Public API
     # ------------------------------------------------------------------ #
@@ -179,14 +186,20 @@ class ContinueEngine:
         sample_idx = rng.choice(len(df_existing), size=n, replace=True)
         new_df = df_existing.iloc[sample_idx].copy().reset_index(drop=True)
 
-        # Offset integer PK columns so they are unique / higher than existing
+        # Offset integer PK columns so they are unique / higher than existing.
+        # 3.0.0 audit fix: persist the high-water-mark on the engine so a second
+        # continue_from() call on the same `existing` snapshot keeps issuing
+        # disjoint PKs instead of restarting at max(existing) + 1.
         for pk in pk_cols:
             if pk not in new_df.columns:
                 continue
             col = df_existing[pk]
             if pd.api.types.is_integer_dtype(col):
-                max_pk = int(col.max())
-                new_df[pk] = np.arange(max_pk + 1, max_pk + 1 + n)
+                hwm_key = (table_name, pk)
+                existing_max = int(col.max())
+                start = max(existing_max, self._pk_hwm.get(hwm_key, existing_max)) + 1
+                new_df[pk] = np.arange(start, start + n)
+                self._pk_hwm[hwm_key] = start + n - 1
 
         # Re-sample FK columns from available parent PKs (existing + new)
         for fk_col, parent_table in fk_cols.items():

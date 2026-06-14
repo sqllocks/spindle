@@ -356,6 +356,10 @@ class ScaleRouter:
         schema_dict["_dynamic_tables"] = list(dynamic_tables)
         schema_dict["_schema_counts"] = schema_counts
         schema_dict["_base_seed"] = seed
+        # 3.0.0 audit fix: pass the user-requested total so chunk_worker can scale
+        # each dynamic table per-chunk row count by its natural ratio
+        # (schema_counts[T] / total_rows) instead of using count uniformly.
+        schema_dict["_total_rows"] = total_rows
 
         # Write augmented schema_dict back so subprocess workers pick it up.
         # Use _SpindleJSONEncoder to handle Timestamps and numpy scalars that

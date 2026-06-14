@@ -27,12 +27,18 @@ class TableGenerator:
         model_config: dict[str, Any],
         schema: SpindleSchema,
         sequence_offset: int = 0,
+        register: bool = True,
     ) -> pd.DataFrame:
         """Generate a DataFrame for a single table.
 
         Args:
             sequence_offset: Offset applied to sequence strategies so each chunk
                 produces contiguous, non-overlapping PKs.
+            register: When True (default), register this table's PKs in the
+                id_manager (replaces any prior pool). When False, callers MUST
+                use IDManager.append_pks() to grow the pool incrementally.
+                Set False for chunk 2+ in a chunked run so chunk N's child FKs
+                can still see chunk 1..N-1's parent PKs. (3.0.0 audit fix.)
         """
         ctx = GenerationContext(
             rng=rng,
@@ -97,8 +103,19 @@ class TableGenerator:
         }
         df = pd.DataFrame(public_columns)
 
-        # Register PKs in ID manager
-        self._id_manager.register_table(table.name, df, table.primary_key)
+        # Register PKs in ID manager (or append for chunk 2+)
+        if register:
+            self._id_manager.register_table(table.name, df, table.primary_key)
+        else:
+            # 3.0.0 audit fix: grow the parent PK pool across chunks so child
+            # FKs in later chunks can sample from ALL parent PKs, not just the
+            # last chunk's slice.
+            if table.primary_key:
+                pk_cols = table.primary_key
+                if len(pk_cols) == 1:
+                    self._id_manager.append_pks(table.name, df[pk_cols[0]].values)
+                else:
+                    self._id_manager.append_pks(table.name, df[pk_cols].to_numpy())
 
         return df
 

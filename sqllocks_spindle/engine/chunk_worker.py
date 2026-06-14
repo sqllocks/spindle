@@ -168,13 +168,27 @@ def generate_chunk(
             seed,
         )
 
+        # 3.0.0 audit fix: scale per-table chunk_rows by the declared
+        # natural row count, so smaller dynamic tables (e.g. dim_*) do not
+        # get over-replicated to the full chunk size of the fact table.
+        natural_count = int(schema_counts.get(table_name, count))
+        # Find the largest dynamic table count to anchor the proportion;
+        # default to count when _schema_counts is missing.
+        biggest_dynamic = max(
+            (int(schema_counts.get(t, 0)) for t in (dynamic_tables or schema_counts.keys())
+             if t not in (static_tables or set())),
+            default=count,
+        ) or count
+        per_table_count = max(1, int(round(count * natural_count / biggest_dynamic)))
+        per_table_offset = int(round(offset * natural_count / biggest_dynamic))
+
         df = table_gen.generate(
             table=table_def,
-            row_count=count,
+            row_count=per_table_count,
             rng=child_rng,
             model_config=model_config,
             schema=schema,
-            sequence_offset=offset,
+            sequence_offset=per_table_offset,
         )
 
         result_dfs[table_name] = df

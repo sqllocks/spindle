@@ -186,7 +186,14 @@ class StarSchemaTransform:
             existing = [c for c in spec.include if c in df.columns]
             df = df[existing].copy()
 
-        # Build NK→SK lookup (1-based integer)
+        # 3.0.0 audit fix: dedupe dim rows on NK BEFORE assigning surrogate
+        # keys. Previously duplicate natural keys produced multiple SKs and the
+        # NK->SK lookup arbitrarily kept the last one, silently corrupting the
+        # fact joins.
+        if spec.nk in df.columns:
+            df = df.drop_duplicates(subset=[spec.nk], keep="first").reset_index(drop=True)
+
+        # Build NK->SK lookup (1-based integer)
         if spec.nk not in df.columns:
             sk_lookup: dict[Any, int] = {}
         else:
@@ -252,6 +259,14 @@ class StarSchemaTransform:
                 dim_spec = schema_map.dims.get(dim_name)
                 sk_col = dim_spec.sk if dim_spec else f"sk_{col}"
                 df[sk_col] = df[col].map(lookup).astype("Int64")
+                # 3.0.0 audit fix: warn on orphan FKs (NK had no match in dim).
+                _orphans = int(df[sk_col].isna().sum())
+                if _orphans:
+                    import logging as _lg
+                    _lg.getLogger(__name__).warning(
+                        "star_schema: %d orphan FK rows in fact for %s (no matching %s)",
+                        _orphans, col, dim_name,
+                    )
                 df = df.drop(columns=[col])
 
         # Add sk_date for date columns

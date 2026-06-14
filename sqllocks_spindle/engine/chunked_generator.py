@@ -462,6 +462,9 @@ class ChunkedSpindle:
                 f"{rows_generated:,}", f"{total_rows:,}",
             )
 
+            # 3.0.0 audit fix: only register on chunk 0; chunks 1..N append
+            # PKs to the pool via the table_gen contract so child FKs in later
+            # chunks see the FULL parent PK universe.
             df = self._table_gen.generate(
                 table=table_def,
                 row_count=chunk_rows,
@@ -469,18 +472,8 @@ class ChunkedSpindle:
                 model_config=self._model_config,
                 schema=self._parsed,
                 sequence_offset=rows_generated,
+                register=(chunk_idx == 0),
             )
-
-            # After generating, append new PKs to IDManager so downstream
-            # child-of-child tables can reference them.
-            if table_def.primary_key:
-                pk_col = table_def.primary_key[0]
-                if pk_col in df.columns:
-                    new_pks = df[pk_col].values
-                    # First chunk already registered by table_gen; for subsequent
-                    # chunks, use append_pks.
-                    if chunk_idx > 0:
-                        self._id_manager.append_pks(table_name, new_pks)
 
             rows_generated += chunk_rows
             chunk_idx += 1
