@@ -47,6 +47,13 @@ dev = [
     "openpyxl>=3.1",
     "scipy>=1.11",
     "azure-identity>=1.15",
+    # Notebook e2e tests (tests/test_e2e_notebooks.py) execute .ipynb via
+    # nbclient against a registered python3 kernel (ipykernel). Without these
+    # the whole module importorskips, so include them in dev so the suite runs
+    # those tests instead of silently skipping them.
+    "nbformat>=5.9",
+    "nbclient>=0.9",
+    "ipykernel>=6.29",
 ]
 parquet = [
     "pyarrow>=14.0",

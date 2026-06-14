@@ -51,9 +51,10 @@ def small_retail_result():
 
 LAKEHOUSE_PATH = os.environ.get("SPINDLE_LAKEHOUSE_PATH")
 
+@pytest.mark.live
 @pytest.mark.skipif(
     not LAKEHOUSE_PATH,
-    reason="SPINDLE_LAKEHOUSE_PATH not set — skipping Lakehouse acceptance test",
+    reason="SPINDLE_LAKEHOUSE_PATH not set, skipping Lakehouse acceptance test",
 )
 class TestAT1LakehousePublish:
     """AT-1: Generate → write to Lakehouse Files → verify files exist."""
@@ -137,9 +138,10 @@ class TestAT1LocalLakehousePublish:
 
 SQL_CONNECTION = os.environ.get("SPINDLE_SQL_CONNECTION")
 
+@pytest.mark.live
 @pytest.mark.skipif(
     not SQL_CONNECTION,
-    reason="SPINDLE_SQL_CONNECTION not set — skipping SQL Database acceptance test",
+    reason="SPINDLE_SQL_CONNECTION not set, skipping SQL Database acceptance test",
 )
 class TestAT2SqlDatabasePublish:
     """AT-2: Generate → write to Fabric SQL Database → verify row counts."""
@@ -167,9 +169,10 @@ class TestAT2SqlDatabasePublish:
 EVENTHOUSE_URI = os.environ.get("SPINDLE_EVENTHOUSE_URI")
 EVENTHOUSE_DB = os.environ.get("SPINDLE_EVENTHOUSE_DB")
 
+@pytest.mark.live
 @pytest.mark.skipif(
     not EVENTHOUSE_URI or not EVENTHOUSE_DB,
-    reason="SPINDLE_EVENTHOUSE_URI/DB not set — skipping Eventhouse acceptance test",
+    reason="SPINDLE_EVENTHOUSE_URI/DB not set, skipping Eventhouse acceptance test",
 )
 class TestAT3EventhousePublish:
     """AT-3: Generate → write to Eventhouse/KQL → verify."""

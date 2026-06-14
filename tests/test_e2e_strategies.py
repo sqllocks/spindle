@@ -45,11 +45,33 @@ class TestSequenceStrategy:
 
 class TestUUIDStrategy:
     def test_uuid_produces_unique_strings(self):
-        r = _result(RetailDomain)
-        tname, col, vals = _find_strategy(r, "uuid")
-        if vals is None:
-            pytest.skip("No uuid strategy in RetailDomain")
+        # No built-in domain uses the uuid strategy, so exercise it directly via
+        # a minimal inline schema. (Previously this test skipped forever.)
+        schema = {
+            "model": {"name": "uuid_test", "domain": "test", "seed": 42,
+                      "locale": "en_US", "date_range": None},
+            "tables": {
+                "thing": {
+                    "name": "thing",
+                    "columns": {
+                        "thing_id": {
+                            "name": "thing_id", "type": "string",
+                            "generator": {"strategy": "uuid"},
+                            "nullable": False, "null_rate": 0.0,
+                        },
+                    },
+                    "primary_key": ["thing_id"],
+                    "description": "uuid test",
+                },
+            },
+            "relationships": [],
+            "business_rules": [],
+            "generation": {"scale": "small", "scales": {"small": {"thing": 200}}},
+        }
+        r = Spindle().generate(schema=schema, scale="small", seed=42)
+        vals = r.tables["thing"]["thing_id"]
         assert vals.is_unique
+        assert vals.notna().all()
 
 
 class TestFakerStrategy:
