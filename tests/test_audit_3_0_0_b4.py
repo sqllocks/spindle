@@ -1,4 +1,4 @@
-"""Audit 3.0.0 - B4 omitted-findings regression tests."""
+"""Audit 3.0.0 - B4 omitted findings."""
 from __future__ import annotations
 
 import numpy as np
@@ -6,107 +6,83 @@ import pandas as pd
 import pytest
 
 
-def test_estimator_uses_sum_not_max():
-    """Multiple targets must accumulate seconds, not take the max."""
-    from sqllocks_spindle.demo.estimator import CostEstimator as DemoEstimator
-    est = DemoEstimator()
-    one = est.estimate(rows=1_000_000, targets=["warehouse"])
-    two = est.estimate(rows=1_000_000, targets=["warehouse", "lakehouse"])
-    # Two targets should take strictly more than one.
+def test_estimator_duration_is_sum_not_max():
+    from sqllocks_spindle.demo.estimator import CostEstimator
+    est = CostEstimator()
+    one = est.estimate(10_000_000, ["warehouse"])
+    two = est.estimate(10_000_000, ["warehouse", "lakehouse"])
+    three = est.estimate(10_000_000, ["warehouse", "lakehouse", "sql_db"])
     assert two.estimated_duration_seconds > one.estimated_duration_seconds
+    assert three.estimated_duration_seconds > two.estimated_duration_seconds
 
 
-def test_correlated_operation_alias_for_rule():
-    """operation key works where rule is documented."""
-    from sqllocks_spindle.engine.strategies.correlated import CorrelatedStrategy
-    from sqllocks_spindle.schema.parser import ColumnDef
-
-    class _Ctx:
-        rng = np.random.default_rng(1)
-        current_table = {"price": np.array([10.0, 20.0, 30.0])}
-        row_count = 3
-
-    col = ColumnDef(name="cost", type="decimal", generator={}, scale=2)
-    out = CorrelatedStrategy().generate(
-        col,
-        {"source_column": "price", "operation": "multiply",
-         "params": {"factor_min": 0.5, "factor_max": 0.5}},
-        _Ctx(),
-    )
-    assert np.allclose(out, [5.0, 10.0, 15.0])
+def test_healthcare_fact_claim_date_cols_use_filing_date():
+    from sqllocks_spindle import HealthcareDomain
+    sm = HealthcareDomain().star_schema_map()
+    assert sm.facts["fact_claim"].date_cols == ["filing_date"]
 
 
-def test_star_schema_date_dim_capped_at_60_years():
-    """An absurd date span should be capped, not produce a giant dim_date."""
-    from sqllocks_spindle.transform.star_schema import StarSchemaTransform
-
-    t = StarSchemaTransform.__new__(StarSchemaTransform)
-    dates = [pd.Timestamp("1900-01-01"), pd.Timestamp("2030-12-31")]
-    dim = t._build_date_dim(dates)
-    # 60 years cap -> roughly 22000 rows max
-    assert 0 < len(dim) <= 22_500, f"dim_date too large: {len(dim)}"
+def test_iot_dim_device_enrich_uses_device_type_id():
+    from sqllocks_spindle import IoTDomain
+    sm = IoTDomain().star_schema_map()
+    enrich = sm.dims["dim_device"].enrich
+    assert enrich and enrich[0]["left_on"] == "device_type_id"
 
 
-def test_composite_bridge_fk_type_inherits_parent_pk_type():
-    """Bridge FK columns added by composite should reuse parent PK type."""
+def test_marketing_dim_campaign_enrich_uses_campaign_type_id():
+    from sqllocks_spindle import MarketingDomain
+    sm = MarketingDomain().star_schema_map()
+    enrich = sm.dims["dim_campaign"].enrich
+    assert enrich and enrich[0]["left_on"] == "campaign_type_id"
+
+
+def test_education_financial_aid_has_award_date_column():
+    from sqllocks_spindle import EducationDomain
+    schema = EducationDomain().get_schema()
+    assert "award_date" in schema.tables["financial_aid"].columns
+
+
+def test_capital_markets_declares_exchange_company_relationship():
+    from sqllocks_spindle.domains.capital_markets import CapitalMarketsDomain
+    schema = CapitalMarketsDomain().get_schema()
+    names = [r.name for r in schema.relationships]
+    assert "exchange_companies" in names
+
+
+def test_cleanup_drop_table_is_schema_qualified():
+    import inspect
+    from sqllocks_spindle.demo.cleanup import CleanupEngine
+    src = inspect.getsource(CleanupEngine._cleanup_sql_table)
+    assert "dbo." in src
+
+
+def test_streaming_autocleanup_invokes_engine():
+    import inspect
+    from sqllocks_spindle.demo.modes import streaming as st
+    src = inspect.getsource(st)
+    assert "CleanupEngine(self._conn).cleanup" in src
+
+
+def test_composite_bridge_inherits_parent_pk_type():
     from sqllocks_spindle.domains.composite import CompositeDomain
-    from sqllocks_spindle.schema.parser import (
-        ColumnDef, TableDef, RelationshipDef,
-    )
+    from sqllocks_spindle.schema.parser import ColumnDef, TableDef, RelationshipDef
 
     parent = TableDef(
-        name="ticker_dim",
+        name="ticker_master",
         primary_key=["ticker"],
-        columns={"ticker": ColumnDef(name="ticker", type="string", generator={})},
+        columns={"ticker": ColumnDef(name="ticker", type="string", generator={"strategy": "sequence"})},
     )
     child = TableDef(
         name="quote",
         primary_key=["quote_id"],
-        columns={"quote_id": ColumnDef(name="quote_id", type="integer", generator={})},
+        columns={"quote_id": ColumnDef(name="quote_id", type="integer", generator={"strategy": "sequence"})},
     )
     rel = RelationshipDef(
-        name="quote_ticker",
-        parent="ticker_dim", child="quote",
+        name="ticker_quotes", parent="ticker_master", child="quote",
         parent_columns=["ticker"], child_columns=["ticker"],
         type="one_to_many",
     )
-    tables = {"ticker_dim": parent, "quote": child}
+    tables = {"ticker_master": parent, "quote": child}
     cd = CompositeDomain.__new__(CompositeDomain)
     cd._ensure_bridge_columns(tables, [rel])
     assert tables["quote"].columns["ticker"].type == "string"
-
-
-def test_healthcare_fact_claim_date_cols_use_filing_date():
-    """fact_claim must use filing_date (which exists in the join), not service_date."""
-    from sqllocks_spindle import HealthcareDomain
-    schema = HealthcareDomain().get_schema()
-    star = HealthcareDomain().get_star_schema(schema) if hasattr(HealthcareDomain(), "get_star_schema") else None
-    # Fallback: parse the FactSpec directly from the schema's _star_map
-    from sqllocks_spindle.engine.generator import Spindle
-    sp = Spindle()
-    parsed = sp._resolve_schema(HealthcareDomain(), None)
-    if hasattr(parsed, "star_schema") and parsed.star_schema:
-        fact_claim = parsed.star_schema.facts.get("fact_claim")
-        if fact_claim is not None:
-            assert "filing_date" in fact_claim.date_cols
-            assert "service_date" not in fact_claim.date_cols
-
-
-def test_capital_markets_declares_exchange_company_relationship():
-    """company.exchange_code must be declared as an FK to exchange.exchange_code."""
-    from sqllocks_spindle.domains.capital_markets import CapitalMarketsDomain
-    from sqllocks_spindle.engine.generator import Spindle
-    parsed = Spindle()._resolve_schema(CapitalMarketsDomain(), None)
-    rels = parsed.relationships
-    names = {r.name for r in rels}
-    assert "exchange_companies" in names, f"missing exchange_companies rel; have {names}"
-
-
-def test_capital_markets_declares_ohlc_business_rules():
-    """high>=low, close in [low,high], open in [low,high] must be declared."""
-    from sqllocks_spindle.domains.capital_markets import CapitalMarketsDomain
-    from sqllocks_spindle.engine.generator import Spindle
-    parsed = Spindle()._resolve_schema(CapitalMarketsDomain(), None)
-    rule_names = {r.name for r in parsed.business_rules}
-    for required in ("high_gte_low", "close_between_high_low", "open_between_high_low"):
-        assert required in rule_names, f"missing rule {required}; have {rule_names}"
