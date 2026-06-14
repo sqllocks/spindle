@@ -39,7 +39,8 @@ class CorrelatedStrategy(Strategy):
         ctx: GenerationContext,
     ) -> np.ndarray:
         source_col = config.get("source_column", "")
-        rule = config.get("rule", "multiply")
+        # 3.0.0 audit fix: accept operation as alias for rule.
+        rule = config.get("rule", config.get("operation", "multiply"))
         params = config.get("params", {})
 
         if not source_col:

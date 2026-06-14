@@ -468,6 +468,16 @@ class EducationDomain(Domain):
                                 }),
                             },
                         },
+                        # 3.0.0 audit fix: fact_financial_aid.date_cols
+                        # referenced award_date but the column did not exist.
+                        "award_date": {
+                            "type": "datetime",
+                            "generator": {
+                                "strategy": "temporal",
+                                "pattern": "uniform",
+                                "range_ref": "model.date_range",
+                            },
+                        },
                     },
                 },
 

@@ -340,6 +340,11 @@ class CapitalMarketsDomain(Domain):
                                 "params": {"factor_min": 0.90, "factor_max": 1.00},
                             },
                         },
+                        # 3.0.0 audit fix: close was sampled independently of low/high
+                        # and could land outside [low, high] before the business-rules
+                        # repair pass. The repair pass enforces it, but tighten the
+                        # initial draw to a narrower band (0.94..1.04 of open) so the
+                        # repair has less to do.
                         "close": {
                             "type": "decimal",
                             "precision": 10,
@@ -348,7 +353,7 @@ class CapitalMarketsDomain(Domain):
                                 "strategy": "correlated",
                                 "source_column": "open",
                                 "rule": "multiply",
-                                "params": {"factor_min": 0.93, "factor_max": 1.07},
+                                "params": {"factor_min": 0.94, "factor_max": 1.04},
                             },
                         },
                         "adj_close": {
@@ -771,6 +776,18 @@ class CapitalMarketsDomain(Domain):
                     "parent_columns": ["ticker"],
                     "child_columns": ["ticker"],
                     "type": "one_to_many",
+                },
+                # 3.0.0 audit fix: declare the company -> exchange relationship
+                # via exchange_code so verify_integrity covers it. Pre-3.0.0 the
+                # link was implicit and integrity checks skipped it.
+                {
+                    "name": "exchange_companies",
+                    "parent": "exchange",
+                    "child": "company",
+                    "parent_columns": ["exchange_code"],
+                    "child_columns": ["exchange_code"],
+                    "type": "one_to_many",
+                    "optional": True,
                 },
             ],
             # ── Business rules ─────────────────────────────────

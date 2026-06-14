@@ -1041,7 +1041,9 @@ class HealthcareDomain(Domain):
                         "provider_id": "dim_provider",
                         "facility_id": "dim_facility",
                     },
-                    date_cols=["service_date"],
+                    # 3.0.0 audit fix: claim_line + claim join exposes filing_date,
+                    # not service_date (which lives on encounter and isn't joined in).
+                    date_cols=["filing_date"],
                 ),
             },
         )

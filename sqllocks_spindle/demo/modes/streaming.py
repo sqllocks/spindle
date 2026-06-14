@@ -66,7 +66,16 @@ class StreamingDemoMode:
             dashboard.info("Interrupted by user")
             dashboard.finish(True)
             if self._params.auto_cleanup:
-                dashboard.info("Auto-cleanup enabled — removing artifacts")
+                # 3.0.0 audit fix: streaming advertised auto_cleanup but
+                # never actually invoked the engine when the user pressed
+                # Ctrl-C. Run CleanupEngine now so the demo artifacts are
+                # removed from connected sinks.
+                dashboard.info("Auto-cleanup enabled, removing artifacts")
+                try:
+                    from sqllocks_spindle.demo.cleanup import CleanupEngine
+                    CleanupEngine(self._conn).cleanup(self._manifest)
+                except Exception as cleanup_exc:
+                    logger.warning("Auto-cleanup failed: %s", cleanup_exc)
             else:
                 print("\nDemo stopped. Run `spindle demo cleanup` to remove artifacts.")
             return {"success": True, "stopped_by_user": True}

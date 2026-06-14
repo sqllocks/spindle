@@ -74,8 +74,12 @@ class CleanupEngine:
         import re
         if not re.match(r'^[\w.]+$', table_name):
             raise ValueError(f"Unsafe table name: {table_name!r}")
+        # 3.0.0 audit fix: always schema-qualify the DROP so the cleanup hits
+        # the spindle table rather than whatever happens to live in the caller's
+        # default schema (commonly dbo).
+        qualified = table_name if "." in table_name else f"dbo.{table_name}"
         with pyodbc.connect(conn_str, timeout=30) as conn:
-            conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+            conn.execute(f"DROP TABLE IF EXISTS {qualified}")
             conn.commit()
 
     def _cleanup_lakehouse(self, path: str) -> None:

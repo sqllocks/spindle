@@ -685,7 +685,9 @@ class IoTDomain(Domain):
                     nk="device_id",
                     enrich=[{
                         "table": "device_type",
-                        "left_on": "type_id",
+                        # 3.0.0 audit fix: device's FK to device_type is
+                        # device_type_id, not type_id.
+                        "left_on": "device_type_id",
                         "right_on": "type_id",
                         "prefix": "type_",
                     }],

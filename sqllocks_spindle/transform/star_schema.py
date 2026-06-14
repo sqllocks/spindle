@@ -321,6 +321,16 @@ class StarSchemaTransform:
 
         start = dates[0].normalize()
         end = dates[-1].normalize()
+        # 3.0.0 audit fix: cap dim_date span when source dates span absurd ranges.
+        MAX_SPAN_YEARS = 60
+        span_years = (end - start).days / 365.25
+        if span_years > MAX_SPAN_YEARS:
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                "star_schema._build_date_dim: capping dim_date span from %.1f to %d years",
+                span_years, MAX_SPAN_YEARS,
+            )
+            end = start + pd.Timedelta(days=int(MAX_SPAN_YEARS * 365.25))
         date_range = pd.date_range(start=start, end=end, freq="D")
 
         month_names = [

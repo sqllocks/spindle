@@ -324,15 +324,25 @@ class CompositeDomain(Domain):
 
             child_table = tables[rel.child]
 
+            parent_table = tables.get(rel.parent)
             for parent_col, bridge_col in zip(rel.parent_columns, rel.child_columns):
                 # Skip if the column already exists (explicit config case)
                 if bridge_col in child_table.columns:
                     continue
 
+                # 3.0.0 audit fix: bridge FK column inherits the parent PK's
+                # declared type. Previously every injected bridge was integer,
+                # which would silently mismatch string PKs (e.g. ticker symbol).
+                bridge_type = "integer"
+                if parent_table is not None:
+                    parent_pk_def = parent_table.columns.get(parent_col)
+                    if parent_pk_def is not None:
+                        bridge_type = parent_pk_def.type
+
                 # Inject a foreign_key column pointing at the parent table's PK
                 child_table.columns[bridge_col] = ColumnDef(
                     name=bridge_col,
-                    type="integer",
+                    type=bridge_type,
                     generator={
                         "strategy": "foreign_key",
                         "ref": f"{rel.parent}.{parent_col}",

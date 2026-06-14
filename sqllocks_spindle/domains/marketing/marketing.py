@@ -778,7 +778,9 @@ class MarketingDomain(Domain):
                     nk="campaign_id",
                     enrich=[{
                         "table": "campaign_type",
-                        "left_on": "type_id",
+                        # 3.0.0 audit fix: campaign's FK to campaign_type is
+                        # campaign_type_id, not type_id.
+                        "left_on": "campaign_type_id",
                         "right_on": "type_id",
                         "prefix": "type_",
                     }],

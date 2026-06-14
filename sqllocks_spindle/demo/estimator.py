@@ -40,7 +40,11 @@ class CostEstimator:
     def estimate(self, rows: int, targets: list) -> CostEstimate:
         m_rows = rows / 1_000_000
         cu = sum(self._CU_PER_M_ROWS.get(t, 2.0) * m_rows for t in targets)
-        secs = max((self._SECONDS_PER_M_ROWS.get(t, 45) * m_rows for t in targets), default=10.0)
+        # 3.0.0 audit fix: write to N targets sequentially -> duration is the
+        # SUM of per-target costs, not the maximum.
+        secs = sum(self._SECONDS_PER_M_ROWS.get(t, 45) * m_rows for t in targets)
+        if not targets:
+            secs = 10.0
         secs = max(secs, 10)
         warning = ""
         if cu > 50:
