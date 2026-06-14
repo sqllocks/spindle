@@ -5,6 +5,74 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.5] - 2026-06-14
+
+Safe bugfix release from the deep audit: corrects broken/corrupt output and
+unsafe behavior **without changing valid generated data for a given seed**.
+(Output-changing correctness fixes ship separately in 3.0.0.)
+
+### Fixed
+- `engine/generator.py`: when a `fidelity_profile` is passed, the exception path
+  now returns the documented `(result, None)` 2-tuple instead of a bare `result`,
+  so callers unpacking the tuple no longer hit a `ValueError` that masks the real
+  error.
+- `fabric/sql_database_writer.py` `_to_bool`: unrecognized boolean strings (e.g.
+  `"N"`, `"null"`, `"maybe"`) were silently coerced to `True`, corrupting BIT
+  columns. They now map to `NULL` with a warning; only an explicit true/false set
+  is honored.
+- `fabric/sql_database_writer.py`: the `fast_executemany` buffer-sizing hack
+  mutated `params[0]` with other rows' values, silently corrupting the first row
+  of every batch. It no longer mutates any row; batches whose first row is not the
+  widest fall back to per-row sizing for that batch (no corruption, no silent
+  truncation).
+- `fabric/warehouse_bulk_writer.py` `copy_into`: reported `SELECT COUNT(*)` of the
+  whole table as "rows loaded", over-reporting on append and masking a COPY that
+  loaded zero rows. Now uses the COPY statement's own row count.
+- `inference/tier3_research.py` `_chi2_test`: drift test failed **open** (returned
+  "no drift" on any exception). Now fails closed (`method="error"`, drifted flag).
+- `inference/masker.py`: tables are now masked parent-before-child (topological
+  order) so PK→FK remaps propagate; previously a child masked before its parent
+  kept stale FK values (orphans).
+- `inference/schema_builder.py`: profiler-fitted distributions were emitted with
+  raw scipy names/params, so `lognormal` raised and `uniform` silently became
+  `uniform(0,1)`. Now routed through the shared `_translate_distribution`.
+- `inference/comparator.py`: the Chi² p-value column was computed but never
+  rendered in the HTML fidelity report; the column is now shown.
+- `inference/profile_store.py`: saved profiles emitted bare `NaN`/`Infinity`
+  (invalid JSON for non-Python consumers). Non-finite floats now serialize to
+  `null` and the writer forbids `NaN`/`Inf`.
+- `inference/lakehouse_profiler.py`: validate Delta table names against
+  `[A-Za-z0-9_]+` (prevents path traversal into other OneLake locations), and
+  sample rows randomly instead of `head()` (head biased every inferred statistic).
+- `demo/notebook_gen.py`: generated cells shallow-copied a shared template,
+  aliasing mutable `metadata`/`outputs` across all cells; now deep-copied.
+- `demo/cleanup.py`: `_cleanup_file` would `shutil.rmtree` any directory; it now
+  refuses to recursively delete top-level or non-spindle directories.
+- `demo/connections.py`: connection profiles holding a `client_secret` are now
+  written `chmod 600` (where supported) with a warning about secret-at-rest.
+
+### Notes
+- DB-path fixes (`copy_into` row count, `fast_executemany` sizing, lakehouse read)
+  are correct by construction but require a live Fabric SQL/lakehouse to exercise
+  end to end.
+
+## [2.14.4] - 2026-06-13
+
+### Fixed
+- `engine/generator.py` `GenerationResult`: the class was not iterable. It defined
+  `__getitem__(table_name)` but no `__iter__`, so `for table_name, df in result:`
+  (the exact pattern shipped in the Fabric quickstart) fell back to Python's
+  integer-index sequence protocol and raised `KeyError: 0`. Added `__iter__`
+  yielding `(table_name, DataFrame)` pairs in generation order, so the documented
+  quickstart loop now works as written.
+
+### Added
+- `GenerationResult.items()`, `.keys()`, `.values()` convenience accessors
+  (delegate to the underlying `tables` dict). `dict(result)` now reconstructs
+  `{table_name: DataFrame}`. Indexing and membership remain name-keyed
+  (`result["order"]`, `"order" in result`); `len(result)` still returns total
+  row count, not table count (use `len(result.tables)` for the table count).
+
 ## [2.14.2] - 2026-06-08
 
 ### Fixed

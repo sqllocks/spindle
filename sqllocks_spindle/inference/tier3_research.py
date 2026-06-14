@@ -391,7 +391,10 @@ class DriftMonitor:
                 method="chi2",
             )
         except Exception:
-            return ColumnDriftResult(col, 0.0, None, None, False, "chi2")
+            # Fail CLOSED: a drift monitor that returns "no drift" when its own
+            # test errored is dangerous (masks real drift). Signal the failure
+            # via method="error" and flag drifted so the caller investigates.
+            return ColumnDriftResult(col, 0.0, None, None, True, "error")
 
 
 # ---------------------------------------------------------------------------

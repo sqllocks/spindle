@@ -707,15 +707,34 @@ class FabricSqlDatabaseWriter:
             if col in coerced.columns and pd.api.types.is_object_dtype(coerced[col]):
                 # Convert "true"/"false" strings (and any other truthy/falsy strings)
                 # to Python bool so pyodbc sends SQL_C_BIT to the BIT column.
+                _TRUE_STRS = {"true", "1", "yes", "t", "y"}
+                _FALSE_STRS = {"false", "0", "no", "f", "n", ""}
+                _bad_seen: list[str] = []
+
                 def _to_bool(v):
                     if v is None:
                         return None
                     if isinstance(v, bool):
                         return v
+                    if isinstance(v, (int, float)):
+                        return bool(v)
                     if isinstance(v, str):
-                        return v.strip().lower() not in ("false", "0", "no", "f", "")
+                        s = v.strip().lower()
+                        if s in _TRUE_STRS:
+                            return True
+                        if s in _FALSE_STRS:
+                            return False
+                        # Unrecognized string: do NOT silently coerce to True
+                        # (that corrupts the BIT column). Emit NULL and warn.
+                        _bad_seen.append(v)
+                        return None
                     return bool(v)
                 coerced[col] = coerced[col].apply(_to_bool)
+                if _bad_seen:
+                    logger.warning(
+                        "Column %s: %d unrecognized boolean value(s) (e.g. %r) written as NULL",
+                        col, len(_bad_seen), _bad_seen[0],
+                    )
 
         # pyodbc.cursor.setinputsizes() is a DB-API 2.0 no-op — it does nothing.
         # pyodbc fast_executemany sizes its parameter buffers from the FIRST ROW.
@@ -754,25 +773,26 @@ class FabricSqlDatabaseWriter:
                 for row in raw
             ]
 
-            # fast_executemany sizes its parameter buffers from the FIRST ROW.
-            # Build a synthetic cover row at params[0] by replacing each string
-            # column's value with the max-length string from anywhere in the batch.
-            # All replacement values are real data — just assembled column-by-column
-            # from different rows — so fast_executemany can stay enabled.
+            # fast_executemany sizes its parameter buffers from the FIRST ROW, so a
+            # later, longer string gets silently right-truncated. The previous code
+            # mutated params[0] with other rows' max-length values, which silently
+            # CORRUPTED the first row of every batch (it became a record that never
+            # existed in the source). Instead: if row 0 is not the widest in some
+            # string column, disable fast_executemany for just that batch. Per-row
+            # sizing then prevents truncation with zero data corruption. Batches
+            # whose first row is already widest keep the fast path.
+            needs_safe_sizing = False
             if str_col_idxs and len(params) > 1:
-                row0 = list(params[0])
+                row0 = params[0]
                 for j in str_col_idxs:
-                    needed = global_max_lens.get(j, 0)
-                    current_len = len(row0[j]) if isinstance(row0[j], str) else 0
-                    if current_len < needed:
-                        # Pull the max-length string for this column from any row in batch
-                        row0[j] = max(
-                            (r[j] for r in params if isinstance(r[j], str)),
-                            key=len,
-                            default=row0[j],
-                        )
-                params[0] = row0
+                    cur_len = len(row0[j]) if isinstance(row0[j], str) else 0
+                    if cur_len < global_max_lens.get(j, 0):
+                        needs_safe_sizing = True
+                        break
 
+            prev_fem = getattr(cursor, "fast_executemany", False)
+            if needs_safe_sizing:
+                cursor.fast_executemany = False
             try:
                 cursor.executemany(insert_sql, params)
             except Exception as _exc:
@@ -793,6 +813,9 @@ class FabricSqlDatabaseWriter:
                                 _j, _col, _first_len, _max_len,
                             )
                 raise
+            finally:
+                if needs_safe_sizing:
+                    cursor.fast_executemany = prev_fem
             rows_written += len(params)
 
         return rows_written

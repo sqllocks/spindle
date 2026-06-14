@@ -205,7 +205,7 @@ class FidelityReport:
             tc = _score_color(tf.score)
             rows_html += (
                 f'<tr style="background:#f8f8f8">'
-                f'<td colspan="9" style="padding:10px 12px;font-weight:700;'
+                f'<td colspan="10" style="padding:10px 12px;font-weight:700;'
                 f'border-bottom:2px solid #ccc;font-size:13px">'
                 f'<span style="color:{tc}">&#9632;</span>&nbsp;'
                 f'{table_name} &mdash; <strong style="color:{tc}">{tf.score:.1f}/100</strong>'
@@ -233,6 +233,7 @@ class FidelityReport:
                     f'<td style="padding:6px 8px;text-align:right;font-size:12px">{ks}</td>'
                     f'<td style="padding:6px 8px;text-align:right;font-size:12px">{ks_p}</td>'
                     f'<td style="padding:6px 8px;text-align:right;font-size:12px">{chi2}</td>'
+                    f'<td style="padding:6px 8px;text-align:right;font-size:12px">{chi2_p}</td>'
                     f'<td style="padding:6px 8px;text-align:right;font-size:12px">{overlap}</td>'
                     f'</tr>'
                 )
@@ -272,6 +273,7 @@ class FidelityReport:
     <th>KS Stat</th>
     <th>KS p</th>
     <th>Chi&sup2;</th>
+    <th>Chi&sup2; p</th>
     <th>Overlap</th>
   </tr>
 </thead>
@@ -342,6 +344,10 @@ def _general_type(series: pd.Series) -> str:
             numeric = pd.to_numeric(non_null, errors="coerce")
             if numeric.notna().all():
                 return "numeric"
+            # Date-like strings compare distributionally (epoch), not by exact value match.
+            dt = pd.to_datetime(non_null, errors="coerce")
+            if len(dt) > 0 and dt.notna().mean() >= 0.95:
+                return "datetime"
         return "string"
     return "other"
 
@@ -443,10 +449,24 @@ class FidelityComparator:
         points += 10 * max(0.0, 1.0 - abs(1.0 - cardinality_ratio))
 
         is_numeric = real_type == "numeric" and synth_type == "numeric"
+        is_datetime = real_type == "datetime" and synth_type == "datetime"
 
-        if is_numeric:
-            real_num = _to_numeric_safe(real)
-            synth_num = _to_numeric_safe(synth)
+        if is_numeric or is_datetime:
+            if is_datetime:
+                # Compare timestamps distributionally on epoch nanoseconds. Exact value
+                # overlap is meaningless for continuous datetimes (synthetic dates almost
+                # never equal source dates), so route them through the numeric KS path.
+                rd = pd.to_datetime(real, errors="coerce").dropna()
+                sd = pd.to_datetime(synth, errors="coerce").dropna()
+                if getattr(rd.dtype, "tz", None) is not None:
+                    rd = rd.dt.tz_localize(None)
+                if getattr(sd.dtype, "tz", None) is not None:
+                    sd = sd.dt.tz_localize(None)
+                real_num = pd.Series(rd.to_numpy().astype("int64"), dtype="int64")
+                synth_num = pd.Series(sd.to_numpy().astype("int64"), dtype="int64")
+            else:
+                real_num = _to_numeric_safe(real)
+                synth_num = _to_numeric_safe(synth)
 
             real_mean = float(real_num.mean()) if len(real_num) > 0 else 0.0
             synth_mean = float(synth_num.mean()) if len(synth_num) > 0 else 0.0

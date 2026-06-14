@@ -354,12 +354,17 @@ class WarehouseBulkWriter:
         try:
             cursor = conn.cursor()
             cursor.execute(copy_sql)
+            # Rows loaded by THIS COPY INTO, not the whole table. SELECT COUNT(*)
+            # over-reports when appending into a non-empty table and masks a COPY
+            # that loaded 0 rows.
+            loaded = cursor.rowcount
             conn.commit()
-            # Get row count
-            cursor.execute(f"SELECT COUNT(*) FROM {qualified}")
-            row_count = cursor.fetchone()[0]
-            logger.info("COPY INTO %s completed (%d rows)", table_name, row_count)
-            return row_count
+            if loaded is None or loaded < 0:
+                # Driver did not report a row count; fall back to table count.
+                cursor.execute(f"SELECT COUNT(*) FROM {qualified}")
+                loaded = cursor.fetchone()[0]
+            logger.info("COPY INTO %s completed (%d rows)", table_name, loaded)
+            return loaded
         finally:
             conn.close()
 

@@ -269,19 +269,27 @@ class SchemaBuilder:
                 # No quantiles available despite low fit — fall through to distribution
 
             # DistributionStrategy reads config["distribution"] (the dist name) and
-            # params {mean,std_dev,min,max} — NOT "type"/"loc"/"scale". Emit that shape
-            # or the generator silently falls back to uniform(0,1).
+            # params {mean,std_dev,min,max} / {mean,sigma}. Profiler fits emit
+            # scipy names (lognormal/uniform/exponential) with loc/scale/s, which
+            # the engine does NOT understand. Translate faithfully (shared with the
+            # safe-profile adapter); on no-equivalent (e.g. exponential) fall
+            # through to the empirical / mean-std path below.
             if col.distribution and col.distribution_params:
-                p = dict(col.distribution_params)
-                if "loc" in p and "mean" not in p:
-                    p["mean"] = p.pop("loc")
-                if "scale" in p and "std_dev" not in p:
-                    p["std_dev"] = p.pop("scale")
-                return {
-                    "strategy": "distribution",
-                    "distribution": col.distribution,
-                    "params": p,
-                }
+                from sqllocks_spindle.inference.safe_profile_adapter import (
+                    _translate_distribution as _xlate,
+                )
+                translated = _xlate(col.distribution, col.distribution_params)
+                if translated is not None:
+                    dist_name, dist_params = translated
+                    if col.min_value is not None:
+                        dist_params.setdefault("min", float(col.min_value))
+                    if col.max_value is not None:
+                        dist_params.setdefault("max", float(col.max_value))
+                    return {
+                        "strategy": "distribution",
+                        "distribution": dist_name,
+                        "params": dist_params,
+                    }
 
             # Numeric fallback — normal from observed stats, clamped to observed range.
             if col.mean is not None and col.std is not None:

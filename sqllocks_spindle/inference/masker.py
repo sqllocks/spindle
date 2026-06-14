@@ -181,7 +181,11 @@ class DataMasker:
         # Track PK mappings for FK consistency
         pk_maps: dict[str, dict[str, dict]] = {}  # {table.col: {old_val: new_val}}
 
-        for table_name, df in tables.items():
+        # Mask parents before children: PK->FK remaps in pk_maps must exist
+        # before a child table is masked, otherwise a child processed first
+        # keeps original FK values while its parent's PK got remapped (orphan FKs).
+        for table_name in self._topo_order(list(tables.keys()), profiles):
+            df = tables[table_name]
             profile = profiles[table_name]
             masked_df, masked_cols = self._mask_table(
                 df, profile, config, fake, rng, pk_maps, tables
@@ -203,6 +207,43 @@ class DataMasker:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _topo_order(table_names: list[str], profiles: dict[str, Any]) -> list[str]:
+        """Order tables so a FK-referenced parent precedes its children.
+
+        Uses each profile's per-column ``is_foreign_key``/``fk_ref_table``.
+        Falls back to original order for anything not in a clean DAG (cycles,
+        self-references) so masking always runs.
+        """
+        names = set(table_names)
+        deps: dict[str, set[str]] = {t: set() for t in table_names}
+        for t in table_names:
+            prof = profiles.get(t)
+            cols = getattr(prof, "columns", {}) or {}
+            for col in cols.values():
+                if getattr(col, "is_foreign_key", False):
+                    ref = getattr(col, "fk_ref_table", None)
+                    if ref in names and ref != t:
+                        deps[t].add(ref)
+        ordered: list[str] = []
+        placed: set[str] = set()
+        remaining = list(table_names)
+        while remaining:
+            progress = False
+            still: list[str] = []
+            for t in remaining:
+                if deps[t] <= placed:
+                    ordered.append(t)
+                    placed.add(t)
+                    progress = True
+                else:
+                    still.append(t)
+            remaining = still
+            if not progress:
+                ordered.extend(remaining)  # cycle/unresolved: keep original order
+                break
+        return ordered
 
     def _mask_table(
         self,

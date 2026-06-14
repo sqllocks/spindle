@@ -72,9 +72,22 @@ class ProfileStore:
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = profile.to_safe_dict()
+
+        def _finite(o):
+            import math
+            if isinstance(o, float):
+                return o if math.isfinite(o) else None
+            if isinstance(o, dict):
+                return {k: _finite(v) for k, v in o.items()}
+            if isinstance(o, (list, tuple)):
+                return [_finite(v) for v in o]
+            return o
+
+        # Sanitize NaN/Inf to null and forbid them: default json.dump writes bare
+        # NaN/Infinity, which is invalid JSON and breaks non-Python consumers.
+        data = _finite(profile.to_safe_dict())
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, sort_keys=False)
+            json.dump(data, f, indent=2, sort_keys=False, allow_nan=False)
         return path
 
     # ------------------------------------------------------------------

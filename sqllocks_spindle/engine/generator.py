@@ -8,6 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any, Callable
 
 import numpy as np
@@ -165,6 +166,32 @@ class GenerationResult:
     def __contains__(self, table_name: str) -> bool:
         """Check if a table exists in the result."""
         return table_name in self.tables
+
+    def __iter__(self) -> Iterator[tuple[str, pd.DataFrame]]:
+        """Iterate over (table_name, DataFrame) pairs, in generation order.
+
+        Matches the documented quickstart pattern::
+
+            for table_name, df in result:
+                spark.createDataFrame(df).write.saveAsTable(table_name)
+
+        Note: indexing and membership are name-keyed (``result["order"]``,
+        ``"order" in result``); iteration yields *pairs* (like ``dict.items()``),
+        not bare keys.
+        """
+        return iter(self.tables.items())
+
+    def items(self):
+        """Return (table_name, DataFrame) pairs. Explicit alias for iteration."""
+        return self.tables.items()
+
+    def keys(self):
+        """Return table names."""
+        return self.tables.keys()
+
+    def values(self):
+        """Return the DataFrames."""
+        return self.tables.values()
 
     # --- Export methods ---
 
@@ -557,6 +584,10 @@ class Spindle:
                 return result, fidelity_report
             except Exception as exc:
                 logger.warning("FidelityReport computation failed: %s", exc)
+                # Honor the documented 2-tuple contract even on failure, so a
+                # caller doing `result, report = generate(..., fidelity_profile=p)`
+                # does not hit a ValueError that masks the real error.
+                return result, None
 
         return result
 

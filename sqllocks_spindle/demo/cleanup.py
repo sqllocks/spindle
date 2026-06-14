@@ -42,12 +42,24 @@ class CleanupEngine:
     def _cleanup_file(self, path: str) -> None:
         from pathlib import Path
         import shutil
-        p = Path(path)
-        if p.exists():
-            if p.is_file():
-                p.unlink()
-            else:
-                shutil.rmtree(p)
+        p = Path(path).resolve()
+        if not p.exists():
+            return
+        if p.is_file():
+            p.unlink()
+            return
+        # Directory: refuse to rmtree unless it is clearly a spindle artifact dir.
+        # If `detail` ever points at a parent/working/output dir, an unguarded
+        # rmtree would recursively delete unrelated data.
+        if len(p.parts) <= 2:
+            raise ValueError(f"Refusing to rmtree a top-level path: {p}")
+        parts_lower = {x.lower() for x in p.parts}
+        if not ({"spindle", ".spindle"} & parts_lower or "spindle" in p.name.lower()):
+            logger.warning(
+                "Refusing to rmtree non-spindle directory %s, remove manually", p
+            )
+            return
+        shutil.rmtree(p)
 
     def _cleanup_sql_table(self, table_name: str, target: str) -> None:
         if self._conn is None:

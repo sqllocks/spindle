@@ -1,9 +1,13 @@
 """ConnectionRegistry — store and retrieve named Fabric connection profiles."""
 from __future__ import annotations
 import json
+import logging
+import os
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,8 +42,20 @@ class ConnectionRegistry:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._path, "w") as f:
             json.dump(data, f, indent=2)
+        # This file can hold client_secret; restrict to owner-only (no-op on
+        # filesystems without POSIX perms, but correct on Linux/macOS).
+        try:
+            os.chmod(self._path, 0o600)
+        except OSError:
+            pass
 
     def save(self, profile: ConnectionProfile) -> None:
+        if profile.client_secret:
+            logger.warning(
+                "Connection %r stores a client_secret at rest in %s. Prefer "
+                "auth_method='cli'/env vars; the file is chmod 600 where supported.",
+                profile.name, self._path,
+            )
         data = self._load_all()
         data[profile.name] = asdict(profile)
         self._save_all(data)

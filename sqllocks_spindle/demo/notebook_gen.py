@@ -1,5 +1,6 @@
 """NotebookGenerator — produce a Fabric PySpark .ipynb from a scenario definition."""
 from __future__ import annotations
+import copy
 import json
 import uuid
 from pathlib import Path
@@ -19,7 +20,9 @@ _CELL_TEMPLATE = {
 
 
 def _code_cell(lines: list) -> dict:
-    cell = dict(_CELL_TEMPLATE)
+    # deepcopy: a shallow dict() copy would alias the template's mutable
+    # `metadata`/`outputs` objects across every generated cell.
+    cell = copy.deepcopy(_CELL_TEMPLATE)
     cell["id"] = str(uuid.uuid4())
     cell["source"] = [line + "\n" for line in lines]
     return cell

@@ -233,14 +233,23 @@ class LakehouseProfiler:
                 "Install with: pip install 'sqllocks-spindle[fabric-inference]'"
             )
 
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_]+", table_name):
+            raise ValueError(
+                f"Unsafe Delta table name {table_name!r}; expected [A-Za-z0-9_]+. "
+                "Rejecting to prevent path traversal into other OneLake locations."
+            )
         table_uri = f"{self._abfss_tables_root()}/{table_name}"
         storage_options = self._storage_options()
 
         try:
             dt = _deltalake.DeltaTable(table_uri, storage_options=storage_options)
             df = dt.to_pandas()
-            if sample_rows is not None:
-                df = df.head(sample_rows)
+            if sample_rows is not None and len(df) > sample_rows:
+                # Random sample, not head(): head() returns physical/partition
+                # order (often sorted by date/key), which biases every inferred
+                # distribution, quantile, and FK-overlap statistic.
+                df = df.sample(n=sample_rows, random_state=42).reset_index(drop=True)
             return df
         except Exception as exc:
             raise RuntimeError(
