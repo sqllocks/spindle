@@ -8,6 +8,25 @@ import json
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _mock_azure_credential():
+    """No test in this module should hit live Azure. Default-mock the CLI
+    credential so token acquisition never shells out to `az` (which fails in
+    CI / sandboxes without auth). Tests needing a specific token (e.g. the
+    storage-scoped regression) patch AzureCliCredential again locally; that
+    inner patch takes precedence inside its own with-block.
+    """
+    fake_token = MagicMock()
+    fake_token.token = "fake-test-token"
+    fake_credential = MagicMock()
+    fake_credential.get_token.return_value = fake_token
+    with patch("azure.identity.AzureCliCredential",
+               MagicMock(return_value=fake_credential)):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # AsyncJobStore tests
