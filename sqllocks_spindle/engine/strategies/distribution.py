@@ -64,14 +64,20 @@ class DistributionStrategy(Strategy):
         self, rng: np.random.Generator, count: int, params: dict
     ) -> np.ndarray:
         mean = params.get("mean", 0)
-        std_dev = params.get("std_dev", 1)
+        # 3.0.0 audit fix: accept sigma / std as aliases for std_dev.
+        std_dev = params.get("std_dev")
+        if std_dev is None:
+            std_dev = params.get("sigma", params.get("std", 1))
         return rng.normal(mean, std_dev, size=count)
 
     def _dist_log_normal(
         self, rng: np.random.Generator, count: int, params: dict
     ) -> np.ndarray:
         mean = params.get("mean", 0)
-        sigma = params.get("sigma", 1)
+        # 3.0.0 audit fix: accept std as alias for sigma.
+        sigma = params.get("sigma")
+        if sigma is None:
+            sigma = params.get("std", 1)
         return rng.lognormal(mean, sigma, size=count)
 
     def _dist_pareto(

@@ -23,13 +23,22 @@ class TemporalStrategy(Strategy):
     ) -> np.ndarray:
         pattern = config.get("pattern", "uniform")
 
-        # Resolve date range (check both "date_range" and "range" keys)
-        date_range = config.get("date_range", config.get("range", {}))
+        # Resolve date range. Priority (3.0.0 audit fix):
+        #   1. range_ref -> model.date_range (highest, explicit redirect)
+        #   2. nested date_range / range keys (canonical)
+        #   3. top-level start/end keys (lowest, ergonomic shorthand)
+        #   4. default 2022-2025 window (only when nothing else matched)
         if config.get("range_ref") == "model.date_range":
             date_range = ctx.model_config.get("date_range", {})
+        else:
+            date_range = config.get("date_range", config.get("range", {}))
 
-        start_str = date_range.get("start", "2022-01-01")
-        end_str = date_range.get("end", "2025-12-31")
+        start_str = date_range.get("start")
+        end_str = date_range.get("end")
+        if start_str is None:
+            start_str = config.get("start", "2022-01-01")
+        if end_str is None:
+            end_str = config.get("end", "2025-12-31")
         start = pd.Timestamp(start_str)
         end = pd.Timestamp(end_str)
 
@@ -37,6 +46,12 @@ class TemporalStrategy(Strategy):
             return self._uniform(start, end, ctx)
         elif pattern == "seasonal":
             profiles = config.get("profiles", {})
+            # Allow top-level month_weights / day_of_week_weights when profiles missing
+            # the corresponding nested key. (3.0.0 audit fix.)
+            if not profiles.get("month") and config.get("month_weights"):
+                profiles = {**profiles, "month": config["month_weights"]}
+            if not profiles.get("day_of_week") and config.get("day_of_week_weights"):
+                profiles = {**profiles, "day_of_week": config["day_of_week_weights"]}
             return self._seasonal(start, end, profiles, ctx)
         else:
             return self._uniform(start, end, ctx)

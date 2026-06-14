@@ -83,8 +83,17 @@ class DerivedStrategy(Strategy):
     ) -> np.ndarray:
         source = config.get("source", "")
         via = config.get("via")  # FK column name for cross-table lookups
-        rule = config.get("rule", "copy")
-        params = config.get("params", {})
+        # 3.0.0 audit fix: accept "operation" as alias for "rule" (domains use it).
+        rule = config.get("rule", config.get("operation", "copy"))
+        params = dict(config.get("params", {}))
+        # 3.0.0 audit fix: accept top-level "days: N" -> add_days uniform [N, N].
+        if "days" in config:
+            top_days = config["days"]
+            if rule == "copy":
+                rule = "add_days"
+            params.setdefault("distribution", "uniform")
+            params.setdefault("min", top_days)
+            params.setdefault("max", top_days)
 
         # Resolve source values
         if "." in source and via:

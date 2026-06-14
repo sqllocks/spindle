@@ -69,7 +69,11 @@ class SelfReferencingStrategy(Strategy):
         ctx: GenerationContext,
     ) -> np.ndarray:
         pk_column = config.get("pk_column", "")
-        levels = int(config.get("levels", 3))
+        # 3.0.0 audit fix: accept "max_depth" as alias for "levels".
+        levels_raw = config.get("levels")
+        if levels_raw is None:
+            levels_raw = config.get("max_depth", 3)
+        levels = int(levels_raw)
         root_count = int(config.get("root_count", max(1, ctx.row_count // 10)))
 
         if not pk_column or pk_column not in ctx.current_table:

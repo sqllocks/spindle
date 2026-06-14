@@ -28,7 +28,12 @@ class ForeignKeyStrategy(Strategy):
 
         ref_table, ref_column = ref.split(".", 1)
         distribution = config.get("distribution", "uniform")
-        params = config.get("params", {})
+        # 3.0.0 audit fix: accept top-level alpha / max_per_parent; nested params wins.
+        params = dict(config.get("params") or {})
+        if "alpha" in config and "alpha" not in params:
+            params["alpha"] = config["alpha"]
+        if "max_per_parent" in config and "max_per_parent" not in params:
+            params["max_per_parent"] = config["max_per_parent"]
 
         # Check for constrained FK (e.g., address must belong to same customer)
         constrained_by = config.get("constrained_by")
