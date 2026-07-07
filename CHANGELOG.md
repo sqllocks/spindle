@@ -5,6 +5,24 @@ All notable changes to Spindle will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-07-06
+
+### Fixed
+- `schema/ddl_parser.py`: `DdlParser` had zero awareness of SQL comments.
+  `_extract_paren_body` and `_split_columns` count raw parens and commas
+  directly on the input text, so a `/* */` block comment containing a comma
+  (a normal authoring style, e.g. a column note listing several values)
+  fragmented the column splitter mid-comment. One fragment's leftover text
+  could contain the substring `PRIMARY KEY`, which then hijacked primary-key
+  detection (only the first PK-flagged column is kept) and silently dropped
+  the real next column with no error raised. Added
+  `DdlParser._strip_comments()`, called at the top of `parse_string()`,
+  which strips `/* */` and `--` comments in a single pass while tracking
+  single-quoted string literals so a value like `'10--20'` is never mistaken
+  for a comment. 5 new regression tests added to `test_ddl_parser.py`
+  covering the fragmentation, the PK hijack, line comments, and string
+  literal preservation.
+
 ## [3.0.0] - 2026-06-14
 
 Output-changing audit remediation. Resolves the Tier-1/Tier-2/Tier-3 findings

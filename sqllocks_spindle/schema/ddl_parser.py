@@ -262,6 +262,8 @@ class DdlParser:
                 f"{_MAX_DDL_SIZE:,} bytes). Split into smaller files."
             )
 
+        sql = self._strip_comments(sql)
+
         # Step 1: Extract raw table definitions
         parsed_tables = self._extract_tables(sql)
 
@@ -276,6 +278,63 @@ class DdlParser:
 
         # Step 5: Build SpindleSchema
         return self._build_schema(parsed_tables, all_fks, table_names)
+
+    # ----- internal: comment stripping -----
+
+    def _strip_comments(self, sql: str) -> str:
+        """Remove block (slash-star ... star-slash) and line (double-hyphen)
+        SQL comments before any parsing runs.
+
+        Every downstream step (_extract_paren_body, _split_columns,
+        _parse_column) counts raw parens and commas with no awareness of
+        comments. An unstripped comment containing a comma at paren-depth 0
+        (e.g. a column note listing several city names) fragments the
+        column-splitter mid-comment, producing bogus columns and, if a
+        fragment's leftover text happens to contain the substring
+        "PRIMARY KEY", can even hijack primary-key detection and silently
+        drop the real next column. Stripping comments first removes the
+        entire class of bug rather than special-casing it downstream.
+
+        Single-quoted string literals are tracked so a literal value
+        containing comment-like sequences (e.g. a DEFAULT of '10--20') is
+        never mistaken for a comment.
+        """
+        result: list[str] = []
+        i = 0
+        n = len(sql)
+        in_string = False
+        while i < n:
+            ch = sql[i]
+            if in_string:
+                result.append(ch)
+                if ch == "'":
+                    if i + 1 < n and sql[i + 1] == "'":
+                        result.append(sql[i + 1])
+                        i += 2
+                        continue
+                    in_string = False
+                i += 1
+                continue
+            if ch == "'":
+                in_string = True
+                result.append(ch)
+                i += 1
+                continue
+            if ch == "-" and i + 1 < n and sql[i + 1] == "-":
+                j = sql.find("\n", i)
+                if j == -1:
+                    break
+                i = j
+                continue
+            if ch == "/" and i + 1 < n and sql[i + 1] == "*":
+                j = sql.find("*/", i + 2)
+                if j == -1:
+                    break
+                i = j + 2
+                continue
+            result.append(ch)
+            i += 1
+        return "".join(result)
 
     # ----- internal: extraction -----
 

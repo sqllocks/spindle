@@ -211,3 +211,64 @@ class TestDdlParserEndToEnd:
         assert len(result["order"]) > 0
         errors = result.verify_integrity()
         assert errors == [], f"FK integrity errors: {errors}"
+
+
+COMMENT_DDL = """\
+CREATE TABLE dbo.dim_branch (
+    branch_key      int          NOT NULL PRIMARY KEY,
+    branch_name     varchar(20)  NOT NULL,  /* DALLAS, TAMPA, COLUMBUS, PHOENIX, ATLANTA, DENVER, CHARLOTTE, SAN DIEGO */
+    state_code      char(2)      NOT NULL,
+    region          varchar(12)  NOT NULL
+);
+
+CREATE TABLE dbo.dim_product (--line comment right after the paren
+    product_key     int          NOT NULL PRIMARY KEY,
+    product_name    varchar(32)  NOT NULL,--e.g. 30YR FIXED, 15YR FIXED
+    default_note    varchar(20)  DEFAULT '10' /* not a fraction: 10/2 */
+);
+"""
+
+
+class TestDdlParserCommentStripping:
+    """Regression tests: a comment containing a comma at paren-depth 0 must
+    never fragment column splitting, produce a bogus column, or hijack
+    primary-key detection by way of leftover comment text containing the
+    substring PRIMARY KEY.
+    """
+
+    def test_block_comment_with_commas_does_not_fragment_columns(self, parser):
+        schema = parser.parse_string(COMMENT_DDL)
+        branch = schema.tables["dim_branch"]
+        assert list(branch.columns.keys()) == [
+            "branch_key",
+            "branch_name",
+            "state_code",
+            "region",
+        ]
+
+    def test_block_comment_with_commas_does_not_hijack_primary_key(self, parser):
+        schema = parser.parse_string(COMMENT_DDL)
+        assert schema.tables["dim_branch"].primary_key == ["branch_key"]
+
+    def test_line_comment_after_open_paren_is_stripped(self, parser):
+        schema = parser.parse_string(COMMENT_DDL)
+        product = schema.tables["dim_product"]
+        assert list(product.columns.keys()) == [
+            "product_key",
+            "product_name",
+            "default_note",
+        ]
+        assert product.primary_key == ["product_key"]
+
+    def test_no_bogus_comment_marker_columns_anywhere(self, parser):
+        schema = parser.parse_string(COMMENT_DDL)
+        for table in schema.tables.values():
+            for col_name in table.columns:
+                assert "/*" not in col_name
+                assert "*/" not in col_name
+                assert not col_name.startswith("--")
+
+    def test_quoted_string_with_comment_like_sequence_is_preserved(self, parser):
+        schema = parser.parse_string(COMMENT_DDL)
+        product = schema.tables["dim_product"]
+        assert "default_note" in product.columns
